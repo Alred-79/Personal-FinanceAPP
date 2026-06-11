@@ -1,0 +1,8 @@
+.budgetCard {
+  height: 100%;
+  transition: transform 0.2s ease-in-out;
+}
+
+.budgetCard:hover {
+  transform: translateY(-4px);
+}

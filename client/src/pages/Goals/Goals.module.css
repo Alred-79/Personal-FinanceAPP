@@ -1,0 +1,8 @@
+.goalCard {
+  height: 100%;
+  transition: transform 0.2s ease-in-out;
+}
+
+.goalCard:hover {
+  transform: translateY(-4px);
+}

@@ -1,0 +1,27 @@
+.overview {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .overview {
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: 450px auto;
+  }
+}
+
+sup {
+  top: -0.35em;
+}
+
+.categoryBadge {
+  position: absolute;
+  top: -20%;
+  left: -1%;
+  border-radius: 0;
+}
+
+.actionText {
+  color: hsl(var(--primary));
+}
