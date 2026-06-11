@@ -1,0 +1,42 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+uvicorn = "*"
+fastapi = "*"
+pydantic-settings = "*"
+fastapi-cors = "*"
+pandas = "*"
+groq = "*"
+langchain = "*"
+langchain_groq = "*"
+pyjwt = "*"
+passlib = "*"
+python-multipart = "*"
+bcrypt = "<4.1"
+plaid-python = "*"
+sqlalchemy = "*"
+alembic = "*"
+cachetools = "*"
+slowapi = "*"
+limits = "*"
+email-validator = "*"
+tavily-python = "*"
+fastmcp = "*"
+
+[dev-packages]
+black = "*"
+pytest = "*"
+pytest-asyncio = "*"
+httpx = "*"
+
+[requires]
+python_version = "3.11"
+
+[scripts]
+tailwind = "npx tailwindcss -i ./client/src/input.css -o ./client/src/output.css --watch"
+frontend = "npm run dev"
+server = "uvicorn server.src.main:app --reload"
+format = "black ."
