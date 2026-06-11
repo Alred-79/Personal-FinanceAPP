@@ -1,0 +1,34 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`PageHeader > matches snapshot 1`] = `
+<div>
+  <div
+    class="mb-6 flex flex-col gap-3 border-b-4 border-border pb-4 sm:flex-row sm:items-end sm:justify-between"
+  >
+    <div
+      class="space-y-1"
+    >
+      <h2
+        class="font-mono text-3xl font-bold uppercase tracking-tight md:text-4xl flex items-center gap-2"
+      >
+        <span
+          class="text-primary select-none"
+        >
+          &gt;_
+        </span>
+        Test
+        <span
+          class="text-primary animate-terminal-blink ml-1"
+        >
+          ▋
+        </span>
+      </h2>
+      <p
+        class="text-sm font-mono text-muted-foreground"
+      >
+        Desc
+      </p>
+    </div>
+  </div>
+</div>
+`;
