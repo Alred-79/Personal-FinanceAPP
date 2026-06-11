@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    # Load secrets from .env (never baked into the image)
+    env_file: .env
+    environment:
+      # Use an absolute SQLite path so it lands inside the mounted volume.
+      # 4 slashes = absolute path on Unix: sqlite:////app/data/finance_tracker.db
+      DATABASE_URL: sqlite:////app/data/finance_tracker.db
+      ENVIRONMENT: production
+    volumes:
+      # Persist the SQLite database across container restarts
+      - ./data:/app/data

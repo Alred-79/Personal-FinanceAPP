@@ -1,0 +1,15 @@
+.git
+.github
+node_modules
+venv
+client/dist
+budget_ai.db
+finance_tracker.db
+data/
+*.pyc
+__pycache__
+.pytest_cache
+.env
+.example.env
+roadmap/
+*.md
