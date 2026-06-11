@@ -1,0 +1,145 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Terminal Ledger theme: phosphor green on near-black. */
+  :root {
+    --background: 240 20% 4%;
+    --foreground: 145 80% 88%;
+
+    --card: 240 20% 7%;
+    --card-foreground: 145 80% 88%;
+
+    --popover: 240 20% 7%;
+    --popover-foreground: 145 80% 88%;
+
+    --primary: 150 100% 50%;
+    --primary-foreground: 240 20% 4%;
+
+    --secondary: 46 100% 50%;
+    --secondary-foreground: 240 20% 4%;
+
+    --muted: 240 15% 12%;
+    --muted-foreground: 150 30% 40%;
+
+    --accent: 46 100% 50%;
+    --accent-foreground: 240 20% 4%;
+
+    --destructive: 3 100% 60%;
+    --destructive-foreground: 145 80% 88%;
+
+    --success: 150 100% 50%;
+    --success-foreground: 240 20% 4%;
+
+    --border: 150 60% 15%;
+    --input: 150 60% 15%;
+    --ring: 150 100% 50%;
+
+    --radius: 0rem;
+
+    /* Terminal chart palette */
+    --chart-1: 150 100% 50%;
+    --chart-2: 46 100% 50%;
+    --chart-3: 185 100% 50%;
+    --chart-4: 3 100% 60%;
+    --chart-5: 290 100% 65%;
+    --chart-6: 25 100% 55%;
+
+    --sidebar: 240 25% 3%;
+    --sidebar-foreground: 145 80% 88%;
+  }
+
+  /* Keep .dark in sync so toggling the class never reverts the theme */
+  .dark {
+    --background: 240 20% 4%;
+    --foreground: 145 80% 88%;
+
+    --card: 240 20% 7%;
+    --card-foreground: 145 80% 88%;
+
+    --popover: 240 20% 7%;
+    --popover-foreground: 145 80% 88%;
+
+    --primary: 150 100% 50%;
+    --primary-foreground: 240 20% 4%;
+
+    --secondary: 46 100% 50%;
+    --secondary-foreground: 240 20% 4%;
+
+    --muted: 240 15% 12%;
+    --muted-foreground: 150 30% 40%;
+
+    --accent: 46 100% 50%;
+    --accent-foreground: 240 20% 4%;
+
+    --destructive: 3 100% 60%;
+    --destructive-foreground: 145 80% 88%;
+
+    --success: 150 100% 50%;
+    --success-foreground: 240 20% 4%;
+
+    --border: 150 60% 15%;
+    --input: 150 60% 15%;
+    --ring: 150 100% 50%;
+
+    --chart-1: 150 100% 50%;
+    --chart-2: 46 100% 50%;
+    --chart-3: 185 100% 50%;
+    --chart-4: 3 100% 60%;
+    --chart-5: 290 100% 65%;
+    --chart-6: 25 100% 55%;
+
+    --sidebar: 240 25% 3%;
+    --sidebar-foreground: 145 80% 88%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.03) 2px,
+      rgba(0, 0, 0, 0.03) 4px
+    );
+  }
+}
+
+@layer utilities {
+  @keyframes terminal-blink {
+    0%, 100% { opacity: 0; }
+    50% { opacity: 1; }
+  }
+
+  @keyframes count-up {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-terminal-blink { animation: terminal-blink 1s step-end infinite; }
+  .animate-count-up       { animation: count-up 0.4s ease-out both; }
+}
