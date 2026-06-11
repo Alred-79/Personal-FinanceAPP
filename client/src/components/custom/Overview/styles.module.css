@@ -1,0 +1,177 @@
+.cardTitle {
+  font-size: 1.5rem;
+  line-height: 2rem;
+}
+
+.cardHeader {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.fixedExpensesContainer {
+  position: absolute;
+  top: -5%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.fixedExpensesTitle {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+}
+
+.noExpensesContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.noExpensesText {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.spendContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.spendRelativeContainer {
+  position: relative;
+}
+
+.warningIndicatorContainer {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+}
+
+.warningIndicatorInner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.warningLine {
+  width: 1px;
+  height: 100%;
+  background-color: hsl(var(--foreground));
+}
+
+.spendValueContainer {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.spendValue {
+  font-size: 2.25rem;
+  line-height: 2.5rem;
+  font-weight: 700;
+}
+
+.spendValueDecimal {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 400;
+}
+
+.spendName {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.spendDate {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: hsl(var(--muted-foreground));
+  margin-top: 0.5rem;
+}
+
+.radialBar > g > path:nth-child(2) {
+  display: none;
+}
+
+.radialBar > g > g > path:nth-child(2) {
+  display: none;
+}
+
+.warningLabel {
+  position: absolute;
+  height: 50px;
+  width: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dayButtons {
+  position: absolute;
+  bottom: 5%;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.dayButtons > button {
+  background-color: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+  border: 2px solid hsl(var(--border));
+  border-radius: 0;
+  font-weight: 700;
+}
+
+@media (max-width: 768px) {
+  .dayButtons > button {
+    padding: 0.25rem 0.75rem;
+  }
+}
+
+.transactionsContainer {
+  max-height: 85vh;
+  gap: 1.5rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+@media (max-width: 768px) {
+  .transactionsContainer {
+    max-height: 70vh;
+  }
+}
+
+.spanTwoRows {
+  grid-row: span 2;
+}
+
+.incomeExpensesContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.spanTwo {
+  grid-column: span 2;
+}

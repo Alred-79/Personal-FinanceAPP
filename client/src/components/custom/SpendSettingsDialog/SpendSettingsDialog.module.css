@@ -1,0 +1,35 @@
+.settingsButton {
+  background-color: transparent;
+}
+
+.dialogContent {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 400px;
+  background-color: hsl(var(--card));
+  top: 45%;
+}
+
+.form {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.inputGroup {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.helpText {
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.submitButton {
+  width: 100%;
+}

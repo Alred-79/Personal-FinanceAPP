@@ -1,0 +1,70 @@
+.container {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.titleText {
+  max-width: 21rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.125rem; /* text-lg */
+  font-weight: 700; /* font-bold */
+}
+
+@media (max-width: 768px) {
+  .titleText {
+    max-width: 55vw;
+  }
+}
+
+.dateText {
+  font-size: 0.875rem; /* text-sm */
+  color: hsl(var(--muted-foreground));
+}
+
+.flexRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 1rem; /* gap-4 */
+}
+
+.flexCol {
+  display: flex;
+  flex-direction: column;
+}
+
+.amountContainer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem; /* gap-2 */
+}
+
+.amountText {
+  font-size: 1.125rem; /* text-lg */
+  font-weight: 700; /* font-bold */
+}
+
+.deleteButton {
+  height: 2rem; /* h-8 */
+  width: 2rem; /* w-8 */
+  padding: 0; /* p-0 */
+  background-color: transparent;
+  border: none;
+}
+
+.deleteButton:hover {
+  background-color: transparent;
+  border: none;
+}
+
+.deleteButton > svg {
+  transition: color 0.3s ease-in-out;
+}
+
+.deleteButton:hover > svg {
+  color: hsl(var(--destructive));
+}
