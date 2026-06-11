@@ -1,0 +1,293 @@
+"""Shared service for creating, reading, updating, and deleting income and expenses.
+
+Holds the create, update, and delete logic (plus the balance adjustment) that
+used to be copied between ``routers/income.py`` and ``routers/expenses.py``. The
+``balance_sign`` parameter sets which way a balance moves:
+
+    +1  for income   (creating one adds to the account balance)
+    -1  for expense  (creating one subtracts from the account balance)
+
+Money is stored as integer cents in the DB. This service takes dollar floats in
+(from the Pydantic request schemas) and gives dollar floats back, converting at
+the boundary with ``dollars_to_cents`` and ``cents_to_dollars``.
+"""
+
+from datetime import date, datetime
+from typing import Any, Literal, Type, Union
+
+from fastapi import HTTPException
+from sqlalchemy import select, func
+from sqlalchemy.orm import Session
+
+from server.src.db.models import (
+    Account as AccountORM,
+    Expense as ExpenseORM,
+    Income as IncomeORM,
+)
+from server.src.money import dollars_to_cents, cents_to_dollars
+from server.src.services.categorization_service import (
+    CategorizationService,
+    canonicalize_category,
+)
+
+# Type alias for the two ORM model classes this service handles.
+TransactionModel = Type[ExpenseORM] | Type[IncomeORM]
+
+
+class TransactionService:
+    """Income and expense transactions, backed by the ORM."""
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    # ── Helpers ───────────────────────────────────────────────────────────
+
+    def _own_account(self, account_id: int, user_id: int) -> AccountORM:
+        """Return the account if it belongs to *user_id*, else 404."""
+        account = self.db.execute(
+            select(AccountORM).where(
+                AccountORM.id == account_id,
+                AccountORM.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+        if account is None:
+            raise HTTPException(status_code=404, detail="Account not found")
+        return account
+
+    def _own_transaction(
+        self,
+        tx_id: int,
+        user_id: int,
+        model: TransactionModel,
+    ):
+        """Return the transaction row if owned by *user_id* (via account), else 404."""
+        row = self.db.execute(
+            select(model)
+            .join(AccountORM, model.account_id == AccountORM.id)
+            .where(model.id == tx_id, AccountORM.user_id == user_id)
+        ).scalar_one_or_none()
+        if row is None:
+            label = "Expense" if model is ExpenseORM else "Income"
+            raise HTTPException(status_code=404, detail=f"{label} not found")
+        return row
+
+    @staticmethod
+    def _row_to_dict(row, tx_type: str | None = None) -> dict[str, Any]:
+        """Serialize an ORM transaction row to a dict with dollar amounts."""
+        d: dict[str, Any] = {
+            "id": row.id,
+            "title": row.title,
+            "amount": cents_to_dollars(row.amount),
+            "date": row.date,
+            "category": row.category,
+            "account_id": row.account_id,
+        }
+        if tx_type is not None:
+            d["type"] = tx_type
+        # Include recurrence for expenses (may be None).
+        if hasattr(row, "recurrence"):
+            d["recurrence"] = row.recurrence
+        return d
+
+    # ── Public API ────────────────────────────────────────────────────────
+
+    def list_all(
+        self,
+        user_id: int,
+        model: TransactionModel,
+    ) -> list[dict[str, Any]]:
+        """Return every transaction of *model* type owned by *user_id*."""
+        account_ids = (
+            self.db.execute(
+                select(AccountORM.id).where(AccountORM.user_id == user_id)
+            )
+            .scalars()
+            .all()
+        )
+        if not account_ids:
+            return []
+
+        rows = (
+            self.db.execute(
+                select(model).where(model.account_id.in_(account_ids))
+            )
+            .scalars()
+            .all()
+        )
+        tx_type = "expense" if model is ExpenseORM else "income"
+        return [self._row_to_dict(r, tx_type) for r in rows]
+
+    def get_one(
+        self,
+        tx_id: int,
+        user_id: int,
+        model: TransactionModel,
+    ) -> dict[str, Any]:
+        """Return a single transaction dict, or 404."""
+        row = self._own_transaction(tx_id, user_id, model)
+        tx_type = "expense" if model is ExpenseORM else "income"
+        return self._row_to_dict(row, tx_type)
+
+    def create(
+        self,
+        user_id: int,
+        model: TransactionModel,
+        balance_sign: Literal[1, -1],
+        *,
+        title: str,
+        amount: float,
+        tx_date: Union[str, date],
+        category: str,
+        account_id: int,
+        extra_fields: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
+        """Insert a transaction and adjust the account balance.
+
+        ``balance_sign=+1`` → income (adds to balance).
+        ``balance_sign=-1`` → expense (subtracts from balance).
+        """
+        account = self._own_account(account_id, user_id)
+        amount_cents = dollars_to_cents(amount)
+
+        # Normalize a provided label onto the canonical taxonomy so it lines up
+        # with budgets and the UI palette. A blank category is left blank here so
+        # the expense auto-categorize path below can resolve it.
+        if (category or "").strip():
+            category = canonicalize_category(category)
+
+        # Pick a category for hand entered expenses: if the user left
+        # the category blank, work it out (learned mapping, then rule, then
+        # "Other"); if they chose one, remember it so the same merchant sticks.
+        if model is ExpenseORM:
+            categorizer = CategorizationService(self.db)
+            if not (category or "").strip():
+                category = categorizer.categorize(user_id, title)[0]
+            else:
+                categorizer.learn(user_id, title, category, source="user")
+
+        row = model(
+            title=title,
+            amount=amount_cents,
+            date=str(tx_date),
+            category=category,
+            account_id=account_id,
+        )
+        # Set extra columns (e.g. recurrence on Expense).
+        if extra_fields:
+            for k, v in extra_fields.items():
+                setattr(row, k, v)
+
+        self.db.add(row)
+
+        account.balance += balance_sign * amount_cents
+        account.last_updated = datetime.now()
+        self.db.flush()
+
+        label = "Expense" if model is ExpenseORM else "Income"
+        return {"message": f"{label} created successfully"}
+
+    def update(
+        self,
+        tx_id: int,
+        user_id: int,
+        model: TransactionModel,
+        balance_sign: Literal[1, -1],
+        *,
+        title: str,
+        amount: float,
+        tx_date: Union[str, date],
+        category: str,
+        account_id: int,
+        extra_fields: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
+        """Update a transaction, adjusting balances for amount and/or account changes."""
+        row = self._own_transaction(tx_id, user_id, model)
+        old_amount_cents = row.amount
+        old_account_id = row.account_id
+        new_amount_cents = dollars_to_cents(amount)
+
+        # Keep stored categories on the canonical taxonomy (matches budgets/UI).
+        if (category or "").strip():
+            category = canonicalize_category(category)
+
+        # If changing accounts, verify ownership of the new account.
+        if old_account_id != account_id:
+            new_account = self._own_account(account_id, user_id)
+            old_account = self._own_account(old_account_id, user_id)
+
+            # Reverse the old transaction's effect on the old account.
+            old_account.balance -= balance_sign * old_amount_cents
+            old_account.last_updated = datetime.now()
+
+            # Apply the new amount to the new account.
+            new_account.balance += balance_sign * new_amount_cents
+            new_account.last_updated = datetime.now()
+        else:
+            # Same account, so just adjust by the difference.
+            account = self._own_account(account_id, user_id)
+            account.balance += balance_sign * (new_amount_cents - old_amount_cents)
+            account.last_updated = datetime.now()
+
+        # Update the transaction row itself.
+        row.title = title
+        row.amount = new_amount_cents
+        row.date = str(tx_date)
+        row.category = category
+        row.account_id = account_id
+        if extra_fields:
+            for k, v in extra_fields.items():
+                setattr(row, k, v)
+
+        # Remember a user's (re)categorization so future transactions for the
+        # same merchant inherit it.
+        if model is ExpenseORM and (category or "").strip():
+            CategorizationService(self.db).learn(
+                user_id, title, category, source="user"
+            )
+
+        self.db.flush()
+
+        label = "Expense" if model is ExpenseORM else "Income"
+        return {"message": f"{label} updated successfully"}
+
+    def delete(
+        self,
+        tx_id: int,
+        user_id: int,
+        model: TransactionModel,
+        balance_sign: Literal[1, -1],
+    ) -> dict[str, str]:
+        """Delete a transaction and reverse its balance effect."""
+        row = self._own_transaction(tx_id, user_id, model)
+        account = self._own_account(row.account_id, user_id)
+
+        # Reverse: income was +, so delete is -.  Expense was -, so delete is +.
+        account.balance -= balance_sign * row.amount
+        account.last_updated = datetime.now()
+
+        self.db.delete(row)
+        self.db.flush()
+
+        label = "Expense" if model is ExpenseORM else "Income"
+        return {"message": f"{label} deleted successfully"}
+
+    def fixed_per_month(self, user_id: int) -> float:
+        """Sum of recurring expense amounts (returned as dollars)."""
+        account_ids = (
+            self.db.execute(
+                select(AccountORM.id).where(AccountORM.user_id == user_id)
+            )
+            .scalars()
+            .all()
+        )
+        if not account_ids:
+            return 0.0
+
+        total = self.db.execute(
+            select(func.sum(ExpenseORM.amount)).where(
+                ExpenseORM.account_id.in_(account_ids),
+                ExpenseORM.recurrence.isnot(None),
+            )
+        ).scalar()
+
+        return cents_to_dollars(total) if total else 0.0
