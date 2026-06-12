@@ -102,13 +102,18 @@ def record_events(
     the pre-existing row when the idempotency key collided. Raises ``ValueError``
     on an unknown event type, inserting nothing.
     """
+    # Ensure all builtin folds AND the event types they own are registered
+    # before we validate. Under the cold (events-first) import order, the XP
+    # module that registers AllocationMade/BillPaidOnTime/… into EVENT_TYPES is
+    # only loaded here (via register_builtin_folds → stats → xp), so this must
+    # run before the typo guard or those types would read as "unknown".
+    folds_mod.register_builtin_folds()
+
     # Typo guard up front — reject the whole batch before any insert so a bad
     # draft can't leave a half-written batch.
     for d in drafts:
         if d.type not in EVENT_TYPES:
             raise ValueError(f"unknown game event type: {d.type!r}")
-
-    folds_mod.register_builtin_folds()
 
     results: list[GameEvent] = []
     newly_inserted: list[GameEvent] = []

@@ -110,6 +110,66 @@ def test_checklist_fix_awards_zero_allocation_awards_positive():
     assert xp_for_event("AlertFixApplied", {"fix_kind": "create_allocation"}) > 0
 
 
+# ── regression: stat folds register under the real (events-first) import ──
+#
+# The XP folds live in stats.py and are wired up by folds.register_builtin_folds.
+# stats imports xp imports events, so when folds is first imported *as part of*
+# events.py's own import, that chain is circular and the stats import fails. The
+# bug: that failure was swallowed AND the sync-folds-present guard then blocked
+# any retry, so in the real app order NO XP ever folded into player_state — yet
+# every in-process test imported stats directly first, masking it. This test
+# reproduces the cold order in a clean subprocess and asserts XP actually moves.
+
+
+def test_stat_folds_register_under_cold_events_first_import():
+    import subprocess
+    import sys
+    import textwrap
+
+    repo_root = __import__("pathlib").Path(__file__).resolve().parents[2]
+    script = textwrap.dedent(
+        """
+        import sys
+        from sqlalchemy import create_engine, event
+        from sqlalchemy.pool import StaticPool
+        from sqlalchemy.orm import sessionmaker
+
+        # The real cold order: import ONLY events first (as the app does via
+        # main -> routers -> services). Do NOT import stats/xp directly.
+        from server.src.db.models import Base
+        from server.src.services.game.events import GameEventDraft, record_events
+
+        engine = create_engine("sqlite://",
+            connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        Base.metadata.create_all(engine)
+        s = sessionmaker(bind=engine)()
+
+        record_events(s, [GameEventDraft(stream="player", type="AllocationMade",
+                                         payload={}, idempotency_key="cold1")])
+        s.flush()
+
+        # Read player_state XP straight from the projection KV (no stats import
+        # that would itself fix the registration we're testing).
+        from server.src.services.game.folds import kv_get
+        state = kv_get(s, "player_state", "xp") or {"xp": 0}
+        print("XP", state.get("xp", 0))
+        sys.exit(0 if state.get("xp", 0) > 0 else 1)
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        "AllocationMade recorded under the cold events-first import order did "
+        "not fold any XP into player_state — the stats folds failed to register.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "XP" in result.stdout and "XP 0" not in result.stdout
+
+
 # ── 4: XP clamp end-to-end ───────────────────────────────────────────────
 
 

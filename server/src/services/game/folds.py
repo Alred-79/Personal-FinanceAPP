@@ -274,25 +274,59 @@ def _fold_ledger_reversed(
 
 
 def register_builtin_folds() -> None:
-    """Register every fold the substrate ships with (idempotent)."""
-    # Guard against double-registration if this module is imported twice.
-    if any(p == SYNC_STATE for ps in _FOLDS.values() for p, _ in ps):
-        return
-    register_fold(SYNC_STATE, "TxnPosted", _fold_txn_posted)
-    register_fold(SYNC_STATE, "SyncGapOpened", _fold_gap_opened)
-    register_fold(SYNC_STATE, "SyncGapClosed", _fold_gap_closed)
-    register_fold(TXN_LEDGER, "TxnPosted", _fold_ledger_posted)
-    register_fold(TXN_LEDGER, "TxnCorrected", _fold_ledger_corrected)
-    register_fold(TXN_LEDGER, "TxnReversed", _fold_ledger_reversed)
-    # The player_state XP folds (package 04) live in stats.py to avoid a circular
-    # import at module load; register them here so any record_events / rebuild
-    # path picks them up without needing stats.py imported elsewhere first.
+    """Register every fold the substrate ships with (idempotent).
+
+    Two registration groups, guarded INDEPENDENTLY so a failure to load one
+    can't strand the other:
+
+    * the sync/ledger folds defined in this module, and
+    * the ``player_state`` XP folds, which live in ``stats.py``.
+
+    The XP folds import ``stats`` → ``xp`` → ``events``. When *this module* is
+    first imported as part of ``events.py``'s own import (events.py does
+    ``from . import folds``), that chain is circular: ``events`` is only
+    half-initialised, so importing ``stats`` raises. We must NOT let that abort
+    builtin-fold registration, AND we must retry the stats import on a later
+    call (e.g. the first ``record_events``), by which point ``events`` has
+    finished initialising. So the stats registration is OUTSIDE the
+    sync-folds-already-present guard, and is itself idempotent.
+    """
+    # Group 1: sync/ledger folds — guard against double-registration only here.
+    if not any(p == SYNC_STATE for ps in _FOLDS.values() for p, _ in ps):
+        register_fold(SYNC_STATE, "TxnPosted", _fold_txn_posted)
+        register_fold(SYNC_STATE, "SyncGapOpened", _fold_gap_opened)
+        register_fold(SYNC_STATE, "SyncGapClosed", _fold_gap_closed)
+        register_fold(TXN_LEDGER, "TxnPosted", _fold_ledger_posted)
+        register_fold(TXN_LEDGER, "TxnCorrected", _fold_ledger_corrected)
+        register_fold(TXN_LEDGER, "TxnReversed", _fold_ledger_reversed)
+
+    # Group 2: player_state XP folds (package 04). Retried every call until it
+    # succeeds — under the events.py-first import order the first attempt hits
+    # the circular import; a later call (record_events / rebuild) succeeds.
+    _register_stat_folds_if_possible()
+
+
+def _register_stat_folds_if_possible() -> bool:
+    """Try to register the stats folds; return True once they're present.
+
+    Idempotent and self-healing: skips immediately once registered, and on the
+    circular-import window logs at debug (not error) since a later call recovers.
+    """
+    if any(p == PLAYER_STATE for ps in _FOLDS.values() for p, _ in ps):
+        return True
     try:
         from .stats import register_stat_folds
+    except ImportError:
+        # Expected once, during events.py's own import (events not yet ready).
+        logger.debug("stat folds not yet importable (circular window); will retry")
+        return False
+    register_stat_folds()
+    return True
 
-        register_stat_folds()
-    except Exception:  # pragma: no cover - stats is optional plumbing
-        logger.exception("could not register stat folds")
+
+# The projection name the stats folds register under (kept in sync with
+# stats.PLAYER_STATE; duplicated here to avoid importing stats at module load).
+PLAYER_STATE = "player_state"
 
 
 register_builtin_folds()
