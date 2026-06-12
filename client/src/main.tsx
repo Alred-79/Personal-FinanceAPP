@@ -14,6 +14,8 @@ import Login from "./pages/Login/Login.tsx";
 import Settings from "./pages/Settings/Settings.tsx";
 import Keeper from "./pages/Keeper/Keeper.tsx";
 import Debts from "./pages/Debts/Debts.tsx";
+import Campaigns from "./pages/Campaigns/Campaigns.tsx";
+import Outcomes from "./pages/Outcomes/Outcomes.tsx";
 import AppShell from "./components/layout/AppShell.tsx";
 import ProtectedRoute from "./components/layout/ProtectedRoute.tsx";
 import ErrorBoundary from "./components/layout/ErrorBoundary.tsx";
@@ -62,6 +64,13 @@ createRoot(document.getElementById("root")!).render(
               {/* Debts/bosses: route exists in every mode (off redirects to
                   Settings); its NAV presence is the gameOnly flag. */}
               <Route path="/debts" element={<Debts />} />
+              {/* The Campaign (pkg 10): route exists in every mode (off
+                  redirects to Settings); NAV presence is the gameOnly flag.
+                  The surface renders no countdown — scan-enforced. */}
+              <Route path="/campaigns" element={<Campaigns />} />
+              {/* Outcomes v0 is INTERNAL: a plain cohort-comparison page,
+                  identical in every mode, never in nav. */}
+              <Route path="/outcomes" element={<Outcomes />} />
             </Route>
           </Route>
           </Routes>

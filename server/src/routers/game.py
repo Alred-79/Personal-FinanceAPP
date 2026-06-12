@@ -278,3 +278,89 @@ async def get_homestead(
                            strain_mode=strain_mode(db))
     db.commit()
     return {"reveal": reveal_to_payload(reveal), "multiplier": multiplier(db)}
+
+
+@router.get("/campaigns/")
+async def get_campaign(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """The quarterly campaign: arc, rank, milestone track. The payload carries
+    NO time-remaining field — a countdown cannot render from data that does
+    not exist (non-expiry is structural). Off-mode/holdout users get nothing;
+    a killed feature serves its off-state."""
+    from datetime import date
+
+    from server.src.services.game import experiments
+    from server.src.services.game.campaigns import CampaignService
+    from server.src.services.game.mode import should_generate_flavor
+
+    if (
+        not should_generate_flavor(current_user)
+        or experiments.is_killed("campaigns")
+        or experiments.is_holdout(db, current_user.id)
+    ):
+        return {"campaign": None}
+    view = CampaignService(db).view(current_user, date.today())
+    db.commit()
+    return {"campaign": view}
+
+
+@router.get("/challenges/")
+async def get_challenges(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """Active + past challenge instances and sourced candidates. Reading
+    writes nothing; judging happens in jobs, never on view."""
+    from datetime import date
+
+    from server.src.services.game import experiments
+    from server.src.services.game.challenges import ChallengeService
+    from server.src.services.game.mode import should_generate_flavor
+
+    if (
+        not should_generate_flavor(current_user)
+        or experiments.is_killed("challenges")
+        or experiments.is_holdout(db, current_user.id)
+    ):
+        return {"challenges": [], "candidates": []}
+    svc = ChallengeService(db)
+    return {
+        "challenges": svc.view(current_user),
+        "candidates": svc.source_candidates(current_user, date.today()),
+    }
+
+
+@router.get("/flags/")
+async def get_flags(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """Kill switches + holdout state for honest client rendering. A killed
+    feature's UI vanishes; a holdout user's game UI is hidden entirely (the
+    Money Spine — alerts, the number, what-if — is NEVER withheld)."""
+    from server.src.services.game.experiments import flags_payload
+
+    return flags_payload(db, current_user.id)
+
+
+@router.get("/outcomes/")
+async def get_outcomes(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """The INTERNAL outcomes page (v0): per-cohort metric comparison with
+    confidence intervals and the honesty footer. No marketing language;
+    publishing anything beyond this internal view is an owner decision."""
+    from server.src.services.game.metrics import outcomes_summary
+
+    return outcomes_summary(db)

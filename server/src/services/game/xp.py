@@ -32,6 +32,11 @@ XP_BEARING: dict[str, int] = {
     "PaymentPosted": 20,
     # The capped consistency verb (package 05 emits it).
     "ConsistencyVerb": 5,
+    # Package 10 — challenges. Conditional by tier (see xp_for_event): T1 is
+    # judged purely from posted transaction data (full XP), T2 from a web-
+    # grounded structured verdict the ENGINE re-resolves (reduced XP), T3 is
+    # self-report (ZERO XP — cosmetic only, so cheating buys nothing real).
+    "ChallengeMet": 25,
 }
 
 # Event types that must NEVER grant XP. Engagement-shaped events (opening a
@@ -90,6 +95,16 @@ XP_FORBIDDEN: set[str] = {
     # Package 09 — depth. Crossing a real milestone grants a homestead XP
     # MULTIPLIER (a ratchet applied at accrual time), not flat XP on the event.
     "MilestoneReached",
+    # Package 10 — campaigns/challenges/fade. Structural bookkeeping, never
+    # rewarded: a granted milestone celebrates events that ALREADY carried
+    # their XP; pausing/resuming/fading are lifecycle, not actions; the soft
+    # landing is by definition penalty-and-reward-free.
+    "CampaignMilestoneGranted",
+    "CampaignPaused",
+    "CampaignResumed",
+    "ChallengeSoftLanded",
+    "MetricGraduated",
+    "MetricResurfaced",
 }
 
 # The one capped exception. Consistency XP per day is capped at 10% of the
@@ -131,6 +146,14 @@ def xp_for_event(event_type: str, payload: dict | None = None) -> int:
         kind = (payload or {}).get("fix_kind")
         if kind == "checklist":
             return 0
+    if event_type == "ChallengeMet":
+        # Tier semantics (v4 §8.6): T1 full (judged from posted data), T2
+        # reduced (web-grounded structured verdict), T3 ZERO (self-report is
+        # cosmetic-only — no verification theater, nothing real to game).
+        from .challenges import TIER_XP
+
+        tier = (payload or {}).get("tier", 1)
+        return TIER_XP.get(tier, 0)
     return XP_BEARING[event_type]
 
 

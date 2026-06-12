@@ -66,11 +66,14 @@ def detect_monsters(
 
     # ── minor monsters: discretionary categories off pace ──────────────────
     from server.src.services.budget_service import BudgetService
+    from .fade import is_faded
 
     for summary in BudgetService(db).summarize(user.id, as_of):
         category = summary["category"]
         if category in essentials:
             continue  # essentials never spawn
+        if is_faded(db, user, category):
+            continue  # graduated metric: the game layer is quiet here (pkg 10)
         target = summary["prorated_target"]
         spent = summary["spent"]
         if target and target > 0 and spent >= SPAWN_PACE_RATIO * target:

@@ -124,6 +124,12 @@ class AlertEngine:
         Deterministic and side-effect-free — safe to call repeatedly.
         """
         as_of = as_of or date.today()
+        # Package 10 hardening (the Plaid-stale drill): an open sync gap means
+        # balances are stale — an alert computed from stale data is noise at
+        # best and a false alarm at worst. Fog everywhere: zero alerts until
+        # the gap closes (the same pro-player GRAY logic as day verdicts).
+        if self._in_open_sync_gap(user):
+            return []
         alerts: list[Alert] = []
         alerts.extend(self._bill_dip(user, as_of))
         alerts.extend(self._negative_ahead(user, as_of))
@@ -131,6 +137,19 @@ class AlertEngine:
         # Sort by severity desc so callers can take the top one.
         alerts.sort(key=lambda a: a.severity, reverse=True)
         return alerts
+
+    def _in_open_sync_gap(self, user: UserInDB) -> bool:
+        """Whether any of the user's accounts sits in an open sync gap."""
+        from sqlalchemy import select as _select
+
+        from ...db.models import Account as _AccountORM
+        from . import folds as folds_mod
+
+        acct_ids = list(self.db.execute(
+            _select(_AccountORM.id).where(_AccountORM.user_id == user.id)
+        ).scalars())
+        gaps = folds_mod.kv_get(self.db, folds_mod.SYNC_STATE, "gaps") or {"open": []}
+        return any(g.get("account_id") in acct_ids for g in gaps.get("open", []))
 
     def _buffer_floor_cents(self, user: UserInDB) -> int:
         """The user's safety buffer in cents (the bill-dip floor)."""

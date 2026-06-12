@@ -62,8 +62,16 @@ def test_patch_game_mode_rejects_invalid_enum(client):
     assert got["preferences"]["game_mode"] == "off"
 
 
-def test_all_three_modes_accepted(client):
+def test_all_three_modes_accepted(client, db_session):
     h = _auth_header(client, "m_all", "m_all@x.com")
+    # Package 10: first game activation assigns the experiment cohort, and a
+    # holdout user's mode is locked 'off' (the spine is never withheld; the
+    # game layer is). This user happens to hash into the holdout bucket, so
+    # pin the 'game' cohort first — this test is about the mode enum, and the
+    # holdout lock has its own tests in test_experiments.py.
+    db_session.execute(
+        text("UPDATE users SET experiment_cohort = 'game' WHERE username = 'm_all'")
+    )
     for mode in ("ambient", "full", "off"):
         resp = client.put(
             "/api/settings/preferences/", json={"game_mode": mode}, headers=h

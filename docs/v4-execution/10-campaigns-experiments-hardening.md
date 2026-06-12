@@ -17,7 +17,7 @@ criteria, and the outcomes page v0 (internal).
 
 ## Preconditions
 
-- [ ] Packages 01–09 pass. `soft_land` + graduation rail (03), E-arm tagging (09), prestige +
+- [x] Packages 01–09 pass. `soft_land` + graduation rail (03), E-arm tagging (09), prestige +
       `MonthSealed` (08), challenge-capable verdict pipeline (07's validators).
 
 ## Out of scope
@@ -186,13 +186,164 @@ Hardening:
 
 ## Exit criteria
 
-- [ ] All tests pass; suite green; full-season simulation green in CI.
-- [ ] Internal outcomes page renders real cohort numbers from dev data.
-- [ ] Kill-switch + holdout drills documented in handoff.
-- [ ] A final review pass against v4 §14 (anti-features): walk the list, check each against
+- [x] All tests pass; suite green; full-season simulation green in CI.
+- [x] Internal outcomes page renders real cohort numbers from dev data.
+- [x] Kill-switch + holdout drills documented in handoff.
+- [x] A final review pass against v4 §14 (anti-features): walk the list, check each against
       the shipped surfaces, record the result in the handoff.
-- [ ] Owner decision points flagged: publishing outcomes, FTO patent check (v4 §17), social/
+- [x] Owner decision points flagged: publishing outcomes, FTO patent check (v4 §17), social/
       monetization avenues remain owner-gated.
 
 ---
 *Handoff notes:*
+
+**Status: complete.** Backend 706 passed (the usually-flaky MCP concurrency test
+passed this run too). Frontend 147. tsc clean. Migration
+`a0b1c2d3e4f5_campaigns_challenges_experiments` (single head, applies cleanly to
+a scratch DB).
+
+**What was built**
+- **Campaigns** — `campaigns`/`campaign_progress` + `campaigns.py`. Status enum is
+  `active|paused|complete` (no expiry status exists for any code path to set —
+  test-asserted via a source scan + a lifecycle status walk). Quarter rollover
+  PAUSES an unfinished track; `ensure()` resumes the SAME row on next activity.
+  Grants derive from event-log counts (`compute_grants`), which IS the
+  retroactive catch-up (mid-quarter joiner test). `MILESTONES` registry: every
+  source is XP_BEARING or in `STRUCTURAL_SOURCES` (registry-walk test, 04's
+  pattern). Rank E→S from lifetime `PrestigeMinted` (monotonic, sub-linear —
+  thresholds 0/3/8/16/30/52). Trough-plan thresholds documented in-code (first
+  milestones sized to land weeks 4-8).
+- **Challenges** — `challenges` instances + `challenges.py` (engine) +
+  `challenge_verdict.py` (LLM/Tavily side, structurally award-free: a test
+  asserts its source has no `record_events`/`GameEventDraft`). T1 judges over
+  `TxnPosted` EVENTS only (pending emits no event → "pending never judges" is
+  structural); a sync gap in the window → quiet void (no event, no award,
+  re-offerable). T2: engine awards ONLY from `verdict.met` AND
+  `evidence_ref` ∈ fetched URLs (adversarial text test); un-resolvable → quiet
+  void. T3: cosmetic credit, zero XP (`TIER_XP[3]=0`, registry-checked), zero
+  verification calls. Exits: met → `graduation_offer` (accept = user-confirmed
+  Rule creation; decline = 30-day suppression via `suppressed_until`);
+  fail/abandon → `soft_land_challenge` (status + ONE `ChallengeSoftLanded`
+  marker — the event-diff test). Sourcing from habit-monsters under Heat's caps
+  (≤2 active, no essentials, no low-confidence).
+- **Graduation/fade** — `metric_fade` + `fade.py`. Stability = weekly posted
+  spend ≤ baseline weekly pace; `STABLE_WEEKS_TO_GRADUATE=8` (band floor),
+  resurface on 2 regressed weeks; GRAY (low-confidence) weeks touch no counter.
+  Pins `always_active|always_faded` override both directions. `is_faded` is
+  consulted ONLY by spawning paths (habit-monsters + challenge sourcing) —
+  alerts/number/Grace never import it (spine-exemption test fires BILL_DIP with
+  everything graduated).
+- **Experiments** — `users.experiment_cohort` (stable sha256 bucket, 10%
+  holdout, assigned at first activation in the settings router). Holdout lock:
+  a holdout user's `game_mode` write is forced to `off` (HTTP 200; spine fully
+  functional — test walks alerts eval/number/settings). `FLAGS` E1-E9 each with
+  arms + a documented DV query; `log_exposure` writes `experiment_exposures`
+  ONLY (zero `game_events` rows — separation test). Kill switches: config
+  (`settings.killed_features` seed + runtime `kill()/revive()`), never schema;
+  killing pauses the feature's month-close step and hides UI via
+  `/game/flags/`; folds/rebuilds unaffected (drill test rebuilds clean).
+- **Metrics + outcomes** — `metric_rollups` + `metrics.py`:
+  `hard_day_action_rate` (48h window), `alert_fix_rate`, `distortion_share`
+  (last-3-days discretionary share — the TFI check), `paydown_cents`,
+  `on_time_bill_count`, `e9_sweep_totals` (per-arm from 09's tags; sweep cents
+  recomputed from posted data). `run_weekly_rollups` (idempotent; never writes
+  a fake rate when no denominator exists). `outcomes_summary`: per-cohort mean
+  + 95% normal-approx CI + honesty footer. Internal page at `/outcomes`
+  (plain, identical in all modes, marketing-language test).
+- **Month-close job (deferred from 08/09, now wired)** — `month_close.py`:
+  verdicts gathered with dates stripped → `RunService.seal` → Heat resolution
+  (met/unmet from VERIFIED underspend; sweep arm yields a capped
+  propose→confirm PROPOSAL — never a direct move; killed heat → void +
+  soft-landing) → `MonthSealed` (idempotent `seal:{user}:{month}`) → campaign
+  quarter rollover + grant catch-up → canon `record_streak_best`.
+- **Hardening** — the full-season simulation (`run_season` in
+  test_hardening.py — REUSABLE: 4 months of sync batches, daily closes, boss
+  lifecycle, 2 contracts, a grace episode, 2 sealed runs, campaign
+  milestones; asserts fingerprint-unchanged, byte-identical rebuilds, XP
+  monotonic, zero banned-word leaks across chapter/bestiary/campaign
+  renders). Mode-law walk: all 11 `/game/*` routes × 3 modes → 200. Perf: a
+  2-year synthetic log (1,300+ events) rebuilds in well under 30s; daily close
+  < 1s; `groq.Groq` constructor poisoned during the home render path (no LLM
+  await). Groq-down drill: chapters + bestiary fall back to deterministic
+  templates; the drawer survives an assistant outage with a 200 "kind: error".
+  Plaid-stale drill: a would-be-MISS week under an open gap closes 7×GRAY,
+  streak/wards untouched, AND **a new hardening guard in `alerts.py`** —
+  `AlertEngine.evaluate` returns [] while any account sits in an open sync gap
+  (alerts never fire on stale balances). Atomicity: a poisoned txn mid-sync
+  rolls back BOTH the CRUD row and the `TxnPosted` event (plus the
+  both-or-neither control).
+
+**Kill-switch drill (documented per exit criteria):** `kill("heat")` →
+`/game/flags/` lists it; UI consumers hide Heat surfaces; `resolve_heat_contracts`
+voids active contracts with a soft landing (no penalty events) and yields no
+sweep proposals; `rebuild_all` replays the full log cleanly with the feature
+killed; `revive("heat")` restores. Killing is config — no migration involved.
+
+**Holdout drill (documented per exit criteria):** signup → first activation PUT
+assigns the cohort; a holdout user's mode write returns `off`; `/game/campaigns/`,
+`/game/challenges/`, `/game/chapter/` serve their off-states; the spine
+(safe-to-spend, alerts evaluation, settings) is fully functional. The cohort is
+written once and never re-derived (a renamed user keeps their cohort).
+
+**Anti-feature walk (v4 §14, final review across shipped surfaces):**
+1. No engagement XP / no clawbacks — registry-walk holds; new types classified
+   (ChallengeMet conditional by tier; all pkg-10 lifecycle events FORBIDDEN). ✓
+2. No near-miss juice / txn celebration — nothing in pkg 10 celebrates a
+   transaction; ChallengeMet fires on a verified WEEK, not a txn. ✓
+3. No variable-ratio rewards — milestones, tiers, ranks all deterministic and
+   stated. ✓
+4. No fictional money / trivial-sum theater — cosmetic credit is explicitly
+   non-monetary; homestead suppression untouched. ✓
+5. No broken-streak displays — untouched; fade never touches the streak. ✓
+6. No stat-buff meta-progression — rank is DISPLAY-only from prestige. ✓
+7. No quests against essentials / tight windows / skipping always free —
+   challenge sourcing refuses essentials; no challenge window under 3 days; a
+   skipped/abandoned challenge soft-lands free. ✓
+8. No month-end score pressure — scoring stays date-stripped;
+   `distortion_share` now MEASURES the absence per-cohort. ✓
+9. No transaction-nudging notifications — sweep is a propose→confirm proposal;
+   alert caps untouched; the new gap-guard only REMOVES alerts. ✓
+10. No unmetered LLM chat / narrator tab — drawer limits untouched. ✓
+11. No needy persona / LLM advice / LLM-claimed numbers / no unverifiable
+    outcome claims — T2 text is flavor behind the firewall; the outcomes page
+    is internal, CI-bearing, honesty-footed, publishing owner-gated. ✓
+12. No paid anything — nothing purchasable exists. ✓
+13. No punishment from data errors — gap → challenge void (pro-player), alerts
+    suppressed on stale data, GRAY everywhere. ✓
+14. No mode-forked pages — /campaigns and /outcomes exist in every mode (off
+    redirects like Keeper/Debts; outcomes identical everywhere). ✓
+15. No leaderboards/comparison — cohort comparison is INTERNAL aggregate only,
+    never a user surface. ✓
+16. No character creation — campaigns/challenges have zero input flows beyond
+    accept/decline. ✓
+17. No fabricated history / no events from pending — catch-up grants derive
+    from REAL logged events; pending txns emit nothing and judge nothing. ✓
+18. No non-seeded decoration / reduced-motion — campaign surface reuses Seal
+    (seeded) and no new animation was added. ✓
+
+**Owner decision points (flagged, not taken):** publishing any outcomes data
+(internal v0 only); the FTO/patent check (v4 §17); social/monetization avenues
+remain excluded. Term-catalog exemplars and full-mode campaign flavor copy are
+SHAPE-correct placeholders — same TODO(human) caveat as 07's exemplars.
+
+**Deviations / notes**
+- The spec's "weekly trailer" and "daily line" Groq-down fallbacks (test 24)
+  cover the surfaces that exist: chapters, bestiary, and the drawer. The
+  monthly trailer was never built (deferred in 08 and not requested since); if
+  it lands, add it to the drill.
+- Heat "weekly checkpoint" GRAY rendering (test 25) is asserted at the data
+  layer (open gap visible in sync_state; verification reads posted data only)
+  — the weekly checkpoint job/UI from 09 remains unbuilt, so there is no
+  checkpoint surface to render GRAY yet.
+- The mode-law CI walk runs the full backend route table × 3 modes; the
+  frontend extends the package-02 guard tests (catalog parity now covers 95
+  keys ×3) plus a campaigns-specific walk. The package-02 enum test
+  (`test_all_three_modes_accepted`) now pins the `game` cohort first — its
+  user hashes into the holdout bucket, and the holdout lock is deliberate
+  pkg-10 behavior (locking has its own tests).
+- T1 judging counts category-matched posted txns via `TxnPosted` payloads
+  (categories param), not merchant lists — merchant-class predicates can be
+  added per-challenge through `params_json` without schema changes.
+- E5 (fade arm) ships with the fade feature ON for everyone outside the
+  holdout; running the no-fade arm means gating `FadeService.evaluate_week`
+  by `assign_arm("E5", ...)` in the weekly job when that experiment starts.

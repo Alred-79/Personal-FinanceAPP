@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     # Set this in env as a JSON array: ALLOWED_ORIGINS=["https://app.example.com"]
     allowed_origins: list[str] = ["http://localhost:5173"]
 
+    # v4 package 10 — kill switches. A comma-separated list of game features
+    # whose UI is hidden and whose jobs are paused (e.g. "heat,bestiary").
+    # Config, never schema: killing a feature must not require a migration,
+    # and folds/rebuilds stay intact (events keep their meaning).
+    killed_features: str = ""
+
     # Rate limiting via slowapi. We turn it off in the test suite so repeated
     # login and refresh calls don't trip the limiter.
     rate_limit_enabled: bool = True

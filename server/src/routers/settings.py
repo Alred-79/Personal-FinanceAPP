@@ -138,7 +138,21 @@ async def update_preferences(
     if payload.game_mode is not None:
         # A settings change is NOT a financial action — it emits no game events
         # (XP hygiene, v4 Law 3). We just persist the new mode.
-        user_row.game_mode = payload.game_mode
+        new_mode = payload.game_mode
+        if new_mode != "off":
+            # v4 package 10: first game activation assigns the experiment
+            # cohort (stable hash). Holdout users keep the full Money Spine —
+            # alerts, the number, what-if, graduation — but the game layer
+            # stays locked 'off' (withholding the spine would be unethical
+            # AND would pollute the question the holdout exists to answer).
+            from server.src.services.game.experiments import (
+                COHORT_HOLDOUT,
+                ensure_cohort,
+            )
+
+            if ensure_cohort(db, user_row.id) == COHORT_HOLDOUT:
+                new_mode = "off"
+        user_row.game_mode = new_mode
     db.flush()
 
     return _to_preferences(user_row)

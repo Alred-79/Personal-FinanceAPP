@@ -22,6 +22,7 @@ from typing import Optional
 from sqlalchemy import (
     DDL,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -61,6 +62,10 @@ class User(Base):
     game_mode: Mapped[str] = mapped_column(
         String, nullable=False, default="off"
     )  # 'off' | 'ambient' | 'full'
+    # v4 package 10: experiment cohort, assigned ONCE at first game activation
+    # (stable hash bucket). 'holdout' users get the full Money Spine with the
+    # game layer locked off — the evidenced features are never withheld.
+    experiment_cohort: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     accounts = relationship(
         "Account", back_populates="user", cascade="all, delete-orphan"
@@ -735,3 +740,150 @@ event.listen(
     "after_create",
     _RUNS_MAP_IMMUTABLE.execute_if(dialect="sqlite"),
 )
+
+
+# ── v4 package 10: campaigns, challenges, experiments ───────────────────────
+
+
+class Campaign(Base):
+    """A quarterly arc instance (v4 §7.3). NON-EXPIRING by construction: the
+    status enum is 'active' | 'paused' | 'complete' — there is no 'expired'
+    status and no code path that could set one. An unfinished track pauses at
+    quarter end and resumes on the user's next activity; its milestones remain
+    claimable forever (grants derive from the event log, so catch-up is free).
+    """
+
+    __tablename__ = "campaigns"
+    __table_args__ = (
+        UniqueConstraint("user_id", "quarter", name="uq_campaigns_user_quarter"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    quarter: Mapped[str] = mapped_column(String, nullable=False)  # '2026-Q2'
+    arc_key: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="active"
+    )  # active | paused | complete — NO 'expired' exists
+    started_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class CampaignProgress(Base):
+    """One granted campaign milestone. Every milestone derives from real
+    events (GREEN weeks, boss phases, sealed months) — never logins/opens."""
+
+    __tablename__ = "campaign_progress"
+    __table_args__ = (
+        UniqueConstraint(
+            "campaign_id", "milestone_key", name="uq_campaign_progress_milestone"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False
+    )
+    milestone_key: Mapped[str] = mapped_column(String, nullable=False)
+    granted_at: Mapped[str] = mapped_column(String, nullable=False)
+    source_event_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("game_events.id"), nullable=True
+    )
+
+
+class Challenge(Base):
+    """A challenge INSTANCE (v4 §8.6); the registry of kinds lives in code.
+
+    Challenges never stake anything, so the StepBet anti-pattern (losers ending
+    below baseline) is structurally impossible: the status enum has no state
+    that records a loss — failure/abandon is 'soft_landed' (status only).
+    """
+
+    __tablename__ = "challenges"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    key: Mapped[str] = mapped_column(String, nullable=False)
+    tier: Mapped[int] = mapped_column(Integer, nullable=False)  # 1 | 2 | 3
+    category: Mapped[str] = mapped_column(String, nullable=False, default="")
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="active"
+    )  # active | met | void | soft_landed
+    starts_on: Mapped[str] = mapped_column(String, nullable=False)
+    ends_on: Mapped[str] = mapped_column(String, nullable=False)
+    params_json: Mapped[str] = mapped_column(String, nullable=False, default="{}")
+    verdict_json: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    cosmetic_credit: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    suppressed_until: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+
+
+class ExperimentExposure(Base):
+    """OBSERVABILITY, not game state (v4 §13). Exposure logging never lands in
+    ``game_events`` — the event log is domain history, not analytics."""
+
+    __tablename__ = "experiment_exposures"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    flag: Mapped[str] = mapped_column(String, nullable=False)
+    arm: Mapped[str] = mapped_column(String, nullable=False)
+    surface: Mapped[str] = mapped_column(String, nullable=False, default="")
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class MetricRollup(Base):
+    """Weekly per-user metric rollups (observability; v4 §13 metrics jobs)."""
+
+    __tablename__ = "metric_rollups"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "week", "metric", name="uq_metric_rollups_user_week_metric"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    week: Mapped[str] = mapped_column(String, nullable=False)  # ISO Monday
+    metric: Mapped[str] = mapped_column(String, nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    cohort: Mapped[str] = mapped_column(String, nullable=False, default="")
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class MetricFade(Base):
+    """Per-metric graduation/fade state + the user pin (v4 §9.4 graduation).
+
+    Fade quiets the GAME layer for a stable metric (quests/monsters drop to a
+    weekly-summary altitude). It NEVER touches Money Spine alerts, the
+    glanceable number, or Grace — those are the product, not the game.
+    """
+
+    __tablename__ = "metric_fade"
+    __table_args__ = (
+        UniqueConstraint("user_id", "metric", name="uq_metric_fade_user_metric"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    metric: Mapped[str] = mapped_column(String, nullable=False)
+    state: Mapped[str] = mapped_column(
+        String, nullable=False, default="active"
+    )  # active | graduated
+    stable_weeks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    regressed_weeks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    graduated_on: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    pin: Mapped[str] = mapped_column(
+        String, nullable=False, default="none"
+    )  # none | always_active | always_faded
