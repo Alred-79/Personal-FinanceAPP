@@ -212,3 +212,36 @@ async def get_chapter(
     chapter = generate_chapter(db, current_user, week_start, week_end)
     db.commit()
     return {"chapter": chapter}
+
+
+@router.get("/expedition/")
+async def get_expedition(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """This month's expedition map (the forecast as a run map). A read — the
+    immutable snapshot is drafted lazily on first view. Works in every mode; the
+    client renders the same data as a calendar (off) or a map (full)."""
+    import json
+    from datetime import date
+
+    from server.src.services.game.expedition import RunService, MODIFIERS, rank_modifiers
+
+    today = date.today()
+    month = f"{today.year}-{today.month:02d}"
+    run = RunService(db).draft(current_user, month)
+    db.commit()
+    return {
+        "month": month,
+        "map": json.loads(run.map_json),
+        "overlay": json.loads(run.overlay_json or "{}"),
+        "modifier_key": run.modifier_key,
+        "offered_modifiers": [
+            {"key": k, "label": MODIFIERS[k].label}
+            for k in rank_modifiers(db, current_user, month)
+        ],
+        "sealed": run.sealed_at is not None,
+        "score": json.loads(run.score_json) if run.score_json else None,
+    }

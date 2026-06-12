@@ -64,5 +64,12 @@
   "monster.label": "Lurkers",
   "monster.minor": "The {category} imp is circling — ahead of its usual pace",
   "monster.creeper": "A {merchant} creeper lingers, unused",
-  "monster.creeper_falls": "The creeper falls when its next bill fails to appear."
+  "monster.creeper_falls": "The creeper falls when its next bill fails to appear.",
+  "expedition.title": "The Expedition",
+  "expedition.act": "Act {n}",
+  "expedition.node.bill": "Encounter",
+  "expedition.node.rest": "Rest",
+  "expedition.node.boss": "The Boss",
+  "expedition.node.fog": "Fog",
+  "expedition.trailer": "The month ahead — your run, drawn from the forecast."
 }

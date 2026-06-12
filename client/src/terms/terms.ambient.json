@@ -64,5 +64,12 @@
   "monster.label": "Watch items",
   "monster.minor": "{category} is running ahead of its usual pace",
   "monster.creeper": "{merchant} hasn't been used in a while",
-  "monster.creeper_falls": "This clears when its next bill fails to appear."
+  "monster.creeper_falls": "This clears when its next bill fails to appear.",
+  "expedition.title": "This Month",
+  "expedition.act": "Week {n}",
+  "expedition.node.bill": "Bill",
+  "expedition.node.rest": "Quiet stretch",
+  "expedition.node.boss": "Debt",
+  "expedition.node.fog": "Pending",
+  "expedition.trailer": "Your month ahead, at a glance."
 }

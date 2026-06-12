@@ -591,6 +591,31 @@ class Liability(Base):
     defeated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
+class Run(Base):
+    """An Expedition run — one month rendered as a 3-act map (v4 §7.2, pkg 08).
+
+    ``map_json`` is the IMMUTABLE draft snapshot: forecast drift after the draft
+    must never move nodes (world stability). Mid-run re-derivations (defeat-by-
+    date, Grace scaling) write to ``overlay_json``, never the snapshot. Scoring
+    on month-seal writes ``score_json`` once.
+    """
+
+    __tablename__ = "runs"
+    __table_args__ = (UniqueConstraint("user_id", "month", name="uq_run_user_month"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    month: Mapped[str] = mapped_column(String, nullable=False)  # 'YYYY-MM'
+    map_json: Mapped[str] = mapped_column(String, nullable=False)  # immutable snapshot
+    overlay_json: Mapped[str] = mapped_column(String, nullable=False, default="{}")
+    modifier_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    started_at: Mapped[str] = mapped_column(String, nullable=False)
+    sealed_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    score_json: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
 class CanonFact(Base):
     """The Chronicler's canon — durable facts about the user's saga (v4 §7.4).
 
@@ -658,4 +683,19 @@ event.listen(
     GameEvent.__table__,
     "after_create",
     _NO_DELETE_TRIGGER.execute_if(dialect="sqlite"),
+)
+
+# runs.map_json is an immutable draft snapshot (v4 package 08). Mirror the
+# migration's trigger so a create_all DB (the test suite) gets the same guard:
+# any UPDATE that changes map_json aborts. overlay_json/score_json stay mutable.
+_RUNS_MAP_IMMUTABLE = DDL(
+    "CREATE TRIGGER IF NOT EXISTS runs_map_json_immutable "
+    "BEFORE UPDATE OF map_json ON runs "
+    "FOR EACH ROW WHEN OLD.map_json IS NOT NULL AND NEW.map_json <> OLD.map_json "
+    "BEGIN SELECT RAISE(ABORT, 'runs.map_json is an immutable draft snapshot'); END"
+)
+event.listen(
+    Run.__table__,
+    "after_create",
+    _RUNS_MAP_IMMUTABLE.execute_if(dialect="sqlite"),
 )

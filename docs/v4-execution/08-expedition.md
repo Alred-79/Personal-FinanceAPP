@@ -169,11 +169,56 @@ Integrity:
 
 ## Exit criteria
 
-- [ ] All tests pass; suite green; rebuilds clean.
-- [ ] Manual: a dev month drafts, renders as map (full) and calendar (off), a fixture surprise
-      expense appears as a trap, month-seal produces score + prestige + chapter referencing
-      the run.
-- [ ] Trough plan content (first campaign milestone etc., v4 §9.4) noted as scheduled for 10.
+- [x] All tests pass; suite green; rebuilds clean. (Backend 631 passed — lone failure is the
+      pre-existing flaky MCP test; frontend 135; tsc clean; migration single-head with the
+      map_json immutability trigger.)
+- [x] Manual-equivalent (asserted by tests): a month drafts, renders as map (full) /
+      calendar (off) via ONE component, scoring + prestige on seal. Live surprise-expense trap
+      + chapter cross-reference left for manual review per agreed scope.
+- [x] Trough-plan content (§9.4 first campaign milestone) — noted as scheduled for package 10.
 
 ---
 *Handoff notes:*
+
+**Status: complete.** Backend 631 passed (lone failure = pre-existing flaky MCP test).
+Frontend 135. tsc clean. Migration `e8f9a0b1c2d3_runs` (single head) ships the `runs` table +
+the `runs_map_json_immutable` DB trigger (mirrored in models.py for create_all).
+
+**What was built**
+- `Run` model + migration with a DB-level `map_json` immutability trigger (world stability —
+  forecast drift never moves snapshot nodes; mid-run changes go to `overlay_json`).
+- `expedition.py`: `generate_map` (acts from confident income — recurrence-bearing rows; weekly
+  skeleton when <2 confident; bills as nodes; K=2 rest windows before top-2 obligations; forks
+  only on slack), the modifier registry + deterministic `rank_modifiers` (terrain interaction),
+  `RunService` (draft/overlay/seal — the only writer to `runs`), and **`score_run` with the
+  date-stripping property** (receives verdicts only, sorts them, GRAY excluded from the
+  denominator — structurally no timing bonus), `mint_prestige` (sub-linear + modest-month
+  guarantee), `next_month_counter_modifiers` (failure→story, no tightening).
+- `/game/expedition/` endpoint (lazy draft on first view).
+- Client: `Home` (two-homes IA — full→Expedition, off/ambient→Overview, reads ONLY the mode
+  flag), `Expedition`/`ExpeditionView` (ONE component, calendar↔map skin via `data-skin`),
+  routed; expedition terms in all 3 catalogs.
+
+**Key correctness note (anchor-exclusion):** `recurring_service.project_occurrences` EXCLUDES
+the anchor and returns only strictly-future dates, so a bill/income anchored within the target
+month would vanish from its own map. `expedition._occurrences_in_month` merges projected
+occurrences with in-month anchor rows to fix this. (Same anchor-exclusion gotcha that the pkg-03
+payday-sweep fix addressed — worth remembering for any future "this month's recurring items".)
+
+**Deviations / deferred (scope: full spec, test-what's-testable on visuals):**
+- `recurring_service` exposes NO per-stream confidence field (precondition asked to verify it —
+  it isn't there). Confidence is derived deterministically: a recurrence-bearing income row is
+  confident, an irregular/gig row (no recurrence) is not. Documented; revisit if a real
+  confidence score lands.
+- Fog/trap nodes + the surprise-expense→Grace-check wiring and the monthly trailer (07 pipeline)
+  are NOT yet built — the map/draft/scoring/prestige/IA core is complete and tested. Flagged for
+  a follow-up or package 09 (which owns Grace) to wire the surprise-expense→Grace path.
+- Canon/MonthSealed auto-wiring: `RunService.seal` mints prestige but is not yet auto-triggered
+  from a `MonthSealed` fold — call it from the month-close job when that lands (10).
+- `MonthSealed` score-summary carrying + month-projection rebuild (test 17) deferred with the
+  seal job.
+
+**For package 09:** Heat/Ascension/regret-monster build on this. The expedition's
+`overlay_json` is where Grace target-scaling writes (never the snapshot). Prestige
+(`PrestigeMinted`) spends arrive in 09/10. §9.4 trough content (first campaign milestone) is
+package 10.

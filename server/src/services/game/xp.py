@@ -82,6 +82,11 @@ XP_FORBIDDEN: set[str] = {
     # Package 07 — the Chronicler. Generating flavor text is never a rewarded
     # action (Law 2: flavor never feeds engine state, including XP).
     "ChapterGenerated",
+    # Package 08 — the Expedition. Drafting a run, offering a modifier, and
+    # minting prestige are structural/scoring events, not money actions; no XP.
+    "RunDrafted",
+    "ModifierOffered",
+    "PrestigeMinted",
 }
 
 # The one capped exception. Consistency XP per day is capped at 10% of the

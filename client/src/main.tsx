@@ -1,7 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
-import Overview from "./pages/Overview/Overview.tsx";
+import Home from "./pages/Home/Home.tsx";
+import Expedition from "./pages/Expedition/Expedition.tsx";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import Accounts from "./pages/Accounts/Accounts.tsx";
 import Transactions from "./pages/Transactions/Transactions.tsx";
@@ -42,7 +43,11 @@ createRoot(document.getElementById("root")!).render(
           {/* The auth guard wraps every page that needs a login */}
           <Route element={<ProtectedRoute />}>
             <Route element={<AppShell />}>
-              <Route path="/" element={<Overview />} />
+              {/* Two-homes IA (v4 §10.1): full mode → Expedition, off/ambient →
+                  Overview. Home reads ONLY the mode variable. */}
+              <Route path="/" element={<Home />} />
+              {/* The Expedition map exists in every mode (fork-smell law). */}
+              <Route path="/expedition" element={<Expedition />} />
               <Route path="/accounts" element={<Accounts />} />
               <Route path="/transactions" element={<Transactions />} />
               <Route path="/goals" element={<Goals />} />
