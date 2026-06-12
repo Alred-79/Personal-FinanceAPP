@@ -12,6 +12,7 @@ import Forecast from "./pages/Forecast/Forecast.tsx";
 import Login from "./pages/Login/Login.tsx";
 import Settings from "./pages/Settings/Settings.tsx";
 import Keeper from "./pages/Keeper/Keeper.tsx";
+import Debts from "./pages/Debts/Debts.tsx";
 import AppShell from "./components/layout/AppShell.tsx";
 import ProtectedRoute from "./components/layout/ProtectedRoute.tsx";
 import ErrorBoundary from "./components/layout/ErrorBoundary.tsx";
@@ -53,6 +54,9 @@ createRoot(document.getElementById("root")!).render(
                   Settings) so the no-mode-only-pages rule holds; its presence in
                   NAV is the flag, not the route's existence. */}
               <Route path="/keeper" element={<Keeper />} />
+              {/* Debts/bosses: route exists in every mode (off redirects to
+                  Settings); its NAV presence is the gameOnly flag. */}
+              <Route path="/debts" element={<Debts />} />
             </Route>
           </Route>
           </Routes>

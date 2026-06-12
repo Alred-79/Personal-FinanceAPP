@@ -540,6 +540,78 @@ class CategorySettings(Base):
     user_confirmed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
+class Liability(Base):
+    """A debt account — one boss in the game layer (v4 package 06).
+
+    This is the ONE financial-truth-adjacent table that game code may write, but
+    only via ``liability_service`` — never from a fold handler (folds project,
+    the service mutates). The displayed balance derives from posted payments and
+    corrections; a manual "reconcile" action writes an adjustment record rather
+    than silently editing ``principal_cents``.
+
+    Money columns are integer cents; ``apr_bps`` is basis points (2400 = 24%).
+    ``status`` transitions active → defeated_sealed | defeated_banished and a
+    defeated boss is permanent (no event resurrects it).
+    """
+
+    __tablename__ = "liabilities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(
+        String, nullable=False, default="credit_card"
+    )  # credit_card | loan | bnpl | other
+    principal_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    apr_bps: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    minimum_payment_cents: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    due_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    linked_account_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True
+    )
+    linked_plaid_account: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="active"
+    )  # active | dormant | defeated_sealed | defeated_banished
+    is_active_boss: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )  # the one concentration boss; 0/1
+    ordering_choice: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )  # 'snowball' | 'avalanche' once the one-time override is made
+    opened_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+    defeated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class LiabilityAdjustment(Base):
+    """A manual balance reconciliation on a liability (v4 package 06).
+
+    Drift between the derived balance and reality is corrected by appending an
+    adjustment (never by silently editing the liability), so the ledger of how
+    the balance got where it is stays auditable.
+    """
+
+    __tablename__ = "liability_adjustments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    liability_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("liabilities.id", ondelete="CASCADE"), nullable=False
+    )
+    delta_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+
+
 # Append-only enforcement, mirrored from the Alembic migration so that a DB
 # built with ``Base.metadata.create_all`` (the test suite) gets the same guard
 # as a migrated DB. SQLite fires these BEFORE any UPDATE/DELETE on game_events

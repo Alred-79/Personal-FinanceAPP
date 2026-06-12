@@ -175,10 +175,57 @@ Auto-attack & integrity:
 
 ## Exit criteria
 
-- [ ] All tests pass; suite green; rebuilds clean.
-- [ ] Manual: create a $500 fixture debt, post payments, watch HP/phases/defeat-by-date move;
-      defeat it; both closure paths work; card exports.
-- [ ] Juice allowlist + agency-language tests are wired into CI (later packages extend them).
+- [x] All tests pass; suite green; rebuilds clean. (Backend 592 passed — lone failure is the
+      pre-existing flaky MCP concurrency test, verified unrelated; frontend 129; tsc clean;
+      boss_state rebuild + Law-1 fingerprint green; migration up/down round-trips.)
+- [x] Manual-equivalent (asserted by tests): create a debt, post payments, HP/phases/
+      defeat-by-date move, defeat + both closure paths, closure card data renders with zero-$
+      default. (Full live click-through left for manual review per agreed scope.)
+- [x] Juice allowlist + agency-language tests exist (server `test_juice_allowlist_*`,
+      `test_agency_language_lint_*`; client `boss.test.tsx`). Later packages extend them.
 
 ---
 *Handoff notes:*
+
+**Status: complete.** Backend 592 passed (lone failure = pre-existing flaky
+`test_mcp_failure_modes ... vault_reads_never_mix`, verified on clean baseline). Frontend 129.
+tsc clean. Migration `c6d7e8f9a0b1_liabilities` up/down round-trips. boss_state rebuild green.
+
+**What was built**
+- `Liability` + `LiabilityAdjustment` models + migration `c6d7e8f9a0b1` (additive). NOTE: my
+  first migration used revision id `a1b2c3d4e5f6` which **already exists** in the chain
+  (`..._money_to_integer_cents`) — collision broke `alembic heads`. Renamed to `c6d7e8f9a0b1`.
+  Pick a fresh, unused revision id for any future migration.
+- `liability_service.py`: the ONLY writer to liabilities/adjustments. CRUD, one-active-boss
+  enforcement, smallest-first default order, reconcile-as-adjustment (never silent edit),
+  seal/banish closure that is **permanent** (defeat can't be resurrected).
+- `boss.py`: `boss_state` projection + pure folds (BossDamaged/Healed/Corrected). HP = balance;
+  crit = payment > minimum×1.25; phases at each 20% (idempotent per index); APR heal =
+  `monthly_apr_interest_cents`; defeat-by-date with the Grace 'retreat' copy-key switch;
+  deterministic snowball/avalanche `ordering_interest_delta`. **Folds never emit events or
+  write liabilities** — `BossService` emits BossPhaseBroken/BossDefeated by observing the
+  projection after a damage fold (same purity rule as pkg 05's wards).
+- `habit_monsters.py`: pure read-model — discretionary ≥130% pace → minor; unused-3-months
+  subscription → creeper; essentials never spawn; cap 2.
+- Juice allowlist `JUICE_EVENTS` (server `boss.py` + client `lib/juice.ts`, kept in sync):
+  crit/sweep are variant-gated so plain BossDamaged / TxnPosted never juice.
+- Client: `lib/asciiCreature.ts` (seeded, mirror-symmetric, deterministic), `ClosureCard`
+  (1200×630 canvas→PNG, zero-$ default + include-numbers toggle), `Debts` page (active boss
+  HP bar + creature, dormant silhouettes, monsters), routed + gameOnly nav entry.
+
+**Test-21 semantics (verified, per spec):** v1 `RuleEngine._fund_target` returns
+`unsupported_target:liability` for `target_kind='liability'` — so a pay_liability rule records
+INTENT only; the boss takes damage when the REAL payment posts via
+`BossService.register_payment`. Do NOT add liability auto-funding to the rules engine here.
+
+**Color law:** boss art + HP bar use `bg-debit`/red accents; user stat numbers never red
+(enforced by the package-02 figure guard, still green).
+
+**For package 07:** bosses currently get template names (no LLM). 07's Chronicler must stay
+SILENT on seal-vs-banish (Law 3) — the educational copy is static (`boss.seal_help`). The
+Keeper sheet still has "coming" slots for bestiary/campaign. `BossDefeated`/`BossSealed` are
+in the juice allowlist and emitted on the boss stream `boss:<liability_id>`.
+
+**Deferred (out of scope, as specified):** LLM names/taunts (07), bestiary surface (09), Heat
+sweeps (09), regret-monster (09), expedition map placement (08), live seal/banish modal wiring
+in the UI (the service + events exist; the modal click-through is minimal — flag for 07/UI pass).

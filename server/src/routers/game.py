@@ -49,6 +49,40 @@ async def collect_tick(
     return {"collected": amount}
 
 
+@router.get("/bosses/")
+async def list_bosses(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """List the user's debts (bosses) with their projected HP. The active boss
+    carries its boss_state HP; others render as dormant silhouettes."""
+    from server.src.services.game.liability_service import LiabilityService
+    from server.src.services.game.boss import boss_view
+
+    svc = LiabilityService(db)
+    out = []
+    for liab in svc.list(current_user):
+        d = LiabilityService.to_dict(liab)
+        d["boss"] = boss_view(db, liab.id)
+        out.append(d)
+    return {"bosses": out}
+
+
+@router.get("/monsters/")
+async def list_monsters(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """The computed habit-monsters (<=2). A pure read; writes nothing."""
+    from server.src.services.game.habit_monsters import detect_monsters
+
+    return {"monsters": detect_monsters(db, current_user)}
+
+
 @router.get("/keeper/")
 async def get_keeper(
     current_user: Annotated[

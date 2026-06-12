@@ -50,5 +50,19 @@
   "daily.verb.what_if": "Run a what-if",
   "daily.verb.worth_it_tag": "Worth it?",
   "daily.title": "Today",
-  "consistency.label": "Consistency"
+  "consistency.label": "Consistency",
+  "nav.debts": "Boss Battles",
+  "boss.label": "The Boss",
+  "boss.hp": "HP",
+  "boss.defeat_eta": "Defeat by: {date}",
+  "boss.retreat": "The boss retreats — the horizon eases",
+  "boss.phase_broken": "Phase broken — {pct}% down",
+  "boss.defeated": "Defeated",
+  "boss.seal": "Seal it (close the account)",
+  "boss.banish": "Banish it (keep open at zero)",
+  "boss.seal_help": "Sealing can lower your average account age and raise utilization on remaining cards. Banishing keeps both intact. Your call.",
+  "monster.label": "Lurkers",
+  "monster.minor": "The {category} imp is circling — ahead of its usual pace",
+  "monster.creeper": "A {merchant} creeper lingers, unused",
+  "monster.creeper_falls": "The creeper falls when its next bill fails to appear."
 }

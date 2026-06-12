@@ -68,6 +68,17 @@ XP_FORBIDDEN: set[str] = {
     # Basic Grace (pkg 05) — easing off in a hard month grants no XP, ever.
     "GraceApplied",
     "GraceLifted",
+    # Package 06 — debt boss. These are projection events over real money (the
+    # XP for a real payment rides on PaymentPosted, which is XP_BEARING). The
+    # boss-damage/heal/phase events themselves never award XP.
+    "BossDamaged",
+    "BossHealed",
+    "BossEmpowered",
+    "BossPhaseBroken",
+    "BossDefeated",
+    "BossSealed",
+    "BossBanished",
+    "BossCorrected",
 }
 
 # The one capped exception. Consistency XP per day is capped at 10% of the

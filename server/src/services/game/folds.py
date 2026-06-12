@@ -309,6 +309,9 @@ def register_builtin_folds() -> None:
     # retry-until-importable handling.
     _register_daily_folds_if_possible()
 
+    # Group 4: boss_state folds (package 06) — same retry-until-importable shape.
+    _register_boss_folds_if_possible()
+
 
 def _register_stat_folds_if_possible() -> bool:
     """Try to register the stats folds; return True once they're present.
@@ -346,10 +349,25 @@ def _register_daily_folds_if_possible() -> bool:
     return True
 
 
+def _register_boss_folds_if_possible() -> bool:
+    """Try to register the boss_state folds; return True once present. Same
+    retry-until-importable shape as the stats/daily groups."""
+    if any(p == BOSS_STATE for ps in _FOLDS.values() for p, _ in ps):
+        return True
+    try:
+        from .boss import register_boss_folds
+    except ImportError:
+        logger.debug("boss folds not yet importable (circular window); will retry")
+        return False
+    register_boss_folds()
+    return True
+
+
 # Projection names the late-registered folds use (kept in sync with their
 # defining modules; duplicated here to avoid importing those modules at load).
 PLAYER_STATE = "player_state"  # stats.PLAYER_STATE
 STREAK_STATE = "streak_state"  # daily.STREAK_STATE
+BOSS_STATE = "boss_state"  # boss.BOSS_STATE
 
 
 register_builtin_folds()

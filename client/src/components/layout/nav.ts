@@ -8,6 +8,7 @@ import {
   TrendingUp,
   Settings,
   Shield,
+  Swords,
   type LucideIcon,
 } from "lucide-react";
 
@@ -35,6 +36,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/forecast", label: "Forecast", termKey: "nav.forecast", icon: TrendingUp, folio: "VI" },
   { to: "/subscriptions", label: "Standing Orders", termKey: "nav.subscriptions", icon: Repeat, folio: "VII" },
   { to: "/keeper", label: "Profile & Progress", termKey: "nav.keeper", icon: Shield, folio: "IX", gameOnly: true },
+  { to: "/debts", label: "Debts", termKey: "nav.debts", icon: Swords, folio: "X", gameOnly: true },
   { to: "/settings", label: "Settings", termKey: "nav.settings", icon: Settings, folio: "VIII" },
 ];
 

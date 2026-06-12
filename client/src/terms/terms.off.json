@@ -50,5 +50,19 @@
   "daily.verb.what_if": "Try a what-if",
   "daily.verb.worth_it_tag": "Was it worth it?",
   "daily.title": "Today",
-  "consistency.label": "Consistency"
+  "consistency.label": "Consistency",
+  "nav.debts": "Debts",
+  "boss.label": "Debt",
+  "boss.hp": "Balance",
+  "boss.defeat_eta": "Projected payoff: {date}",
+  "boss.retreat": "Payoff date moved out while things ease up",
+  "boss.phase_broken": "A milestone — {pct}% paid down",
+  "boss.defeated": "Paid off",
+  "boss.seal": "Close the account",
+  "boss.banish": "Keep it open at zero",
+  "boss.seal_help": "Closing can lower your average account age and raise utilization on remaining cards. Keeping it open at zero preserves both. Your call.",
+  "monster.label": "Watch items",
+  "monster.minor": "{category} is running ahead of its usual pace",
+  "monster.creeper": "{merchant} hasn't been used in a while",
+  "monster.creeper_falls": "This clears when its next bill fails to appear."
 }
