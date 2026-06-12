@@ -7,6 +7,7 @@ import {
   Repeat,
   TrendingUp,
   Settings,
+  Shield,
   type LucideIcon,
 } from "lucide-react";
 
@@ -20,6 +21,9 @@ export interface NavItem {
   icon: LucideIcon;
   /** The form / folio number engraved beside the entry in the index. */
   folio: string;
+  /** When true, this entry only appears in nav when the game layer is on
+   * (ambient/full). The ROUTE always exists; this flags its nav PRESENCE. */
+  gameOnly?: boolean;
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -30,6 +34,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/goals", label: "Goals", termKey: "nav.goals", icon: Target, folio: "V" },
   { to: "/forecast", label: "Forecast", termKey: "nav.forecast", icon: TrendingUp, folio: "VI" },
   { to: "/subscriptions", label: "Standing Orders", termKey: "nav.subscriptions", icon: Repeat, folio: "VII" },
+  { to: "/keeper", label: "Profile & Progress", termKey: "nav.keeper", icon: Shield, folio: "IX", gameOnly: true },
   { to: "/settings", label: "Settings", termKey: "nav.settings", icon: Settings, folio: "VIII" },
 ];
 

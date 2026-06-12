@@ -5,6 +5,7 @@ import { NAV_ITEMS } from "./nav";
 import { Brandmark } from "./Brandmark";
 import { Term } from "@/components/custom/Term/Term";
 import { useStore } from "@/store/store";
+import { useFlags } from "@/store/gameMode";
 
 interface SidebarProps {
   /** Opens the Plaid Link flow; disabled until the handler is ready. */
@@ -26,6 +27,11 @@ export default function Sidebar({
   onNavigate,
 }: SidebarProps) {
   const user = useStore((s) => s.user);
+  const { gameLayer } = useFlags();
+
+  // gameOnly nav entries (e.g. the Keeper) appear only when the game layer is
+  // on (ambient/full). The route always exists; this gates its nav PRESENCE.
+  const navItems = NAV_ITEMS.filter((i) => !i.gameOnly || gameLayer);
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
@@ -46,7 +52,7 @@ export default function Sidebar({
 
       {/* Folio index */}
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
-        {NAV_ITEMS.map(({ to, termKey, icon: Icon, folio }) => (
+        {navItems.map(({ to, termKey, icon: Icon, folio }) => (
           <NavLink
             key={to}
             to={to}

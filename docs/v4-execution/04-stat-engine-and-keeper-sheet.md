@@ -116,9 +116,63 @@ Integrity & rebuild:
 
 ## Exit criteria
 
-- [ ] All tests pass; suite green; rebuild clean.
-- [ ] Manual: Keeper sheet shows sane stats for dev data in all modes.
-- [ ] `XP_BEARING`/`XP_FORBIDDEN` lists documented in the handoff for later packages.
+- [x] All tests pass; suite green; rebuild clean.
+- [x] Manual: Keeper sheet shows sane stats for dev data in all modes.
+- [x] `XP_BEARING`/`XP_FORBIDDEN` lists documented in the handoff for later packages.
 
 ---
 *Handoff notes:*
+
+**Status: complete. Full suite green** — backend 550 passed (the lone
+intermittent failure, `test_mcp_failure_modes.py::...vault_reads_never_mix`, is a
+pre-existing flaky MCP/threading test from commit `d755689`, unrelated to game
+code; passes on retry). Frontend 111 passed. `tsc -b` clean. Law-1
+integrity/fingerprint/rebuild tests pass.
+
+**What was built**
+- Baselines (`services/game/baselines.py`): category/income/savings-rate, trailing
+  3 *calendar* months, excludes pending + own-account transfers + refund-matched
+  pairs; recomputes on `TxnCorrected`/`TxnReversed`; `<6 weeks → LOW_CONFIDENCE`.
+- Stats (`services/game/stats.py`): Vitality (bucketed runway), Mana (savings-rate
+  ratio vs own baseline), Armor (on-time × discretionary adherence, essentials
+  never reduce it), Might (net-worth delta + principal paid, ratio). All
+  ratio/bucket — no raw dollars on the card.
+- XP hygiene (`services/game/xp.py`): the registry-walk law + level curve.
+- Read surface (`routers/game.py`): `GET /game/keeper/` — pure output, no writes.
+- Client: `pages/Keeper/Keeper.tsx`, header `LevelPip`, term keys in all 3 catalogs.
+
+**Deviations (important for the next agent):** the original executing agent stopped
+mid-package — work was uncommitted and NOT actually passing. A second agent finished
+04. Fixes applied to make it green:
+1. `Sidebar.tsx` rendered ALL nav items, leaking the gameOnly "Keeper" entry into
+   **off** mode (broke the package-02 off-mode pixel-identity snapshot). Fixed by
+   filtering `gameOnly` via `useFlags().gameLayer` — same pattern Header already used.
+2. `Keeper.tsx` branched on bare `mode === "off"` (violates the package-02
+   `mode === '<literal>'` grep guard). Switched to `useFlags().gameLayer`.
+3. `Header.tsx` imported `LevelPip` which **did not exist** → `tsc -b` failed (prod
+   build broken). Created `components/custom/LevelPip/LevelPip.tsx` (hidden in off,
+   reads level from the keeper read surface, writes nothing).
+4. The spec's client test `keeper-sheet.test.tsx` was missing — wrote it (cases
+   13–16: per-mode render incl. off-redirect, pip visibility, banned-words scan,
+   engagement-XP probe). 8 tests.
+   **NOTE for later client tests:** the gameMode provider boots in `off` then
+   resolves the persisted mode async, so a page that redirects synchronously in off
+   races the boot. The test uses an `AfterModeResolves` gate to mount the route only
+   once the provider settles — reuse this pattern for ambient/full page tests.
+
+**`XP_BEARING`** (base XP/occurrence): `AllocationMade=20`, `RuleExecuted=15`,
+`BillPaidOnTime=25`, `UnderBudgetDayClosed=10`, `WhatIfCommitted=20`,
+`AlertFixApplied=15` (0 for `fix_kind=="checklist"`), `PaymentPosted=20` (handler
+lands in 06), `ConsistencyVerb=5` (capped). To add a new XP source you MUST add it
+here or the registry-walk test fails (intended friction).
+**`XP_FORBIDDEN`:** `BackfillSnapshot`, `SyncGapOpened/Closed`, `TxnPosted`,
+`TxnCorrected`, `TxnReversed`, `MonthSealed`, `XpAwarded`, `AlertFired`,
+`ModeChanged`, `SheetViewed`, `LoggedIn`, `Collected`, `AlertDelivered`.
+**Level curve:** `level = floor(sqrt(xp / K))`, `LEVEL_K = 120`.
+**Consistency daily cap:** `CONSISTENCY_DAILY_CAP = max(int(median_money_xp*0.10),1)`
+(currently 2) — package 05's `ConsistencyVerb` accrual must respect this.
+
+**For package 05:** baselines + `LOW_CONFIDENCE` are in `services/game/baselines.py`;
+`UnderBudgetDayClosed` and `ConsistencyVerb` are already in `XP_BEARING` (05 emits
+them); the Keeper sheet has placeholder "coming" slots for streak/boss/bestiary/
+campaign — 05 fills the streak slot.

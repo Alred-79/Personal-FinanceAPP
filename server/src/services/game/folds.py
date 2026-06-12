@@ -284,6 +284,15 @@ def register_builtin_folds() -> None:
     register_fold(TXN_LEDGER, "TxnPosted", _fold_ledger_posted)
     register_fold(TXN_LEDGER, "TxnCorrected", _fold_ledger_corrected)
     register_fold(TXN_LEDGER, "TxnReversed", _fold_ledger_reversed)
+    # The player_state XP folds (package 04) live in stats.py to avoid a circular
+    # import at module load; register them here so any record_events / rebuild
+    # path picks them up without needing stats.py imported elsewhere first.
+    try:
+        from .stats import register_stat_folds
+
+        register_stat_folds()
+    except Exception:  # pragma: no cover - stats is optional plumbing
+        logger.exception("could not register stat folds")
 
 
 register_builtin_folds()

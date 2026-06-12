@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 import { NAV_ITEMS } from "./nav";
 import { Brandmark } from "./Brandmark";
 import { Term } from "@/components/custom/Term/Term";
+import { useFlags } from "@/store/gameMode";
+import { LevelPip } from "@/components/custom/LevelPip/LevelPip";
 import Sidebar from "./Sidebar";
 
 interface HeaderProps {
@@ -32,7 +34,11 @@ export default function Header({
   onLogout,
 }: HeaderProps) {
   const { theme, toggleTheme } = useTheme();
+  const { gameLayer } = useFlags();
   const [mobileOpen, setMobileOpen] = useState(false);
+  // gameOnly nav entries (e.g. the Keeper) appear only when the game layer is
+  // on; in off mode the nav is exactly today's set (pixel-identity contract).
+  const navItems = NAV_ITEMS.filter((i) => !i.gameOnly || gameLayer);
   const user = useStore((s) => s.user);
   const initial = (user?.full_name || user?.username || "?")
     .charAt(0)
@@ -74,7 +80,7 @@ export default function Header({
 
         {/* Desktop folio index */}
         <nav className="ml-3 hidden flex-1 items-stretch gap-0.5 lg:flex">
-          {NAV_ITEMS.map(({ to, termKey, icon: Icon }) => (
+          {navItems.map(({ to, termKey, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -117,6 +123,8 @@ export default function Header({
               <Moon className="h-[18px] w-[18px]" />
             )}
           </button>
+
+          <LevelPip />
 
           <NotificationBell />
 

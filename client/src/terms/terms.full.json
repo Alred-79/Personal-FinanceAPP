@@ -23,5 +23,17 @@
   "alert.payday_sweep.title": "Supply drop landed",
   "alert.payday_sweep.body": "Route part of it to your quest before it scatters.",
   "alert.graduation.title": "Forge a standing pact?",
-  "alert.graduation.body": "You've done this a few times. Forge it into a standing rule so it runs on its own."
+  "alert.graduation.body": "You've done this a few times. Forge it into a standing rule so it runs on its own.",
+  "nav.keeper": "The Keeper",
+  "keeper.title": "The Keeper",
+  "keeper.stat.vitality": "Vitality",
+  "keeper.stat.mana": "Mana",
+  "keeper.stat.armor": "Armor",
+  "keeper.stat.might": "Might",
+  "keeper.level": "Level",
+  "keeper.xp": "XP",
+  "keeper.calibrating": "Calibrating — keep going for a clearer reading.",
+  "keeper.coming": "Coming soon",
+  "toast.levelup.title": "Level up",
+  "toast.levelup.body": "Your steady actions moved you up a level."
 }

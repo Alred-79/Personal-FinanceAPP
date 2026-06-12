@@ -23,5 +23,17 @@
   "alert.payday_sweep.title": "Income arrived",
   "alert.payday_sweep.body": "Set part of it aside toward your goal before it gets absorbed.",
   "alert.graduation.title": "Make it standing?",
-  "alert.graduation.body": "You've done this a few times. Make it a standing rule so it happens on its own."
+  "alert.graduation.body": "You've done this a few times. Make it a standing rule so it happens on its own.",
+  "nav.keeper": "Profile & Progress",
+  "keeper.title": "Profile & Progress",
+  "keeper.stat.vitality": "Runway",
+  "keeper.stat.mana": "Savings rate",
+  "keeper.stat.armor": "On-track",
+  "keeper.stat.might": "Net-worth trend",
+  "keeper.level": "Level",
+  "keeper.xp": "Progress",
+  "keeper.calibrating": "Calibrating — keep going for a clearer picture.",
+  "keeper.coming": "Coming soon",
+  "toast.levelup.title": "Level up",
+  "toast.levelup.body": "Your steady actions moved you up a level."
 }
