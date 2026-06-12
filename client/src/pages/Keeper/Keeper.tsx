@@ -22,6 +22,7 @@ import { IntensitySelector } from "@/components/custom/IntensitySelector/Intensi
 import { useFlags, useTerm } from "@/store/gameMode";
 import { Term } from "@/components/custom/Term/Term";
 import { StreakChip } from "@/components/custom/StreakChip/StreakChip";
+import { Homestead } from "@/components/custom/Homestead/Homestead";
 import api from "@/lib/api";
 
 interface KeeperData {
@@ -110,6 +111,11 @@ export default function Keeper() {
           <StreakChip />
         </CardContent>
       </Card>
+
+      {/* The Homestead weekly reveal (package 09). */}
+      <div className="mt-6">
+        <Homestead />
+      </div>
 
       {/* Placeholder slots for later packages — render "coming", don't build. */}
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">

@@ -87,6 +87,9 @@ XP_FORBIDDEN: set[str] = {
     "RunDrafted",
     "ModifierOffered",
     "PrestigeMinted",
+    # Package 09 — depth. Crossing a real milestone grants a homestead XP
+    # MULTIPLIER (a ratchet applied at accrual time), not flat XP on the event.
+    "MilestoneReached",
 }
 
 # The one capped exception. Consistency XP per day is capped at 10% of the

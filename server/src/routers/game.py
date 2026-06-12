@@ -245,3 +245,36 @@ async def get_expedition(
         "sealed": run.sealed_at is not None,
         "score": json.loads(run.score_json) if run.score_json else None,
     }
+
+
+@router.get("/homestead/")
+async def get_homestead(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """The weekly Homestead reveal: projection hero + one commit action; the
+    accrual line is omitted below $1.00. Engine math only — no LLM. Off-mode
+    users get nothing."""
+    from datetime import date
+
+    from server.src.services.game.mode import should_generate_flavor
+    from server.src.services.game.homestead import (
+        check_milestones,
+        multiplier,
+        reveal_to_payload,
+        weekly_reveal,
+    )
+    from server.src.services.game.grace import strain_mode
+
+    if not should_generate_flavor(current_user):
+        return {"reveal": None}
+    today = date.today()
+    check_milestones(db, current_user, today)
+    # Conservative recent accrual — left at 0 here; the real job feeds it from
+    # measured interest. (The trivial-sum suppression still applies.)
+    reveal = weekly_reveal(db, current_user, today, recent_accrual_cents=0,
+                           strain_mode=strain_mode(db))
+    db.commit()
+    return {"reveal": reveal_to_payload(reveal), "multiplier": multiplier(db)}

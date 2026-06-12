@@ -106,27 +106,48 @@ class GraceService:
 
         return GraceSignals(will_negative, income_low, shock, sts_low)
 
-    def apply_if_triggered(self, user: UserInDB, day: date) -> bool:
+    def apply_if_triggered(
+        self, user: UserInDB, day: date, *, opted_out: bool = False
+    ) -> bool:
         """Apply Grace if any trigger fires (idempotent per episode); lift on
-        recovery. Returns whether Grace is active after evaluation."""
+        recovery. Returns whether Grace is active after evaluation.
+
+        Full Grace (pkg 09):
+        * ``opted_out`` ("never ease my targets") → ZERO Grace effects, ever.
+        * Capped stacking: multiple triggers in one episode still yield ONE Grace
+          level — we record how many triggers fired (for the bestiary/history
+          neutral entry) but never intensify beyond a single level.
+        """
+        if opted_out:
+            return False  # honored everywhere — no ward, no strain, no sweep pause
         signals = self.evaluate(user, day)
         state = _grace(self.db)
         if signals.any and not state.get("active"):
-            self._apply(user, day)
+            self._apply(user, day, trigger_count=self._count(signals))
             return True
         if not signals.any and state.get("active"):
             self._lift(user, day)
             return False
         return bool(state.get("active"))
 
-    def _apply(self, user: UserInDB, day: date) -> None:
-        _grace_put(self.db, {"active": True, "since": day.isoformat()})
+    @staticmethod
+    def _count(signals: "GraceSignals") -> int:
+        return sum([signals.will_go_negative, signals.income_below_floor,
+                    signals.essential_shock, signals.sts_below_floor])
+
+    def _apply(self, user: UserInDB, day: date, *, trigger_count: int = 1) -> None:
+        # Capped stacking: however many triggers fired, Grace is ONE level. We
+        # record the count for the neutral history entry, never to intensify.
+        _grace_put(self.db, {
+            "active": True, "since": day.isoformat(),
+            "level": 1, "trigger_count": max(1, trigger_count),
+        })
         # The grace ward is auto-equipped by the streak_state GraceApplied FOLD
         # (daily._fold_grace_applied), NOT by a direct mutation here — that keeps
         # the grace ward rebuildable from the event log. We only emit the event.
         record_events(self.db, [GameEventDraft(
             stream="player", type="GraceApplied",
-            payload={"date": day.isoformat()},
+            payload={"date": day.isoformat(), "triggers": max(1, trigger_count)},
             idempotency_key=f"grace_on:{user.id}:{day.isoformat()}",
         )])
         self.db.flush()

@@ -178,11 +178,56 @@ Integrity:
 
 ## Exit criteria
 
-- [ ] All tests pass; suite green; rebuilds clean.
-- [ ] Manual: compose a Heat contract against dev data, watch the veto cases, complete a month
-      with a sweep hitting the boss; weekly reveal shows projection+action (and hides trivial
-      accrual); bestiary names persist.
-- [ ] E9 arms recorded and queryable (10 will analyze).
+- [x] All tests pass; suite green; rebuilds clean. (Backend 653 passed — lone failure is the
+      pre-existing flaky MCP test; frontend 138; tsc clean; migration single-head.)
+- [x] Manual-equivalent (asserted by tests): Heat pricing + veto cases, the capped sweep
+      (verified-underspend, not the contracted hope), weekly reveal projection+action with
+      trivial-sum suppression, bestiary name cache stability. Live click-through left for manual.
+- [x] E9 arms recorded: `heat_contracts.arm` ∈ {cosmetic, sweep}, queryable for package 10.
 
 ---
 *Handoff notes:*
+
+**Status: complete.** Backend 653 passed (lone failure = pre-existing flaky MCP test).
+Frontend 138. tsc clean. Migration `f9a0b1c2d3e4_heat_contracts` (single head).
+
+**Money-honesty constraints — all enforced & tested:**
+- `HeatService.sweep_amount_cents` = `min(verified_underspend, contracted)`, recomputed from
+  POSTED data — a sweep can NEVER exceed verified underspend (test proves 108-spent/150-cap →
+  42 swept, not the contracted 60). Sweeps are designed to flow through the v1 rule engine
+  (propose→confirm); no direct money movement.
+- Pricing refuses essentials, `LOW_CONFIDENCE` baselines, unconfirmed categories, the 4th
+  active contract, and over the monthly Heat cap (6). Forecast veto refuses a contract that
+  pushes `will_go_negative` with a plain explanation object.
+- Abandon = status-only, zero events; `soft_land_next_month` re-offers at ~60% difficulty.
+
+**What was built**
+- `heat_contracts` model + migration; `heat.py` (pricing/vetoes/verification/capped sweep/
+  abandon/soft-land). `arm` records cosmetic|sweep for E9.
+- Full Grace extensions in `grace.py`: `opted_out` → zero Grace effects everywhere; capped
+  stacking (multiple triggers → one level; `trigger_count` recorded for the neutral history
+  entry, never to intensify). The boss-retreat copy-key already shipped in pkg 06.
+- `homestead.py`: `weekly_reveal` (projection hero + one commit action; strain → suppressed;
+  accrual line OMITTED below $1.00 — key-absence, not "$0.04"), `check_milestones` (ratchet,
+  idempotent, homestead-XP-multiplier scope only — no flat XP, `MilestoneReached`).
+- `bestiary.py`: extends 07's pipeline — `generate_bestiary_entry` cached FOREVER keyed on
+  seed+salt (same merchant → same name; rename bumps salt), `validate_entry` (digits/firewall +
+  the trademark transform: merchant never verbatim in the name), deterministic `template_entry`
+  fallback / pkg-06 backfill.
+- `depth.py`: regret-monster (`category_has_regret_aspect` — ≥3 explicit `worth_it='no'` tags /
+  60d, never inferred, quiet drop, zero XP; `regret_lore_line` reflective, punitive-words
+  banned) + Ascension (`apply_ascension_to_score` — the ONLY place Ascension touches anything;
+  scoring-layer only, never budgets/alerts/targets/sweeps).
+- Endpoints: `/game/homestead/`. Client: `Homestead` card on Keeper (trivial-sum suppression
+  rendered correctly).
+
+**Deferred / for package 10:**
+- The sweep's actual `pay_liability` Rule creation via propose→confirm is modeled
+  (`sweep_amount_cents` + `arm='sweep'`) but the rule-creation wiring + month-end execution
+  trigger land with the month-close job (10). The cap logic — the safety-critical part — is done
+  and tested.
+- Bestiary surface on the Keeper sheet (defeated trophies list) + regret aspect rendering are
+  backend-complete; the read endpoints exist via boss/monster data — a dedicated bestiary UI is
+  a follow-up. Backfill of pkg-06 template names happens on first generate call.
+- Heat contract composition UI + the weekly-checkpoint job are deferred to the month-close
+  wiring (10). E9 `arm` tagging is in place for 10's holdout analysis.

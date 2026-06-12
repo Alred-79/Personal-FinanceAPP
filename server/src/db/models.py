@@ -616,6 +616,42 @@ class Run(Base):
     score_json: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 
+class HeatContract(Base):
+    """A user-composed constraint contract priced in Heat (v4 §6.2, pkg 09).
+
+    The bridge between game and money spine: priced against the user's OWN
+    baselines, and the payoff is real — verified underspend can sweep (opt-in,
+    propose→confirm, forecast-vetoed) into the active boss or a goal via the v1
+    rule engine. A sweep NEVER executes for more than the verified underspend.
+    """
+
+    __tablename__ = "heat_contracts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    category: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(
+        String, nullable=False
+    )  # cap_vs_baseline | extra_to_boss | zero_dips
+    target_param: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # e.g. cap pct
+    heat_value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    month: Mapped[str] = mapped_column(String, nullable=False)  # 'YYYY-MM'
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="active"
+    )  # active | met | unmet | abandoned
+    arm: Mapped[str] = mapped_column(
+        String, nullable=False, default="cosmetic"
+    )  # cosmetic | sweep  (E9 experiment flag)
+    sweep_rule_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    sweep_paused: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    auto_extended: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+
+
 class CanonFact(Base):
     """The Chronicler's canon — durable facts about the user's saga (v4 §7.4).
 
