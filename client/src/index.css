@@ -68,6 +68,31 @@
     /* The drawer/cover is always dark ink leather, even on paper theme */
     --sidebar: 167 30% 11%;
     --sidebar-foreground: 45 42% 90%;
+
+    /* ── v4 game-mode tokens (package 02) ──────────────────────────────
+       The game intensity dial drives these semantic properties. They are
+       defaulted here (off-mode values) so a DB/page with no data-mode yet
+       still resolves them; the [data-mode="…"] blocks below override per
+       mode. The color law (v4 §11): phosphor green = real money truth;
+       amber = the game layer; red = bosses ONLY, never a user number. */
+    --game-accent: 38 92% 50%;   /* amber — the game layer */
+    --boss-accent: 0 72% 51%;    /* red — bosses only, NEVER user numbers */
+    --crt-intensity: 0;          /* 0 off · 0.4 ambient · 1 full */
+    --radius-panel: var(--radius);
+  }
+
+  /* Off mode is the pre-game app, pixel-identical: no CRT, no game accents in
+     use. These tokens exist so components/tests can read them uniformly. */
+  :root[data-mode="off"] {
+    --crt-intensity: 0;
+  }
+
+  :root[data-mode="ambient"] {
+    --crt-intensity: 0.4;
+  }
+
+  :root[data-mode="full"] {
+    --crt-intensity: 1;
   }
 
   .dark {
@@ -249,6 +274,16 @@
   .ledger-figures {
     font-family: "Spline Sans Mono", ui-monospace, monospace;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* v4 color/number law (§11): real money truth is NEVER game-decorated.
+     The `.figure` guard keeps glow/scanline filters off any money number in
+     every mode — game accents and CRT effects must never touch a user figure.
+     Applied to the existing ledger-figures class too. */
+  .figure,
+  .ledger-figures {
+    filter: none !important;
+    text-shadow: none !important;
   }
 
   /* A ruled ledger row: hairline below, manicule on hover */

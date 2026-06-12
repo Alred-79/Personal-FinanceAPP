@@ -23,6 +23,8 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 
 _S2S_HORIZONS = ("paycheck", "month", "week")
+# v4 package 02: the game intensity dial — one variable end to end.
+_GAME_MODES = ("off", "ambient", "full")
 
 
 class Preferences(BaseModel):
@@ -34,6 +36,8 @@ class Preferences(BaseModel):
     s2s_include_goals: bool = True
     s2s_buffer: float = 0.0  # dollars at the API boundary
     birth_year: Optional[int] = None
+    # v4 package 02: 'off' | 'ambient' | 'full'. Off = today's app exactly.
+    game_mode: str = "off"
 
 
 class AIConfig(BaseModel):
@@ -58,6 +62,7 @@ class PreferencesUpdate(BaseModel):
         default=None, ge=0, le=1_000_000_000, allow_inf_nan=False
     )
     birth_year: Optional[int] = Field(default=None, ge=1900, le=2100)
+    game_mode: Optional[str] = Field(default=None)
 
 
 def _to_preferences(user_row: UserORM) -> Preferences:
@@ -69,6 +74,7 @@ def _to_preferences(user_row: UserORM) -> Preferences:
         s2s_include_goals=bool(user_row.s2s_include_goals),
         s2s_buffer=cents_to_dollars(user_row.s2s_buffer or 0),
         birth_year=user_row.birth_year,
+        game_mode=user_row.game_mode or "off",
     )
 
 
@@ -106,6 +112,11 @@ async def update_preferences(
             status_code=422,
             detail=f"s2s_horizon must be one of {_S2S_HORIZONS}",
         )
+    if payload.game_mode is not None and payload.game_mode not in _GAME_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"game_mode must be one of {_GAME_MODES}",
+        )
 
     user_row = db.execute(
         select(UserORM).where(UserORM.id == current_user.id)
@@ -124,6 +135,10 @@ async def update_preferences(
         user_row.s2s_buffer = dollars_to_cents(payload.s2s_buffer)
     if "birth_year" in payload.model_fields_set:
         user_row.birth_year = payload.birth_year
+    if payload.game_mode is not None:
+        # A settings change is NOT a financial action — it emits no game events
+        # (XP hygiene, v4 Law 3). We just persist the new mode.
+        user_row.game_mode = payload.game_mode
     db.flush()
 
     return _to_preferences(user_row)

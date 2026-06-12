@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/useToast";
 import { useStore } from "@/store/store";
+import { IntensitySelector } from "@/components/custom/IntensitySelector/IntensitySelector";
 import api from "@/lib/api";
 
 /**
@@ -202,6 +203,12 @@ export default function Settings() {
               onSave={updateSavingsPercent}
             />
           </div>
+
+          <Card className="mt-6">
+            <CardContent className="pt-6">
+              <IntensitySelector />
+            </CardContent>
+          </Card>
 
           <Card className="mt-6">
             <CardHeader>

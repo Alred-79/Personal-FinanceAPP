@@ -1,0 +1,18 @@
+{
+  "nav.overview": "Overview",
+  "nav.accounts": "Accounts",
+  "nav.transactions": "Ledger",
+  "nav.budgets": "Budgets",
+  "nav.goals": "Goals",
+  "nav.forecast": "Forecast",
+  "nav.subscriptions": "Standing Orders",
+  "nav.settings": "Settings",
+  "settings.intensity.title": "Game intensity",
+  "settings.intensity.description": "Choose how much of the game layer you see. Off is pure finance.",
+  "settings.intensity.off": "Off",
+  "settings.intensity.ambient": "Ambient",
+  "settings.intensity.full": "Full",
+  "settings.intensity.off.desc": "Pure finance. No game layer at all.",
+  "settings.intensity.ambient.desc": "Gentle game touches; numbers stay plain.",
+  "settings.intensity.full.desc": "The full game layer, terminal styling and all."
+}

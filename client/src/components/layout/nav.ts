@@ -12,21 +12,25 @@ import {
 
 export interface NavItem {
   to: string;
+  /** The off-mode label (today's literal). Also the fallback if a term key is
+   * missing, and the source for `titleForPath`. */
   label: string;
+  /** The term-catalog key, so the visible label routes through `<Term/>`. */
+  termKey: string;
   icon: LucideIcon;
   /** The form / folio number engraved beside the entry in the index. */
   folio: string;
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { to: "/", label: "Overview", icon: LayoutDashboard, folio: "I" },
-  { to: "/accounts", label: "Accounts", icon: Wallet, folio: "II" },
-  { to: "/transactions", label: "Ledger", icon: ArrowLeftRight, folio: "III" },
-  { to: "/budgets", label: "Budgets", icon: PieChart, folio: "IV" },
-  { to: "/goals", label: "Goals", icon: Target, folio: "V" },
-  { to: "/forecast", label: "Forecast", icon: TrendingUp, folio: "VI" },
-  { to: "/subscriptions", label: "Standing Orders", icon: Repeat, folio: "VII" },
-  { to: "/settings", label: "Settings", icon: Settings, folio: "VIII" },
+  { to: "/", label: "Overview", termKey: "nav.overview", icon: LayoutDashboard, folio: "I" },
+  { to: "/accounts", label: "Accounts", termKey: "nav.accounts", icon: Wallet, folio: "II" },
+  { to: "/transactions", label: "Ledger", termKey: "nav.transactions", icon: ArrowLeftRight, folio: "III" },
+  { to: "/budgets", label: "Budgets", termKey: "nav.budgets", icon: PieChart, folio: "IV" },
+  { to: "/goals", label: "Goals", termKey: "nav.goals", icon: Target, folio: "V" },
+  { to: "/forecast", label: "Forecast", termKey: "nav.forecast", icon: TrendingUp, folio: "VI" },
+  { to: "/subscriptions", label: "Standing Orders", termKey: "nav.subscriptions", icon: Repeat, folio: "VII" },
+  { to: "/settings", label: "Settings", termKey: "nav.settings", icon: Settings, folio: "VIII" },
 ];
 
 /** A readable page title for the header, keyed by pathname. */

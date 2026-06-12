@@ -8,6 +8,7 @@ import { useStore } from "@/store/store";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS } from "./nav";
 import { Brandmark } from "./Brandmark";
+import { Term } from "@/components/custom/Term/Term";
 import Sidebar from "./Sidebar";
 
 interface HeaderProps {
@@ -73,7 +74,7 @@ export default function Header({
 
         {/* Desktop folio index */}
         <nav className="ml-3 hidden flex-1 items-stretch gap-0.5 lg:flex">
-          {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
+          {NAV_ITEMS.map(({ to, termKey, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -87,7 +88,7 @@ export default function Header({
               }
             >
               <Icon className="h-[15px] w-[15px] shrink-0 opacity-80" />
-              {label}
+              <Term k={termKey} />
             </NavLink>
           ))}
         </nav>

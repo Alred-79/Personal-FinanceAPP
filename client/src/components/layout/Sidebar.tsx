@@ -3,6 +3,7 @@ import { Building2, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS } from "./nav";
 import { Brandmark } from "./Brandmark";
+import { Term } from "@/components/custom/Term/Term";
 import { useStore } from "@/store/store";
 
 interface SidebarProps {
@@ -45,7 +46,7 @@ export default function Sidebar({
 
       {/* Folio index */}
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
-        {NAV_ITEMS.map(({ to, label, icon: Icon, folio }) => (
+        {NAV_ITEMS.map(({ to, termKey, icon: Icon, folio }) => (
           <NavLink
             key={to}
             to={to}
@@ -63,7 +64,7 @@ export default function Sidebar({
               {folio}
             </span>
             <Icon className="h-[16px] w-[16px] shrink-0" />
-            {label}
+            <Term k={termKey} />
           </NavLink>
         ))}
       </nav>

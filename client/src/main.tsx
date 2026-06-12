@@ -15,6 +15,8 @@ import AppShell from "./components/layout/AppShell.tsx";
 import ProtectedRoute from "./components/layout/ProtectedRoute.tsx";
 import ErrorBoundary from "./components/layout/ErrorBoundary.tsx";
 import { Toaster } from "@/components/ui/toaster";
+import { GameModeProvider } from "@/store/gameMode";
+import { ScanlineOverlay } from "@/components/custom/ScanlineOverlay/ScanlineOverlay";
 import { apiBase } from "@/lib/apiBase";
 
 // Wipe the assistant's history when the user closes the tab. `sendBeacon` is
@@ -27,9 +29,11 @@ window.addEventListener("beforeunload", () => {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>
-      <BrowserRouter>
-        <Toaster />
-        <Routes>
+      <GameModeProvider>
+        <BrowserRouter>
+          <Toaster />
+          <ScanlineOverlay />
+          <Routes>
           {/* Stands alone, no login needed */}
           <Route path="/login" element={<Login />} />
 
@@ -46,8 +50,9 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/settings" element={<Settings />} />
             </Route>
           </Route>
-        </Routes>
-      </BrowserRouter>
+          </Routes>
+        </BrowserRouter>
+      </GameModeProvider>
     </ErrorBoundary>
   </StrictMode>
 );

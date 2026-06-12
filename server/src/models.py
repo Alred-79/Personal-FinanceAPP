@@ -64,6 +64,8 @@ class User(BaseModel):
     disabled: bool | None = None
     spend_warning: int = 20
     savings_percent: int = 10
+    # v4 package 02: game intensity dial; 'off' keeps the app pure-finance.
+    game_mode: str = "off"
 
 
 class UserInDB(User):

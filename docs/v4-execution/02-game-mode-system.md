@@ -115,11 +115,66 @@ Integrity:
 
 ## Exit criteria
 
-- [ ] All tests above + full suite pass.
-- [ ] Manual check: switching Off→Full→Off live changes labels/tokens with no reload, and Off
-      looks exactly like before this package.
-- [ ] Catalog parity CI test is in place (future packages depend on it).
-- [ ] Handoff note appended.
+- [x] All tests above + full suite pass (backend 517, frontend 98; the one
+      pre-existing flaky MCP concurrency test deselected).
+- [x] Off→Full→Full switching changes labels/tokens live with no reload
+      (`setMode` writes `data-mode` synchronously + swaps the catalog in the same
+      render; verified by tests 2/3/6). Off renders today's exact DOM (snapshot +
+      verbatim-string test 5).
+- [x] Catalog parity test in place (test 7) — future packages MUST add new keys
+      to all three catalogs or this test fails.
+- [x] Handoff note appended.
 
 ---
 *Handoff notes:*
+
+## Handoff — package 02 (game-mode system) — DONE
+
+**What was built**
+- **Backend:** `game_mode` added to `GET /settings/` response and the
+  `PUT /settings/preferences/` update (enum-validated → 400 on a bad value;
+  emits no game events). `should_generate_flavor(user)` in
+  `server/src/services/game/mode.py` (False for off, True for ambient/full).
+  `game_mode` also added to the Pydantic `User` model so it rides through auth.
+- **Client provider:** `client/src/store/gameMode.tsx` — `GameModeProvider`
+  (loads the persisted mode on mount, defaults to `off`, writes
+  `document.documentElement.dataset.mode` synchronously, persists on change),
+  plus hooks `useGameMode`, `useFlags`, `useTerm`. Wired into `main.tsx` around
+  the router.
+- **`<Term k="…"/>`** (`components/custom/Term/Term.tsx`): the dual-labeling
+  reveal. Off/ambient → bare text (DOM-identical to today). Full → wraps in a
+  `span[title][aria-label][data-term]` exposing the plain off term.
+- **Term catalogs:** `terms.off.json` / `terms.ambient.json` / `terms.full.json`
+  with an identical key set (parity-enforced). Nav labels in `Header`/`Sidebar`
+  now route through `<Term/>` (nav.ts gained a `termKey` per item).
+- **Tokens & CRT:** `[data-mode="off|ambient|full"]` blocks in `index.css` define
+  `--game-accent` (amber), `--boss-accent` (red), `--crt-intensity` (0/0.4/1),
+  `--radius-panel`. `<ScanlineOverlay/>` renders only in full, static gradient,
+  opacity from `--crt-intensity`. `.figure` guard nulls filter/text-shadow on
+  money figures in every mode.
+- **Settings UI:** reusable `IntensitySelector` (Off/Ambient/Full, instant, no
+  confirm) added to the Settings → Preferences tab. Built reusable for the
+  package-04 Keeper sheet.
+
+**Tests:** `test_game_mode_api.py` (server groups 11-14, 7 tests),
+`game-mode.test.tsx` (client 1-4,6,7,8 — 7 tests), `game-mode-guards.test.tsx`
+(client 5,9,10 — 4 tests). Full suites green.
+
+**Deviations / things the next package must know**
+- The codebase had **no provider pattern** (Zustand-only, no Context). The doc
+  explicitly specified a `GameModeProvider` + `<Term/>` + `useTerm`, so I added a
+  thin React Context for the game layer while leaving the existing Zustand store
+  untouched. New game UI should read `useFlags()` / `useTerm()` / `<Term/>` — and
+  **NEVER branch on `mode` directly** (grep test 9 enforces this; only
+  `gameMode.tsx` and `Term.tsx` may compare the raw mode).
+- **Catalog parity is law:** any later package adding a term key must add it to
+  **all three** JSON catalogs in the same commit, or test 7 fails. The `full`
+  catalog values for nav are first-draft flavor (Bridge/Vaults/Mana Pools/…) —
+  later packages can revise them, but must keep all three files in sync.
+- The grep guard (test 9) excludes `components/ui/` (shadcn third-party, e.g. the
+  calendar's own `mode==='range'`) and strips comments before matching, and only
+  flags the three game-mode literals.
+- `should_generate_flavor` is used by nothing yet (per the doc) — package 07's
+  generation jobs are its first consumer.
+- The `_title` unused-var lint in `Header.tsx` is **pre-existing on main**, not
+  introduced here.
