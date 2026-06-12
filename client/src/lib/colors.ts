@@ -1,10 +1,16 @@
+/**
+ * Engraver's chart inks. These reference CSS variables so charts re-ink when
+ * the theme flips between Ledger Paper and Midnight Vault. `track` is the
+ * hairline ruling colour used for chart gridlines.
+ */
 export const chartColors = {
-  primary:   "hsl(150, 100%, 50%)",
-  secondary: "hsl(46, 100%, 50%)",
-  cyan:      "hsl(185, 100%, 50%)",
-  red:       "hsl(3, 100%, 60%)",
-  purple:    "hsl(290, 100%, 65%)",
-  orange:    "hsl(25, 100%, 55%)",
+  primary:   "hsl(var(--credit))",
+  secondary: "hsl(var(--gold))",
+  cyan:      "hsl(var(--chart-3))",
+  red:       "hsl(var(--debit))",
+  purple:    "hsl(var(--chart-5))",
+  orange:    "hsl(var(--chart-6))",
+  track:     "hsl(var(--rule) / 0.6)",
 } as const;
 
 /**

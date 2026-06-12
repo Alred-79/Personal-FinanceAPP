@@ -175,7 +175,8 @@ export default function Settings() {
     <>
       <PageHeader
         title="Settings"
-        description="Manage your preferences and account."
+        description="House rules for your ledger."
+        reference="Folio VIII · Standing Instructions"
       />
 
       <Tabs defaultValue="preferences">

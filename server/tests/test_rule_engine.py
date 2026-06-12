@@ -1,0 +1,375 @@
+"""Rules engine tests (v1 Layer B + the v2 categorize action).
+
+Covers: each action type, condition matching, idempotency (same tx twice fires
+once), priority ordering, round-up math, the creation-path hook, the earmark
+effect on Safe-to-Spend, and the API CRUD/preview surface.
+"""
+
+import json
+from datetime import date
+
+import pytest
+
+from server.src.db.models import (
+    Account,
+    Expense,
+    Goal,
+    Notification,
+    Rule,
+    RuleExecution,
+    User,
+)
+from server.src.services.rule_engine import RuleEngine, matches, roundup_cents
+
+
+# ---------------------------------------------------------------------------
+# Pure helpers
+# ---------------------------------------------------------------------------
+
+class TestRoundupMath:
+    def test_nearest_dollar(self):
+        assert roundup_cents(450, 100) == 50
+        assert roundup_cents(401, 100) == 99
+        assert roundup_cents(400, 100) == 0  # exact multiple → nothing
+
+    def test_nearest_five(self):
+        assert roundup_cents(450, 500) == 50
+        assert roundup_cents(1, 500) == 499
+
+
+class TestConditions:
+    TX = {
+        "id": 1,
+        "title": "Starbucks Coffee",
+        "amount": 4.50,
+        "category": "Food",
+        "account_id": 7,
+        "type": "expense",
+    }
+
+    def test_empty_matches_all(self):
+        assert matches([], self.TX) is True
+
+    def test_category_eq_and_in(self):
+        assert matches([{"field": "category", "op": "eq", "value": "food"}], self.TX)
+        assert matches(
+            [{"field": "category", "op": "in", "value": ["Travel", "Food"]}], self.TX
+        )
+        assert not matches(
+            [{"field": "category", "op": "eq", "value": "Travel"}], self.TX
+        )
+
+    def test_amount_thresholds(self):
+        assert matches([{"field": "amount", "op": "gt", "value": 4}], self.TX)
+        assert matches([{"field": "amount", "op": "lt", "value": 5}], self.TX)
+        assert not matches([{"field": "amount", "op": "gt", "value": 10}], self.TX)
+
+    def test_title_contains(self):
+        assert matches(
+            [{"field": "title", "op": "contains", "value": "starbucks"}], self.TX
+        )
+
+    def test_all_of_semantics(self):
+        conds = [
+            {"field": "category", "op": "eq", "value": "Food"},
+            {"field": "amount", "op": "gt", "value": 100},
+        ]
+        assert not matches(conds, self.TX)
+
+    def test_unknown_field_or_op_fails_closed(self):
+        assert not matches([{"field": "merchant", "op": "eq", "value": "x"}], self.TX)
+        assert not matches([{"field": "amount", "op": "between", "value": 1}], self.TX)
+
+
+# ---------------------------------------------------------------------------
+# Engine over the DB
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def rule_user(db_session):
+    user = User(
+        username="rule_user",
+        full_name="Rule User",
+        email="rule@example.com",
+        hashed_password="x",
+    )
+    db_session.add(user)
+    db_session.flush()
+    account = Account(name="Checking", type="checking", balance=100_000, user_id=user.id)
+    goal = Goal(
+        name="Vault", amount=50_000, date="2027-01-01", user_id=user.id, progress=0
+    )
+    db_session.add_all([account, goal])
+    db_session.flush()
+    return user, account, goal
+
+
+def _mk_rule(db_session, user, action_type, params=None, conditions=None, goal=None, priority=0, name="r"):
+    rule = Rule(
+        user_id=user.id,
+        name=name,
+        enabled=1,
+        conditions=json.dumps(conditions or []),
+        action_type=action_type,
+        action_params=json.dumps(params or {}),
+        target_kind="goal" if goal is not None else None,
+        target_id=goal.id if goal is not None else None,
+        priority=priority,
+    )
+    db_session.add(rule)
+    db_session.flush()
+    return rule
+
+
+TX = lambda **kw: {  # noqa: E731
+    "id": kw.get("id", 1),
+    "title": kw.get("title", "Latte"),
+    "amount": kw.get("amount", 4.50),
+    "date": "2026-03-10",
+    "category": kw.get("category", "Food"),
+    "account_id": kw.get("account_id", 1),
+    "type": kw.get("type", "expense"),
+}
+
+
+class TestActions:
+    def test_roundup_funds_goal(self, db_session, rule_user):
+        user, _, goal = rule_user
+        _mk_rule(db_session, user, "roundup", {"nearest": "1"}, goal=goal)
+        execs = RuleEngine(db_session).run_on_transaction(user.id, "expense", 1, TX())
+        assert len(execs) == 1
+        assert execs[0].amount_cents == 50  # 4.50 → 5.00
+        assert goal.progress == 50
+
+    def test_allocate_fixed_and_pct(self, db_session, rule_user):
+        user, _, goal = rule_user
+        _mk_rule(db_session, user, "allocate", {"amount": 2.0}, goal=goal, name="fixed")
+        _mk_rule(db_session, user, "allocate", {"pct": 10}, goal=goal, name="pct")
+        execs = RuleEngine(db_session).run_on_transaction(
+            user.id, "expense", 2, TX(id=2, amount=40.0)
+        )
+        assert sorted(e.amount_cents for e in execs) == [200, 400]
+        assert goal.progress == 600
+
+    def test_allocate_completes_goal(self, db_session, rule_user):
+        user, _, goal = rule_user
+        goal.progress = 49_900
+        _mk_rule(db_session, user, "allocate", {"amount": 5.0}, goal=goal)
+        RuleEngine(db_session).run_on_transaction(user.id, "expense", 3, TX(id=3))
+        assert goal.progress >= goal.amount
+        assert goal.completed == 1
+
+    def test_notify_writes_notification(self, db_session, rule_user):
+        user, _, _ = rule_user
+        _mk_rule(
+            db_session,
+            user,
+            "notify",
+            {"message": "big spend!"},
+            conditions=[{"field": "amount", "op": "gt", "value": 100}],
+        )
+        RuleEngine(db_session).run_on_transaction(
+            user.id, "expense", 4, TX(id=4, amount=250.0)
+        )
+        notes = db_session.query(Notification).filter_by(user_id=user.id).all()
+        assert len(notes) == 1
+        assert notes[0].type == "rule"
+        assert notes[0].message == "big spend!"
+
+    def test_categorize_recategorizes_expense(self, db_session, rule_user):
+        """v2: user-editable categorization rule."""
+        user, account, _ = rule_user
+        row = Expense(
+            title="UBER TRIP 123",
+            amount=1_550,
+            date="2026-03-10",
+            category="Other",
+            account_id=account.id,
+        )
+        db_session.add(row)
+        db_session.flush()
+        _mk_rule(
+            db_session,
+            user,
+            "categorize",
+            {"category": "Transport"},
+            conditions=[{"field": "title", "op": "contains", "value": "uber"}],
+        )
+        RuleEngine(db_session).run_on_transaction(
+            user.id,
+            "expense",
+            row.id,
+            TX(id=row.id, title=row.title, amount=15.50, category="Other"),
+        )
+        assert row.category == "Transport"
+
+    def test_roundup_exact_amount_noop(self, db_session, rule_user):
+        user, _, goal = rule_user
+        _mk_rule(db_session, user, "roundup", {"nearest": "1"}, goal=goal)
+        execs = RuleEngine(db_session).run_on_transaction(
+            user.id, "expense", 5, TX(id=5, amount=5.00)
+        )
+        assert execs[0].result == "noop"
+        assert goal.progress == 0
+
+
+class TestIdempotencyAndOrdering:
+    def test_same_tx_fires_once(self, db_session, rule_user):
+        user, _, goal = rule_user
+        _mk_rule(db_session, user, "roundup", {"nearest": "1"}, goal=goal)
+        engine = RuleEngine(db_session)
+        engine.run_on_transaction(user.id, "expense", 10, TX(id=10))
+        engine.run_on_transaction(user.id, "expense", 10, TX(id=10))  # replay
+        assert goal.progress == 50  # not 100
+        assert db_session.query(RuleExecution).count() == 1
+
+    def test_same_id_different_type_both_fire(self, db_session, rule_user):
+        user, _, _ = rule_user
+        _mk_rule(db_session, user, "notify", {})
+        engine = RuleEngine(db_session)
+        engine.run_on_transaction(user.id, "expense", 11, TX(id=11))
+        engine.run_on_transaction(user.id, "income", 11, TX(id=11, type="income"))
+        assert db_session.query(RuleExecution).count() == 2
+
+    def test_priority_order_and_disabled_skipped(self, db_session, rule_user):
+        user, _, goal = rule_user
+        low = _mk_rule(db_session, user, "notify", {}, priority=1, name="low")
+        high = _mk_rule(db_session, user, "notify", {}, priority=9, name="high")
+        off = _mk_rule(db_session, user, "notify", {}, priority=99, name="off")
+        off.enabled = 0
+        db_session.flush()
+        execs = RuleEngine(db_session).run_on_transaction(
+            user.id, "expense", 12, TX(id=12)
+        )
+        assert [e.rule_id for e in execs] == [high.id, low.id]
+
+
+class TestCreationHookAndEarmarks:
+    """End-to-end through the API: the single creation path runs the engine."""
+
+    def _setup(self, client):
+        resp = client.post(
+            "/api/signup/",
+            json={
+                "username": "rulehook",
+                "email": "rulehook@example.com",
+                "full_name": "Rule Hook",
+                "password": "Test-password1",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
+        client.cookies.clear()
+        client.post(
+            "/api/accounts/",
+            json={"name": "Checking", "type": "checking", "balance": 1000.0},
+            headers=headers,
+        )
+        acct = client.get("/api/accounts/", headers=headers).json()[-1]["id"]
+        client.post(
+            "/api/goals/",
+            json={"name": "Vault", "amount": 500.0, "date": "2027-01-01"},
+            headers=headers,
+        )
+        goal = client.get("/api/goals/", headers=headers).json()[-1]
+        return headers, acct, goal
+
+    def test_roundup_via_api_and_safe_to_spend_drops(self, client):
+        headers, acct, goal = self._setup(client)
+
+        resp = client.post(
+            "/api/rules/",
+            json={
+                "name": "Round up purchases",
+                "action_type": "roundup",
+                "action_params": {"nearest": "1"},
+                "target_kind": "goal",
+                "target_id": goal["id"],
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+
+        before = client.get("/api/spend/safe-to-spend/", headers=headers).json()
+
+        resp = client.post(
+            "/api/expenses/",
+            json={
+                "account_id": acct,
+                "title": "Latte",
+                "amount": 4.25,
+                "date": "2026-03-10",
+                "category": "Food",
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+
+        goal_after = client.get("/api/goals/", headers=headers).json()[-1]
+        assert goal_after["progress"] == 0.75  # 4.25 → 5.00
+
+        # Earmark wiring: the balance drops by the expense and the earmark
+        # bites on top of it. (The goal-contribution component shrinks a hair
+        # as progress rises, so the total drop sits between the expense alone
+        # and expense + earmark.)
+        after = client.get("/api/spend/safe-to-spend/", headers=headers).json()
+        assert after["breakdown"]["goal_earmarks"] == 0.75
+        assert (
+            after["breakdown"]["current_balance"]
+            == before["breakdown"]["current_balance"] - 4.25
+        )
+        drop = round(before["available"] - after["available"], 2)
+        assert 4.25 < drop <= 5.00
+
+    def test_rule_crud_validation_and_preview(self, client):
+        headers, acct, goal = self._setup(client)
+
+        # allocate without a target → 422
+        resp = client.post(
+            "/api/rules/",
+            json={"name": "bad", "action_type": "allocate", "action_params": {"amount": 1}},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+        # unknown action type → 422
+        resp = client.post(
+            "/api/rules/",
+            json={"name": "bad", "action_type": "teleport"},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+        # someone else's goal → 404
+        resp = client.post(
+            "/api/rules/",
+            json={
+                "name": "bad",
+                "action_type": "allocate",
+                "action_params": {"amount": 1},
+                "target_kind": "goal",
+                "target_id": goal["id"] + 999,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 404
+
+        # preview is a dry run: reports the sweep, writes nothing
+        resp = client.post(
+            "/api/rules/preview/",
+            json={
+                "action_type": "roundup",
+                "action_params": {"nearest": "5"},
+                "conditions": [{"field": "category", "op": "eq", "value": "Food"}],
+                "sample_txns": [
+                    {"id": 1, "title": "Latte", "amount": 4.50, "category": "Food", "type": "expense"},
+                    {"id": 2, "title": "Gas", "amount": 30.0, "category": "Transport", "type": "expense"},
+                ],
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        preview = resp.json()
+        assert len(preview) == 1  # only the Food txn matches
+        assert preview[0]["amount"] == 0.50
+        assert client.get("/api/goals/", headers=headers).json()[-1]["progress"] == 0

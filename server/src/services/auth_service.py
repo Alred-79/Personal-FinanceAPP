@@ -8,6 +8,7 @@ What changed from the bearer only version:
 """
 
 import hashlib
+from uuid import uuid4
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -168,7 +169,10 @@ class AuthService:
             expires_delta
             or timedelta(minutes=settings.access_token_expire_minutes)
         )
-        to_encode.update({"exp": expire})
+        # ``jti`` makes every token unique even when two are minted within the
+        # same second (same sub + same exp would otherwise collide byte for
+        # byte, e.g. a login immediately followed by a refresh).
+        to_encode.update({"exp": expire, "jti": uuid4().hex})
         return jwt.encode(to_encode, self.SECRET_KEY, algorithm=self.ALGORITHM)
 
     # -- Refresh tokens -----------------------------------------------------

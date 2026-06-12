@@ -6,7 +6,10 @@ and rollback in ``get_db`` to stay atomic, so there's no manual
 ``BEGIN TRANSACTION`` or ``COMMIT`` anywhere.
 """
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from typing import Annotated
@@ -18,6 +21,7 @@ from server.src.db.models import (
     Account as AccountORM,
     Expense as ExpenseORM,
     Income as IncomeORM,
+    Token as TokenORM,
 )
 from server.src.money import dollars_to_cents, cents_to_dollars
 
@@ -147,6 +151,86 @@ async def update_account(
     existing.type = account.type
     existing.balance = dollars_to_cents(account.balance)
     return {"message": "Account updated successfully"}
+
+
+class TransferIn(BaseModel):
+    """A real intra-app transfer between two manually-managed accounts (v2)."""
+
+    from_account_id: int
+    to_account_id: int
+    amount: float = Field(gt=0, allow_inf_nan=False, le=1_000_000_000_000)
+    note: str = Field(default="", max_length=200)
+
+
+def _is_plaid_managed(db: Session, user_id: int, account_name: str) -> bool:
+    """Plaid links Token ↔ Account by shared name under the same user."""
+    return (
+        db.execute(
+            select(TokenORM.id).where(
+                TokenORM.user_id == user_id, TokenORM.name == account_name
+            )
+        ).scalar_one_or_none()
+        is not None
+    )
+
+
+@router.post("/transfer/")
+async def transfer_between_accounts(
+    payload: TransferIn,
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """Move money between two of the user's **manually-managed** accounts.
+
+    Plaid-synced accounts are refused: the next sync would overwrite the local
+    balance and silently undo the transfer. External transfers stay out
+    entirely (money-transmission territory). Both legs move in one DB
+    transaction (``get_db`` commits/rolls back the whole request).
+    """
+    if payload.from_account_id == payload.to_account_id:
+        raise HTTPException(status_code=422, detail="Cannot transfer to the same account")
+
+    accounts = {}
+    for label, account_id in (
+        ("from", payload.from_account_id),
+        ("to", payload.to_account_id),
+    ):
+        row = db.execute(
+            select(AccountORM).where(
+                AccountORM.id == account_id,
+                AccountORM.user_id == current_user.id,
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"Account ({label}) not found")
+        if _is_plaid_managed(db, current_user.id, row.name):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"“{row.name}” is synced from your bank; transfers are only "
+                    "supported between manually-managed accounts."
+                ),
+            )
+        accounts[label] = row
+
+    amount_cents = dollars_to_cents(payload.amount)
+    if accounts["from"].balance < amount_cents:
+        raise HTTPException(status_code=422, detail="Insufficient balance")
+
+    now = datetime.now()
+    accounts["from"].balance -= amount_cents
+    accounts["to"].balance += amount_cents
+    accounts["from"].last_updated = now
+    accounts["to"].last_updated = now
+    db.flush()
+
+    return {
+        "message": "Transfer completed",
+        "from": _account_to_dict(accounts["from"]),
+        "to": _account_to_dict(accounts["to"]),
+    }
 
 
 @router.delete("/{id}/")

@@ -8,6 +8,7 @@ import Transactions from "./pages/Transactions/Transactions.tsx";
 import Goals from "./pages/Goals/Goals.tsx";
 import Budgets from "./pages/Budgets/Budgets.tsx";
 import Subscriptions from "./pages/Subscriptions/Subscriptions.tsx";
+import Forecast from "./pages/Forecast/Forecast.tsx";
 import Login from "./pages/Login/Login.tsx";
 import Settings from "./pages/Settings/Settings.tsx";
 import AppShell from "./components/layout/AppShell.tsx";
@@ -41,6 +42,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/goals" element={<Goals />} />
               <Route path="/budgets" element={<Budgets />} />
               <Route path="/subscriptions" element={<Subscriptions />} />
+              <Route path="/forecast" element={<Forecast />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
           </Route>

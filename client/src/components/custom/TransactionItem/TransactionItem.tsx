@@ -1,23 +1,16 @@
 import { Transaction } from "@/types";
-import {
-  House,
-  Utensils,
-  Bus,
-  Droplet,
-  Drama,
-  Trash2,
-  Briefcase,
-  Hammer,
-  Store,
-  ArrowLeftRight,
-  Plane,
-  Shapes,
-} from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { categoryIcon } from "@/lib/categoryIcon";
+import { categoryColor } from "@/lib/format";
 import { useIsMobile } from "@/hooks/responsive";
-import styles from "./TransactionItem.module.css";
 
+/**
+ * A single posting in the ledger: an engraved category glyph, the entry's
+ * description and date, and the amount set in red (debit) or green (credit)
+ * ink, right-aligned with a manicule that points on hover. The whole thing
+ * sits on a hairline ledger rule.
+ */
 function TransactionItem({
   transaction,
   onDelete,
@@ -27,95 +20,66 @@ function TransactionItem({
   onDelete: (() => void) | null;
   style?: React.CSSProperties;
 }) {
-  const [isHovered, setIsHovered] = useState(false);
   const isMobile = useIsMobile();
   const [isSelected, setIsSelected] = useState(false);
+  const Icon = categoryIcon(transaction.category);
+  const isIncome = transaction.type === "income";
+  const tint = transaction.backgroundColor || categoryColor(transaction.category);
 
-  const handleClick = () => {
-    if (isMobile) {
-      setIsSelected(!isSelected);
-    }
-  };
+  const showDelete =
+    onDelete !== null && (isMobile ? isSelected : false);
 
   return (
     <div
       style={style}
-      className={styles.container}
-      onMouseEnter={() => !isMobile && setIsHovered(true)}
-      onMouseLeave={() => !isMobile && setIsHovered(false)}
-      onClick={handleClick}
+      className="ledger-row group flex items-center gap-3 px-1.5 py-2.5"
+      onClick={() => isMobile && setIsSelected((s) => !s)}
     >
-      <div className={styles.flexRow}>
-        {transaction.category === "Housing" && (
-          <House style={{ color: transaction.backgroundColor }} />
-        )}
-        {(transaction.category === "Food" ||
-          transaction.category === "Food and Drink") && (
-          <Utensils style={{ color: transaction.backgroundColor }} />
-        )}
-        {transaction.category === "Transportation" && (
-          <Bus style={{ color: transaction.backgroundColor }} />
-        )}
-        {transaction.category === "Utilities" && (
-          <Droplet style={{ color: transaction.backgroundColor }} />
-        )}
-        {(transaction.category === "Entertainment" ||
-          transaction.category === "Recreation") && (
-          <Drama style={{ color: transaction.backgroundColor }} />
-        )}
-        {transaction.category === "Work" && (
-          <Briefcase style={{ color: transaction.backgroundColor }} />
-        )}
-        {transaction.category === "Service" && (
-          <Hammer style={{ color: transaction.backgroundColor }} />
-        )}
-        {transaction.category === "Shops" && (
-          <Store style={{ color: transaction.backgroundColor }} />
-        )}
-        {transaction.category === "Transfer" && (
-          <ArrowLeftRight style={{ color: transaction.backgroundColor }} />
-        )}
-        {transaction.category === "Travel" && (
-          <Plane style={{ color: transaction.backgroundColor }} />
-        )}
-        {transaction.category === "Other" && (
-          <Shapes style={{ color: transaction.backgroundColor }} />
-        )}
-        <div className={styles.flexCol}>
-          <p className={styles.titleText}>{transaction.title}</p>
-          <p className={styles.dateText}>{transaction.date}</p>
-        </div>
+      <span
+        className="grid h-9 w-9 shrink-0 place-items-center border border-rule-strong/40 bg-card"
+        style={{ color: tint }}
+      >
+        <Icon className="h-[18px] w-[18px]" />
+      </span>
+
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-sans text-[15px] font-medium text-foreground">
+          {transaction.title}
+        </p>
+        <p className="font-mono text-[11px] text-muted-foreground">
+          {transaction.date}
+          <span className="mx-1.5 text-rule-strong/50">·</span>
+          <span className="uppercase tracking-[0.1em]">{transaction.category}</span>
+        </p>
       </div>
-      <div className={styles.amountContainer}>
-        <p
-          className={styles.amountText}
-          style={{
-            color:
-              transaction.type === "income"
-                ? "hsl(var(--success))"
-                : "hsl(var(--destructive))",
+
+      <span className="manicule mr-1 hidden text-sm sm:inline" aria-hidden="true">
+        ☞
+      </span>
+
+      <p
+        className={`ledger-figures shrink-0 text-base font-medium tabular-nums ${
+          isIncome ? "ink-credit" : "ink-debit"
+        }`}
+      >
+        {isIncome ? "+" : "−"}${transaction.amount.toFixed(2)}
+      </p>
+
+      {onDelete !== null && (
+        <button
+          aria-label="Delete entry"
+          className={`grid h-7 w-7 shrink-0 place-items-center text-muted-foreground transition-all hover:text-debit ${
+            showDelete ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          }`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+            if (isMobile) setIsSelected(false);
           }}
         >
-          {transaction.type === "income" ? "+" : "-"}$
-          {transaction.amount.toFixed(2)}
-        </p>
-        {onDelete !== null && ((!isMobile && isHovered) || (isMobile && isSelected)) && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className={styles.deleteButton}
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-              if (isMobile) {
-                setIsSelected(false);
-              }
-            }}
-          >
-            <Trash2 className="text-destructive" size={24} />
-          </Button>
-        )}
-      </div>
+          <Trash2 className="h-[15px] w-[15px]" />
+        </button>
+      )}
     </div>
   );
 }

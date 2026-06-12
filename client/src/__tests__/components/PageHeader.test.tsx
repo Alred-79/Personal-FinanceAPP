@@ -8,9 +8,11 @@ describe("PageHeader", () => {
     expect(screen.getByText("Overview")).toBeInTheDocument();
   });
 
-  it("renders the >_ terminal prefix", () => {
+  it("renders the department eyebrow", () => {
     render(<PageHeader title="Overview" />);
-    expect(screen.getByText(">_")).toBeInTheDocument();
+    expect(
+      screen.getByText(/department of personal accounts/i)
+    ).toBeInTheDocument();
   });
 
   it("renders description when provided", () => {
@@ -28,9 +30,9 @@ describe("PageHeader", () => {
     expect(screen.getByRole("button", { name: "Add" })).toBeInTheDocument();
   });
 
-  it("renders the blinking cursor character", () => {
-    render(<PageHeader title="T" />);
-    expect(screen.getByText("▋")).toBeInTheDocument();
+  it("renders the reference line when provided", () => {
+    render(<PageHeader title="T" reference="Form 1040-A" />);
+    expect(screen.getByText(/form 1040-a/i)).toBeInTheDocument();
   });
 
   it("matches snapshot", () => {

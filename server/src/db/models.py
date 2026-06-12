@@ -44,6 +44,16 @@ class User(Base):
     disabled: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     spend_warning: Mapped[int] = mapped_column(Integer, default=20)
     savings_percent: Mapped[int] = mapped_column(Integer, default=10)
+    # Safe-to-Spend configuration (v1). Each component of the number is
+    # config-gated; ints are 0/1 flags (SQLite has no native bool) and the
+    # buffer is integer cents like every money column.
+    s2s_horizon: Mapped[str] = mapped_column(String, nullable=False, default="paycheck")  # 'paycheck' | 'month' | 'week'
+    s2s_include_income: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    s2s_include_goals: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    s2s_buffer: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # stored as cents
+    # v4 enabler (see docs/v3.md → "v1/v2 enablers"): nullable, unused by v1
+    # logic; unlocks percentile/cohort mechanics later with no migration.
+    birth_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     accounts = relationship(
         "Account", back_populates="user", cascade="all, delete-orphan"
@@ -71,6 +81,7 @@ class User(Base):
     mcp_keys = relationship(
         "MCPKey", back_populates="user", cascade="all, delete-orphan"
     )
+    rules = relationship("Rule", back_populates="user", cascade="all, delete-orphan")
 
 
 class Account(Base):
@@ -123,6 +134,7 @@ class Income(Base):
     amount: Mapped[int] = mapped_column(Integer, nullable=False)  # stored as cents
     date: Mapped[str] = mapped_column(String, nullable=False)
     category: Mapped[str] = mapped_column(String, nullable=False)
+    recurrence: Mapped[Optional[str]] = mapped_column(String)  # mirrors Expense.recurrence
     plaid_transaction_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # Plaid's own dedup key
     account_id: Mapped[int] = mapped_column(
         Integer,
@@ -325,6 +337,73 @@ class UsedActionToken(Base):
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
 
     user = relationship("User", back_populates="used_action_tokens")
+
+
+class Rule(Base):
+    """An event-driven automation rule (v1 Layer B).
+
+    ``conditions`` and ``action_params`` are JSON-serialized text. The target is
+    deliberately generic — ``target_kind`` (``'goal'`` today) plus ``target_id``
+    — so later layers (v4 gamification: ``target_kind='liability'``) need no
+    migration. ``enabled`` is a 0/1 int flag.
+    """
+
+    __tablename__ = "rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    enabled: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    conditions: Mapped[str] = mapped_column(String, nullable=False, default="[]")  # JSON list of predicates
+    action_type: Mapped[str] = mapped_column(String, nullable=False)  # 'notify' | 'allocate' | 'roundup' | 'categorize'
+    action_params: Mapped[str] = mapped_column(String, nullable=False, default="{}")  # JSON object
+    target_kind: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # 'goal' | (v4: 'liability', …)
+    target_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+
+    user = relationship("User", back_populates="rules")
+    executions = relationship(
+        "RuleExecution", back_populates="rule", cascade="all, delete-orphan"
+    )
+
+
+class RuleExecution(Base):
+    """Idempotency log for rule firings.
+
+    The unique ``(rule_id, tx_type, tx_id)`` constraint is what keeps re-imports
+    and re-syncs from double-firing a money-moving rule. Storing ``action_type``
+    + ``amount_cents`` + ``fired_at`` makes this log double as the v4
+    automated-save game-event source — no extra table.
+    """
+
+    __tablename__ = "rule_executions"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "tx_type", "tx_id", name="uq_rule_exec_tx"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    rule_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("rules.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tx_type: Mapped[str] = mapped_column(String, nullable=False)  # 'expense' | 'income'
+    tx_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    fired_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+    action_type: Mapped[str] = mapped_column(String, nullable=False)
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    result: Mapped[str] = mapped_column(String, nullable=False, default="ok")
+
+    rule = relationship("Rule", back_populates="executions")
 
 
 class MCPKey(Base):

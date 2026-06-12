@@ -8,21 +8,21 @@ import { useStore } from "@/store/store";
 
 describe("NetWorthCard", () => {
   beforeEach(() => {
-    (useStore as ReturnType<typeof vi.fn>).mockReturnValue({ netWorth: [] });
+    (useStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ netWorth: [] });
   });
 
   it("renders without crashing with empty netWorth", () => {
     render(<NetWorthCard />);
-    expect(screen.getByText(/no snapshots/i)).toBeInTheDocument();
+    expect(screen.getByText(/no snapshots recorded/i)).toBeInTheDocument();
   });
 
-  it("shows empty state text when netWorth is empty", () => {
+  it("shows the card title even when empty", () => {
     render(<NetWorthCard />);
-    expect(screen.getByText("-- no snapshots --")).toBeInTheDocument();
+    expect(screen.getByText(/net worth/i)).toBeInTheDocument();
   });
 
   it("shows the latest net worth value when data is present", () => {
-    (useStore as ReturnType<typeof vi.fn>).mockReturnValue({
+    (useStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       netWorth: [
         { date: "2026-05-01", total: 1200 },
         { date: "2026-06-01", total: 1500 },
@@ -33,7 +33,7 @@ describe("NetWorthCard", () => {
   });
 
   it("renders a recharts svg when data is present", () => {
-    (useStore as ReturnType<typeof vi.fn>).mockReturnValue({
+    (useStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       netWorth: [{ date: "2026-06-01", total: 1000 }],
     });
     const { container } = render(<NetWorthCard />);
@@ -46,7 +46,7 @@ describe("NetWorthCard", () => {
   });
 
   it("uses the last point total when multiple data points exist", () => {
-    (useStore as ReturnType<typeof vi.fn>).mockReturnValue({
+    (useStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       netWorth: [
         { date: "2026-01-01", total: 500 },
         { date: "2026-06-01", total: 9999 },

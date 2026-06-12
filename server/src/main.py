@@ -36,6 +36,8 @@ from server.src.routers.receipts import router as receipts_router
 from server.src.routers.forecast import router as forecast_router
 from server.src.routers.settings import router as settings_router
 from server.src.routers.mcp_keys import router as mcp_keys_router
+from server.src.routers.rules import router as rules_router
+from server.src.routers.analytics import router as analytics_router
 
 # ---------------------------------------------------------------------------
 # MCP surface (ships dark by default: settings.mcp_enabled = False)
@@ -144,6 +146,8 @@ primary.include_router(receipts_router)
 primary.include_router(forecast_router)
 primary.include_router(settings_router)
 primary.include_router(mcp_keys_router)
+primary.include_router(rules_router)
+primary.include_router(analytics_router)
 app.include_router(primary)
 
 

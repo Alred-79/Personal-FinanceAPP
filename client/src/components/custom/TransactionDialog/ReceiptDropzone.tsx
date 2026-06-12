@@ -83,11 +83,11 @@ export function ReceiptDropzone({ onScanned, onScanning }: ReceiptDropzoneProps)
       onDrop={onDrop}
       disabled={scanning}
       aria-busy={scanning}
-      className={`flex w-full items-center justify-center gap-2 border-2 border-dashed px-4 py-3 text-sm font-medium transition-colors ${
+      className={`flex w-full items-center justify-center gap-2 rounded-none border border-dashed px-4 py-3 font-sans text-sm font-medium transition-colors ${
         dragActive
-          ? "border-primary bg-primary/10 text-primary"
-          : "border-input text-muted-foreground hover:border-primary hover:text-primary"
-      } shadow-brutal-sm disabled:cursor-not-allowed disabled:opacity-70`}
+          ? "border-gold bg-gold/10 text-gold"
+          : "border-rule-strong/50 text-muted-foreground hover:bg-wash hover:text-foreground"
+      } shadow-plate disabled:cursor-not-allowed disabled:opacity-70`}
     >
       {scanning ? (
         <>

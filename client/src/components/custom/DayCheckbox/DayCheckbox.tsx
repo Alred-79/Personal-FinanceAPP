@@ -19,14 +19,12 @@ function DayCheckbox({ value, selected, onChange }: DayCheckboxProps) {
   return (
     <Button
       type="button"
-      style={{
-        backgroundColor: isSelected
-          ? "hsl(var(--success))"
-          : "hsl(var(--secondary))",
-        color: isSelected
-          ? "hsl(var(--success-foreground))"
-          : "hsl(var(--secondary-foreground))",
-      }}
+      variant={isSelected ? "default" : "secondary"}
+      className={
+        isSelected
+          ? "border-gold bg-gold text-background hover:bg-gold/90"
+          : "text-muted-foreground hover:bg-wash"
+      }
       onClick={handleClick}
     >
       {value}

@@ -138,27 +138,24 @@ export function TransactionDialog({
               <Checkbox
                 id="income-mode"
                 checked={isIncome}
-                onCheckedChange={(checked) => {
-                  setIsIncome(checked as boolean);
-                  if (checked) {
-                    setRecurrence(undefined);
-                  }
-                }}
+                onCheckedChange={(checked) => setIsIncome(checked as boolean)}
                 className={styles.incomeCheckbox}
-                disabled={recurrence !== undefined && recurrence !== "unset"}
               />
-              <Label htmlFor="income-mode">Income</Label>
+              <Label
+                htmlFor="income-mode"
+                className={isIncome ? "text-credit" : undefined}
+              >
+                Income
+              </Label>
             </div>
+            {/* Recurrence applies to income too (v1): a recurring paycheck is
+                what anchors the forecast and the Safe-to-Spend horizon. */}
             <div className={styles.selectContainer}>
               <Select
                 value={recurrence}
-                onValueChange={(value) => {
-                  setRecurrence(value === "unset" ? undefined : value);
-                  if (value !== "unset") {
-                    setIsIncome(false);
-                  }
-                }}
-                disabled={isIncome}
+                onValueChange={(value) =>
+                  setRecurrence(value === "unset" ? undefined : value)
+                }
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select frequency (optional)" />
@@ -191,14 +188,22 @@ export function TransactionDialog({
               Amount
             </label>
             <div className={styles.amountInputWrapper}>
-              <span className={styles.currencySymbol}>$</span>
+              <span
+                className={`${styles.currencySymbol} font-mono text-lg ${
+                  isIncome ? "text-credit" : "text-debit"
+                }`}
+              >
+                $
+              </span>
               <Input
                 id="amount"
                 type="number"
                 step="0.01"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className={styles.amountInput}
+                className={`${styles.amountInput} ledger-figures h-12 text-xl ${
+                  isIncome ? "text-credit" : "text-debit"
+                }`}
                 required
               />
             </div>

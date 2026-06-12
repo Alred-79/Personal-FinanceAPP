@@ -1,31 +1,56 @@
 import { ReactNode } from "react";
+import { GuillocheBand } from "@/components/engraving/Guilloche";
 
 interface PageHeaderProps {
   title: string;
   description?: string;
   /** Optional actions rendered on the right (e.g. a "New" button). */
   actions?: ReactNode;
+  /** Tiny line under the title — a form number, edition, etc. */
+  reference?: string;
 }
 
-/** Consistent page title block used at the top of each page's content. */
+/**
+ * The masthead of a printed financial document: a smallcaps department line,
+ * an engraved serif title, and a woven guilloché band ruling it off from the
+ * page body. Every page opens like an official form.
+ */
 export default function PageHeader({
   title,
   description,
   actions,
+  reference,
 }: PageHeaderProps) {
   return (
-    <div className="mb-6 flex flex-col gap-3 border-b-4 border-border pb-4 sm:flex-row sm:items-end sm:justify-between">
-      <div className="space-y-1">
-        <h2 className="font-mono text-3xl font-bold uppercase tracking-tight md:text-4xl flex items-center gap-2">
-          <span className="text-primary select-none">&gt;_</span>
-          {title}
-          <span className="text-primary animate-terminal-blink ml-1">▋</span>
-        </h2>
-        {description && (
-          <p className="text-sm font-mono text-muted-foreground">{description}</p>
+    <header className="mb-8 animate-rise-in">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-1.5">
+          <p className="dept-label flex items-center gap-2">
+            <span className="text-gold">§</span>
+            Department of Personal Accounts
+            {reference && (
+              <span className="text-muted-foreground/60 normal-case tracking-normal">
+                · {reference}
+              </span>
+            )}
+          </p>
+          <h1 className="font-display text-4xl font-semibold leading-[0.95] tracking-tight md:text-5xl">
+            {title}
+          </h1>
+          {description && (
+            <p className="max-w-xl font-sans text-sm text-muted-foreground">
+              {description}
+            </p>
+          )}
+        </div>
+        {actions && (
+          <div className="flex flex-wrap items-center gap-2">{actions}</div>
         )}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
-    </div>
+
+      <div className="mt-5 text-gold/70">
+        <GuillocheBand height={18} waves={4} seed={title.length + 2} />
+      </div>
+    </header>
   );
 }

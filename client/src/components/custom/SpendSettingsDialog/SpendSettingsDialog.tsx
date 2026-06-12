@@ -8,6 +8,14 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useState, useEffect } from "react";
 import { SettingsIcon } from "lucide-react";
 import { useStore } from "@/store/store";
@@ -18,6 +26,12 @@ interface SpendSettingsDialogProps {
   onSavingsPercentChange: (savingsPercent: number) => void;
 }
 
+/**
+ * SafeToSpend.Settings — the gear behind the one number, sectioned into
+ * *Horizon* (what the number is measured against), *What counts* (which
+ * components move it), and *Savings* (the original warning/savings knobs).
+ * One dialog; no settings page.
+ */
 export function SpendSettingsDialog({
   onWarningPositionChange,
   onSavingsPercentChange,
@@ -27,33 +41,47 @@ export function SpendSettingsDialog({
   const {
     warningPosition,
     savingsPercent,
+    s2sPrefs,
     settingsLoaded,
     fetchUserSettings,
     updateWarningPosition,
     updateSavingsPercent,
+    updateS2sPrefs,
   } = useStore();
 
   const [position, setPosition] = useState(warningPosition);
   const [savings, setSavings] = useState(savingsPercent);
+  const [horizon, setHorizon] = useState(s2sPrefs.s2s_horizon);
+  const [includeIncome, setIncludeIncome] = useState(s2sPrefs.s2s_include_income);
+  const [includeGoals, setIncludeGoals] = useState(s2sPrefs.s2s_include_goals);
+  const [buffer, setBuffer] = useState(s2sPrefs.s2s_buffer);
 
-  // Load settings on first mount if not already loaded
   useEffect(() => {
     if (!settingsLoaded) {
       fetchUserSettings();
     }
   }, [settingsLoaded, fetchUserSettings]);
 
-  // Update local state when store values change
   useEffect(() => {
     setPosition(warningPosition);
     setSavings(savingsPercent);
-  }, [warningPosition, savingsPercent]);
+    setHorizon(s2sPrefs.s2s_horizon);
+    setIncludeIncome(s2sPrefs.s2s_include_income);
+    setIncludeGoals(s2sPrefs.s2s_include_goals);
+    setBuffer(s2sPrefs.s2s_buffer);
+  }, [warningPosition, savingsPercent, s2sPrefs]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await updateWarningPosition(position);
       await updateSavingsPercent(savings);
+      await updateS2sPrefs({
+        s2s_horizon: horizon,
+        s2s_include_income: includeIncome,
+        s2s_include_goals: includeGoals,
+        s2s_buffer: buffer,
+      });
       onWarningPositionChange(position);
       onSavingsPercentChange(savings);
       setOpen(false);
@@ -61,6 +89,12 @@ export function SpendSettingsDialog({
       console.error("Failed to update settings:", error);
     }
   };
+
+  const sectionTitle = (text: string) => (
+    <p className="border-b border-rule pb-1 font-sans text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+      {text}
+    </p>
+  );
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -70,12 +104,68 @@ export function SpendSettingsDialog({
         </Button>
       </DialogTrigger>
       <DialogContent
-        className={`${styles.dialogContent} md:!scale-100 !scale-[0.85] !origin-center md:translate-y-0 !-translate-y-[200%]`}
+        className={`${styles.dialogContent} md:!scale-100 !scale-[0.85] !origin-center max-h-[85vh] overflow-y-auto`}
       >
         <DialogHeader>
-          <DialogTitle>Spend Settings</DialogTitle>
+          <DialogTitle>Safe-to-Spend Settings</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className={styles.form}>
+          {/* ── Horizon ─────────────────────────────────────────────── */}
+          {sectionTitle("Horizon")}
+          <div className={styles.inputGroup}>
+            <Label htmlFor="s2s-horizon">Measure until</Label>
+            <Select
+              value={horizon}
+              onValueChange={(v) => setHorizon(v as typeof horizon)}
+            >
+              <SelectTrigger id="s2s-horizon">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="paycheck">Next paycheck</SelectItem>
+                <SelectItem value="month">End of month</SelectItem>
+                <SelectItem value="week">One week</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className={styles.helpText}>
+              The number is what's safe to spend between now and this point.
+              "Next paycheck" needs a recurring income; it falls back to end of
+              month otherwise.
+            </p>
+          </div>
+
+          {/* ── What counts ────────────────────────────────────────── */}
+          {sectionTitle("What counts")}
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="s2s-income"
+              checked={includeIncome}
+              onCheckedChange={(c) => setIncludeIncome(c as boolean)}
+            />
+            <Label htmlFor="s2s-income">Add projected income</Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="s2s-goals"
+              checked={includeGoals}
+              onCheckedChange={(c) => setIncludeGoals(c as boolean)}
+            />
+            <Label htmlFor="s2s-goals">Subtract goal earmarks</Label>
+          </div>
+          <div className={styles.inputGroup}>
+            <Label htmlFor="s2s-buffer">Buffer ($ held back)</Label>
+            <Input
+              id="s2s-buffer"
+              type="number"
+              min="0"
+              step="1"
+              value={buffer}
+              onChange={(e) => setBuffer(Number(e.target.value))}
+            />
+          </div>
+
+          {/* ── Savings ────────────────────────────────────────────── */}
+          {sectionTitle("Savings")}
           <div className={styles.inputGroup}>
             <Label htmlFor="warning-position">Spend Warning Percent (%)</Label>
             <Input

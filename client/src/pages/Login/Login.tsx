@@ -15,6 +15,8 @@ import { useToast } from "@/hooks/useToast";
 import { useStore } from "@/store/store";
 import api from "@/lib/api";
 import { AxiosError } from "axios";
+import { Brandmark } from "@/components/layout/Brandmark";
+import { Guilloche, GuillocheBand } from "@/components/engraving/Guilloche";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -96,8 +98,8 @@ export default function Login() {
       });
 
       toast({
-        title: "Account created",
-        description: "Welcome to Finance-Tracker!",
+        title: "Account opened",
+        description: "Welcome to The Ledger.",
       });
 
       // Set isLoggedIn to true
@@ -125,20 +127,37 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen w-full flex-col items-center justify-center gap-6 bg-background p-4">
-      <div className="flex items-center gap-3">
-        <span className="grid h-12 w-12 place-items-center border-2 border-border bg-primary text-primary-foreground shadow-brutal font-display text-2xl font-bold">
-          F
-        </span>
-        <span className="font-display text-3xl font-bold uppercase tracking-tight">
-          Finance-Tracker
-        </span>
+    <div className="relative flex min-h-screen w-full flex-col items-center justify-center gap-6 overflow-hidden bg-background p-4">
+      {/* Engraved backdrop */}
+      <div className="pointer-events-none absolute -left-32 -top-32 text-gold/10">
+        <Guilloche size={520} rings={9} seed={21} animate />
       </div>
-      <Card className="w-full max-w-md">
+      <div className="pointer-events-none absolute -bottom-40 -right-40 text-gold/10">
+        <Guilloche size={620} rings={10} seed={88} animate />
+      </div>
+
+      <div className="relative flex flex-col items-center gap-3 text-center animate-ink-in">
+        <span className="text-gold">
+          <Brandmark size={56} />
+        </span>
+        <div>
+          <p className="dept-label">Department of Personal Accounts</p>
+          <h1 className="font-display text-4xl font-semibold tracking-tight">
+            The Ledger
+          </h1>
+        </div>
+      </div>
+
+      <Card className="relative w-full max-w-md animate-rise-in delay-2">
+        <div className="text-gold/40">
+          <GuillocheBand height={14} waves={4} seed={5} />
+        </div>
         <CardHeader>
-          <CardTitle>Welcome back</CardTitle>
+          <CardTitle className="font-display text-xl normal-case tracking-normal text-foreground">
+            Present your credentials
+          </CardTitle>
           <CardDescription>
-            Login or create an account to continue
+            Sign the register to enter, or open a new account.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -2,16 +2,17 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Cards are engraved plates: a heavy outer rule with a hairline inner frame
+ * (the `plate` class), sitting on the paper with a faint lift.
+ */
 const Card = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn(
-      "rounded-none border-2 border-border bg-card text-card-foreground shadow-brutal",
-      className
-    )}
+    className={cn("plate rounded-none text-card-foreground", className)}
     {...props}
   />
 ))
@@ -35,7 +36,10 @@ const CardTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("font-display font-bold uppercase leading-none tracking-tight", className)}
+    className={cn(
+      "font-sans text-[11px] font-semibold uppercase leading-none tracking-[0.28em] text-muted-foreground",
+      className
+    )}
     {...props}
   />
 ))

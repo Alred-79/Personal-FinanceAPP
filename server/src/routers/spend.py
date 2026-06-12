@@ -17,6 +17,17 @@ def _spend_service(db: Session = Depends(get_db)) -> SpendService:
     return SpendService(db)
 
 
+@router.get("/safe-to-spend/")
+async def get_safe_to_spend(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    spend_service: SpendService = Depends(_spend_service),
+):
+    """The dynamic, horizon-anchored Safe-to-Spend number with its breakdown."""
+    return spend_service.safe_to_spend(current_user)
+
+
 @router.get("/budget-allotment/")
 async def get_budget_allotment(
     current_user: Annotated[

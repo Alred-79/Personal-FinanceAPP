@@ -1,5 +1,10 @@
 # Behavioral moat — grounded evidence + concrete features
 
+> **⛔ Feature designs here are SUPERSEDED by [v4.md](./v4.md) (June 2026).** F1–F6 and the R3
+> constraint are folded into v4 (see v4 §8.4); where a mechanic described here conflicts with v4,
+> v4 governs. This doc remains the **evidence appendix** — the studies, grades, and refutations
+> below still stand and still bind v4's claims.
+
 > The *why* behind [v3.md](./v3.md) (the *what/how*), rebuilt on two adversarial research passes
 > (24 primary sources fetched, ~136 claims extracted, claims verified by 3-vote refutation +
 > a second targeted verification batch). This doc is **deliberately unflattering**: several

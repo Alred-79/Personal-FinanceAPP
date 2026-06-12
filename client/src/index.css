@@ -1,99 +1,126 @@
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Spline+Sans+Mono:ital,wght@0,300..700;1,300..700&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ====================================================================== */
+/*  THE ENGRAVER'S LEDGER                                                  */
+/*  Money's own visual language: banknote guilloché, ruled ledger paper,  */
+/*  red-ink debits, intaglio numerals, wax seals and rubber stamps.       */
+/*  Light = "Ledger Paper". Dark = "Midnight Vault".                      */
+/* ====================================================================== */
+
 @layer base {
-  /* Terminal Ledger theme: phosphor green on near-black. */
   :root {
-    --background: 240 20% 4%;
-    --foreground: 145 80% 88%;
+    /* — Ledger Paper — */
+    --background: 44 42% 93%;
+    --foreground: 167 28% 14%;
 
-    --card: 240 20% 7%;
-    --card-foreground: 145 80% 88%;
+    --card: 46 52% 96.5%;
+    --card-foreground: 167 28% 14%;
 
-    --popover: 240 20% 7%;
-    --popover-foreground: 145 80% 88%;
+    --popover: 46 52% 97%;
+    --popover-foreground: 167 28% 14%;
 
-    --primary: 150 100% 50%;
-    --primary-foreground: 240 20% 4%;
+    --primary: 164 40% 22%;
+    --primary-foreground: 45 50% 95%;
 
-    --secondary: 46 100% 50%;
-    --secondary-foreground: 240 20% 4%;
+    --secondary: 152 16% 85%;
+    --secondary-foreground: 167 28% 14%;
 
-    --muted: 240 15% 12%;
-    --muted-foreground: 150 30% 40%;
+    --muted: 45 30% 88%;
+    --muted-foreground: 160 10% 37%;
 
-    --accent: 46 100% 50%;
-    --accent-foreground: 240 20% 4%;
+    --accent: 42 56% 44%;
+    --accent-foreground: 167 30% 10%;
 
-    --destructive: 3 100% 60%;
-    --destructive-foreground: 145 80% 88%;
+    --destructive: 8 62% 41%;
+    --destructive-foreground: 45 50% 95%;
 
-    --success: 150 100% 50%;
-    --success-foreground: 240 20% 4%;
+    --success: 160 45% 27%;
+    --success-foreground: 45 50% 95%;
 
-    --border: 150 60% 15%;
-    --input: 150 60% 15%;
-    --ring: 150 100% 50%;
+    --border: 155 12% 64%;
+    --input: 155 12% 56%;
+    --ring: 42 56% 44%;
 
     --radius: 0rem;
 
-    /* Terminal chart palette */
-    --chart-1: 150 100% 50%;
-    --chart-2: 46 100% 50%;
-    --chart-3: 185 100% 50%;
-    --chart-4: 3 100% 60%;
-    --chart-5: 290 100% 65%;
-    --chart-6: 25 100% 55%;
+    /* Engraver's extras (not part of the shadcn contract) */
+    --gold: 42 56% 44%;
+    --gold-soft: 44 55% 86%;
+    --rule: 152 10% 72%;          /* hairline ledger rule */
+    --rule-strong: 162 16% 38%;   /* heavy rule / plate edge */
+    --ink-wash: 160 18% 90%;      /* pale wash for hovers */
+    --paper-high: 48 60% 98%;     /* brightest paper highlight */
+    --debit: 8 62% 41%;           /* red ink — money out */
+    --credit: 162 45% 26%;        /* green ink — money in */
 
-    --sidebar: 240 25% 3%;
-    --sidebar-foreground: 145 80% 88%;
+    /* Steel-engraving chart inks */
+    --chart-1: 164 40% 26%;
+    --chart-2: 42 56% 40%;
+    --chart-3: 215 32% 40%;
+    --chart-4: 8 62% 44%;
+    --chart-5: 312 20% 38%;
+    --chart-6: 28 45% 38%;
+
+    /* The drawer/cover is always dark ink leather, even on paper theme */
+    --sidebar: 167 30% 11%;
+    --sidebar-foreground: 45 42% 90%;
   }
 
-  /* Keep .dark in sync so toggling the class never reverts the theme */
   .dark {
-    --background: 240 20% 4%;
-    --foreground: 145 80% 88%;
+    /* — Midnight Vault — */
+    --background: 168 30% 6.5%;
+    --foreground: 44 36% 87%;
 
-    --card: 240 20% 7%;
-    --card-foreground: 145 80% 88%;
+    --card: 167 26% 9.5%;
+    --card-foreground: 44 36% 87%;
 
-    --popover: 240 20% 7%;
-    --popover-foreground: 145 80% 88%;
+    --popover: 167 28% 8.5%;
+    --popover-foreground: 44 36% 87%;
 
-    --primary: 150 100% 50%;
-    --primary-foreground: 240 20% 4%;
+    --primary: 156 30% 64%;
+    --primary-foreground: 168 30% 7%;
 
-    --secondary: 46 100% 50%;
-    --secondary-foreground: 240 20% 4%;
+    --secondary: 166 18% 16%;
+    --secondary-foreground: 44 36% 87%;
 
-    --muted: 240 15% 12%;
-    --muted-foreground: 150 30% 40%;
+    --muted: 167 20% 13%;
+    --muted-foreground: 152 10% 56%;
 
-    --accent: 46 100% 50%;
-    --accent-foreground: 240 20% 4%;
+    --accent: 43 62% 56%;
+    --accent-foreground: 168 30% 7%;
 
-    --destructive: 3 100% 60%;
-    --destructive-foreground: 145 80% 88%;
+    --destructive: 8 64% 58%;
+    --destructive-foreground: 168 30% 7%;
 
-    --success: 150 100% 50%;
-    --success-foreground: 240 20% 4%;
+    --success: 156 32% 58%;
+    --success-foreground: 168 30% 7%;
 
-    --border: 150 60% 15%;
-    --input: 150 60% 15%;
-    --ring: 150 100% 50%;
+    --border: 163 14% 24%;
+    --input: 163 14% 28%;
+    --ring: 43 62% 56%;
 
-    --chart-1: 150 100% 50%;
-    --chart-2: 46 100% 50%;
-    --chart-3: 185 100% 50%;
-    --chart-4: 3 100% 60%;
-    --chart-5: 290 100% 65%;
-    --chart-6: 25 100% 55%;
+    --gold: 43 62% 56%;
+    --gold-soft: 45 30% 18%;
+    --rule: 164 12% 20%;
+    --rule-strong: 154 16% 48%;
+    --ink-wash: 166 20% 12%;
+    --paper-high: 166 22% 12%;
+    --debit: 8 64% 58%;
+    --credit: 156 34% 56%;
 
-    --sidebar: 240 25% 3%;
-    --sidebar-foreground: 145 80% 88%;
+    --chart-1: 156 32% 60%;
+    --chart-2: 43 62% 56%;
+    --chart-3: 213 38% 62%;
+    --chart-4: 8 64% 60%;
+    --chart-5: 312 24% 62%;
+    --chart-6: 28 48% 58%;
+
+    --sidebar: 168 32% 5%;
+    --sidebar-foreground: 44 36% 87%;
   }
 }
 
@@ -102,44 +129,237 @@
     @apply border-border;
   }
 
+  html {
+    scrollbar-color: hsl(var(--rule-strong) / 0.5) transparent;
+  }
+
   body {
     @apply bg-background text-foreground;
     margin: 0;
     min-width: 320px;
     min-height: 100vh;
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+    font-family: "Instrument Sans", "Helvetica Neue", system-ui, sans-serif;
+    font-feature-settings: "ss01" on;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
   }
 
+  h1, h2, h3, h4 {
+    font-family: "Fraunces", Georgia, serif;
+    font-variation-settings: "opsz" 80;
+  }
+
+  ::selection {
+    background: hsl(var(--gold) / 0.85);
+    color: hsl(167 30% 10%);
+  }
+
+  /* Paper grain: a whisper of engraving noise over everything */
   body::after {
     content: "";
     position: fixed;
     inset: 0;
     z-index: 9999;
     pointer-events: none;
-    background: repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      rgba(0, 0, 0, 0.03) 2px,
-      rgba(0, 0, 0, 0.03) 4px
-    );
+    opacity: 0.05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+    mix-blend-mode: multiply;
   }
+  .dark body::after {
+    opacity: 0.07;
+    mix-blend-mode: screen;
+  }
+
+  /* Engraved focus: a fine gold double ring */
+  :focus-visible {
+    outline: 1px solid hsl(var(--ring));
+    outline-offset: 2px;
+    box-shadow: 0 0 0 1px hsl(var(--background)), 0 0 0 4px hsl(var(--ring) / 0.35);
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--rule-strong) / 0.45);
+    border: 3px solid hsl(var(--background));
+  }
+  ::-webkit-scrollbar-track { background: transparent; }
+}
+
+@layer components {
+  /* The certificate double frame: heavy outer rule, hairline inner rule */
+  .plate {
+    position: relative;
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--rule-strong) / 0.65);
+    box-shadow:
+      0 1px 0 hsl(var(--paper-high)) inset,
+      0 2px 10px hsl(167 30% 12% / 0.07);
+  }
+  .plate::before {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border: 1px solid hsl(var(--rule-strong) / 0.28);
+    pointer-events: none;
+  }
+  .dark .plate {
+    box-shadow:
+      0 1px 0 hsl(44 36% 87% / 0.04) inset,
+      0 2px 14px hsl(168 40% 2% / 0.5);
+  }
+
+  /* Microprint: the anti-counterfeit line of tiny repeated text */
+  .microprint {
+    font-family: "Spline Sans Mono", monospace;
+    font-size: 5.5px;
+    letter-spacing: 0.22em;
+    line-height: 1;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    color: hsl(var(--rule-strong) / 0.55);
+    user-select: none;
+  }
+
+  /* Smallcaps department label — "DEPARTMENT OF PERSONAL ACCOUNTS" */
+  .dept-label {
+    font-family: "Instrument Sans", sans-serif;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+
+  /* Intaglio numerals — the big engraved money figures */
+  .intaglio {
+    font-family: "Fraunces", Georgia, serif;
+    font-variation-settings: "opsz" 144;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    font-variant-numeric: lining-nums;
+    text-shadow: 0 1px 0 hsl(var(--paper-high)), 0 -1px 0 hsl(167 30% 12% / 0.18);
+  }
+  .dark .intaglio {
+    text-shadow: 0 1px 0 hsl(168 40% 3% / 0.9), 0 -1px 0 hsl(44 36% 87% / 0.12);
+  }
+
+  /* Ledger figures — tabular mono for columns of money */
+  .ledger-figures {
+    font-family: "Spline Sans Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A ruled ledger row: hairline below, manicule on hover */
+  .ledger-row {
+    position: relative;
+    border-bottom: 1px solid hsl(var(--rule));
+    transition: background-color 200ms ease;
+  }
+  .ledger-row:hover {
+    background: hsl(var(--ink-wash) / 0.7);
+  }
+  .ledger-row:hover .manicule {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  .manicule {
+    opacity: 0;
+    transform: translateX(-4px);
+    transition: opacity 200ms ease, transform 200ms ease;
+    color: hsl(var(--gold));
+    user-select: none;
+  }
+
+  /* Letterpress button feel: presses INTO the paper */
+  .press {
+    transition: transform 150ms ease, box-shadow 150ms ease;
+  }
+  .press:active {
+    transform: translateY(1px);
+    box-shadow: inset 0 2px 4px hsl(167 30% 12% / 0.25);
+  }
+
+  /* Section rule: ————— ❧ TITLE ❧ ————— */
+  .section-rule {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .section-rule::before,
+  .section-rule::after {
+    content: "";
+    height: 1px;
+    flex: 1;
+    background: linear-gradient(to right, transparent, hsl(var(--rule-strong) / 0.5), transparent);
+  }
+
+  /* Red/green ledger ink */
+  .ink-debit  { color: hsl(var(--debit)); }
+  .ink-credit { color: hsl(var(--credit)); }
 }
 
 @layer utilities {
+  /* ——— Motion vocabulary ——— */
+  @keyframes rise-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes ink-in {
+    from { opacity: 0; filter: blur(3px); }
+    to   { opacity: 1; filter: blur(0); }
+  }
+  @keyframes draw-x {
+    from { transform: scaleX(0); }
+    to   { transform: scaleX(1); }
+  }
+  @keyframes rotate-slow {
+    to { transform: rotate(360deg); }
+  }
+  @keyframes stamp-in {
+    0%   { opacity: 0; transform: scale(1.7) rotate(-14deg); }
+    60%  { opacity: 1; transform: scale(0.94) rotate(-7deg); }
+    100% { opacity: 1; transform: scale(1) rotate(-8deg); }
+  }
+  @keyframes seal-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 hsl(var(--gold) / 0.35); }
+    50%      { box-shadow: 0 0 0 6px hsl(var(--gold) / 0); }
+  }
+  @keyframes count-up {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
   @keyframes terminal-blink {
     0%, 100% { opacity: 0; }
     50% { opacity: 1; }
   }
 
-  @keyframes count-up {
-    from { opacity: 0; transform: translateY(4px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
+  .animate-rise-in     { animation: rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .animate-ink-in      { animation: ink-in 0.6s ease-out both; }
+  .animate-draw-x      { animation: draw-x 0.8s cubic-bezier(0.22, 1, 0.36, 1) both; transform-origin: left; }
+  .animate-rotate-slow { animation: rotate-slow 90s linear infinite; }
+  .animate-stamp-in    { animation: stamp-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+  .animate-count-up    { animation: count-up 0.4s ease-out both; }
   .animate-terminal-blink { animation: terminal-blink 1s step-end infinite; }
-  .animate-count-up       { animation: count-up 0.4s ease-out both; }
+
+  /* Stagger helpers: apply to children via inline animation-delay */
+  .delay-1 { animation-delay: 60ms; }
+  .delay-2 { animation-delay: 120ms; }
+  .delay-3 { animation-delay: 180ms; }
+  .delay-4 { animation-delay: 240ms; }
+  .delay-5 { animation-delay: 300ms; }
+  .delay-6 { animation-delay: 360ms; }
+
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-rise-in, .animate-ink-in, .animate-draw-x, .animate-rotate-slow,
+    .animate-stamp-in, .animate-count-up, .animate-terminal-blink {
+      animation: none;
+    }
+    * {
+      transition-duration: 0.01ms !important;
+    }
+  }
 }

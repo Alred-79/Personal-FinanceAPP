@@ -82,8 +82,8 @@ export default function AppShell() {
         canConnectBank={!!plaidHandler}
         onLogout={handleLogout}
       />
-      <main className="flex-1 px-4 py-6 md:px-8">
-        <div className="mx-auto w-full max-w-7xl">
+      <main className="flex-1 px-4 py-8 md:px-8 md:py-10">
+        <div className="mx-auto w-full max-w-[1400px]">
           <Outlet />
         </div>
       </main>

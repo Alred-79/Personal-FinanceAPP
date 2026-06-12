@@ -7,6 +7,7 @@ import { useTheme } from "@/hooks/theme";
 import { useStore } from "@/store/store";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS } from "./nav";
+import { Brandmark } from "./Brandmark";
 import Sidebar from "./Sidebar";
 
 interface HeaderProps {
@@ -18,10 +19,10 @@ interface HeaderProps {
 }
 
 /**
- * Neo-brutalist top navigation bar. Replaces the former fixed left sidebar on
- * desktop: brand block on the left, chunky nav tabs in the center, and an
- * actions cluster (connect bank, theme, notifications, user) on the right.
- * Below `lg`, the tabs collapse into a hamburger drawer that reuses Sidebar.
+ * The masthead of the ledger: an engraved seal and wordmark on the left, the
+ * folio index of pages running along a ruled baseline in the centre, and the
+ * clerk's actions on the right. Below `lg` the index folds into a drawer that
+ * reuses Sidebar (the dark "ledger cover").
  */
 export default function Header({
   title: _title,
@@ -32,19 +33,22 @@ export default function Header({
   const { theme, toggleTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const user = useStore((s) => s.user);
+  const initial = (user?.full_name || user?.username || "?")
+    .charAt(0)
+    .toUpperCase();
 
   return (
-    <header className="sticky top-0 z-30 border-b-2 border-border bg-background">
-      <div className="flex h-16 items-center gap-3 px-4 md:px-6">
-        {/* Mobile: hamburger opens the nav as a drawer */}
+    <header className="sticky top-0 z-30 border-b border-rule-strong/40 bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+      <div className="mx-auto flex h-[68px] w-full max-w-[1500px] items-center gap-4 px-4 md:px-6">
+        {/* Mobile: hamburger opens the index as a drawer */}
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetTrigger
             aria-label="Open navigation"
-            className="grid h-9 w-9 place-items-center border-2 border-border bg-card text-foreground shadow-brutal-sm transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-brutal lg:hidden"
+            className="press grid h-9 w-9 place-items-center border border-rule-strong/50 bg-card text-foreground shadow-plate transition-all hover:bg-wash lg:hidden"
           >
             <Menu className="h-5 w-5" />
           </SheetTrigger>
-          <SheetContent side="left" className="w-72 border-r-2 p-0">
+          <SheetContent side="left" className="w-72 p-0">
             <Sidebar
               onConnectBank={onConnectBank}
               canConnectBank={canConnectBank}
@@ -54,18 +58,21 @@ export default function Header({
           </SheetContent>
         </Sheet>
 
-        {/* Brand */}
-        <div className="flex items-center gap-2">
-          <span className="grid h-9 w-9 place-items-center border-2 border-border bg-primary text-primary-foreground shadow-brutal-sm font-display text-lg font-bold">
-            F
+        {/* Seal + wordmark */}
+        <NavLink to="/" className="group flex items-center gap-3">
+          <span className="text-gold transition-transform duration-500 group-hover:rotate-[20deg]">
+            <Brandmark size={38} />
           </span>
-          <span className="hidden font-display text-xl font-bold uppercase tracking-tight sm:inline">
-            Finance-Tracker
+          <span className="hidden leading-none sm:block">
+            <span className="block font-display text-lg font-semibold tracking-tight">
+              The Ledger
+            </span>
+            <span className="dept-label text-[9px]">Personal Accounts</span>
           </span>
-        </div>
+        </NavLink>
 
-        {/* Desktop nav tabs */}
-        <nav className="ml-4 hidden flex-1 items-center gap-1 lg:flex">
+        {/* Desktop folio index */}
+        <nav className="ml-3 hidden flex-1 items-stretch gap-0.5 lg:flex">
           {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
@@ -73,57 +80,55 @@ export default function Header({
               end={to === "/"}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2 border-2 border-transparent px-3 py-1.5 text-sm font-bold uppercase tracking-wide transition-all",
-                  "text-foreground/70 hover:text-foreground",
-                  isActive &&
-                    "border-border bg-secondary text-secondary-foreground shadow-brutal-sm"
+                  "group relative flex items-center gap-2 border-b-2 border-transparent px-3 py-2 font-sans text-[11px] font-semibold uppercase tracking-[0.16em] transition-colors",
+                  "text-muted-foreground hover:text-foreground",
+                  isActive && "border-gold text-foreground"
                 )
               }
             >
-              <Icon className="h-4 w-4 shrink-0" />
+              <Icon className="h-[15px] w-[15px] shrink-0 opacity-80" />
               {label}
             </NavLink>
           ))}
         </nav>
 
-        {/* Spacer pushes actions right when nav is hidden */}
         <div className="flex-1 lg:hidden" />
 
-        {/* Actions */}
+        {/* Clerk's actions */}
         <div className="flex items-center gap-2">
           <button
             onClick={onConnectBank}
             disabled={!canConnectBank}
-            className="hidden h-9 items-center gap-1.5 border-2 border-border bg-card px-2.5 text-xs font-bold uppercase tracking-wide text-foreground shadow-brutal-sm transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-brutal disabled:opacity-50 xl:flex whitespace-nowrap"
+            className="press hidden h-9 items-center gap-1.5 border border-rule-strong/50 bg-card px-3 font-sans text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground shadow-plate transition-all hover:bg-wash disabled:opacity-50 xl:flex"
           >
             <Building2 className="h-4 w-4 shrink-0" />
-            Connect Bank
+            Link Bank
           </button>
 
           <button
             onClick={toggleTheme}
             aria-label="Toggle theme"
-            className="grid h-9 w-9 place-items-center border-2 border-border bg-card text-foreground shadow-brutal-sm transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-brutal"
+            className="press grid h-9 w-9 place-items-center border border-rule-strong/50 bg-card text-foreground shadow-plate transition-all hover:bg-wash"
           >
             {theme === "dark" ? (
-              <Sun className="h-5 w-5" />
+              <Sun className="h-[18px] w-[18px]" />
             ) : (
-              <Moon className="h-5 w-5" />
+              <Moon className="h-[18px] w-[18px]" />
             )}
           </button>
 
           <NotificationBell />
 
           <div className="hidden items-center gap-2 md:flex">
-            <span className="grid h-9 w-9 place-items-center border-2 border-border bg-secondary text-sm font-bold text-secondary-foreground">
-              {(user?.full_name || user?.username || "?").charAt(0).toUpperCase()}
+            <span className="grid h-9 w-9 place-items-center rounded-full border border-gold/60 bg-gold/10 font-display text-sm font-semibold text-gold">
+              {initial}
             </span>
             <button
               onClick={onLogout}
               aria-label="Log out"
-              className="grid h-9 w-9 place-items-center border-2 border-border bg-card text-foreground shadow-brutal-sm transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-brutal"
+              className="press grid h-9 w-9 place-items-center border border-rule-strong/50 bg-card text-foreground shadow-plate transition-all hover:bg-wash"
             >
-              <LogOut className="h-5 w-5" />
+              <LogOut className="h-[18px] w-[18px]" />
             </button>
           </div>
         </div>

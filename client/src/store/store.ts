@@ -71,6 +71,58 @@ export interface ProjectedTransaction {
   projected: true;
 }
 
+export interface ForecastPoint {
+  date: string;
+  balance: number;
+  change: number;
+  income?: number;
+  expenses?: number;
+  label: string;
+}
+
+export interface Forecast {
+  horizon_start: string;
+  horizon_end: string;
+  starting_balance: number;
+  ending_balance: number;
+  lowest_balance: number;
+  lowest_date: string;
+  total_projected_expenses: number;
+  total_projected_income?: number;
+  will_go_negative: boolean;
+  timeline: ForecastPoint[];
+}
+
+/** Server-computed Safe-to-Spend (v1 F3): the one number plus its why. */
+export interface SafeToSpend {
+  available: number;
+  horizon_end: string;
+  horizon_source: string;
+  days_remaining: number;
+  daily_plan: number;
+  breakdown: {
+    current_balance: number;
+    upcoming_bills: number;
+    projected_income: number;
+    goal_earmarks: number;
+    goal_contributions: number;
+    buffer: number;
+  };
+  config: {
+    horizon: "paycheck" | "month" | "week";
+    include_income: boolean;
+    include_goals: boolean;
+    buffer: number;
+  };
+}
+
+export interface S2SPrefs {
+  s2s_horizon: "paycheck" | "month" | "week";
+  s2s_include_income: boolean;
+  s2s_include_goals: boolean;
+  s2s_buffer: number;
+}
+
 import { categoryColor } from "../lib/format";
 
 interface StoreState {
@@ -78,6 +130,8 @@ interface StoreState {
   recentTransactions: Transaction[];
   expenses: Expense[];
   budgetAllotment: number;
+  safeToSpend: SafeToSpend | null;
+  s2sPrefs: S2SPrefs;
   spendOverTime: number;
   fixedPerMonth: number;
   warningPosition: number;
@@ -103,6 +157,9 @@ interface StoreState {
   netWorthLoaded: boolean;
   projectedTransactions: ProjectedTransaction[];
   projectedLoaded: boolean;
+  forecast: Forecast | null;
+  forecastLoaded: boolean;
+  forecastHorizon: number;
   notifications: Notification[];
   unreadCount: number;
   notificationsLoaded: boolean;
@@ -139,7 +196,7 @@ interface StoreState {
     category: string;
     isIncome: boolean;
     account_id?: number;
-    frequency?: Frequency;
+    recurrence?: Frequency;
   }) => Promise<void>;
   scanReceipt: (file: File) => Promise<ReceiptDraft>;
   deleteTransaction: (
@@ -169,6 +226,8 @@ interface StoreState {
   // New actions for settings
   updateSavingsPercent: (percent: number) => Promise<void>;
   fetchUserSettings: () => Promise<void>;
+  fetchSafeToSpend: () => Promise<void>;
+  updateS2sPrefs: (prefs: Partial<S2SPrefs>) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 
   // Plaid sync (runs in the background, we don't wait on it)
@@ -195,6 +254,9 @@ interface StoreState {
   // Projected recurring transactions
   fetchProjectedTransactions: () => Promise<void>;
 
+  // Cashflow forecast (balance projected over a horizon)
+  fetchForecast: (days?: number) => Promise<void>;
+
   // Notifications & subscriptions
   fetchNotifications: () => Promise<void>;
   markNotificationRead: (notificationId: number) => Promise<void>;
@@ -207,6 +269,13 @@ export const useStore = create<StoreState>((set, get) => ({
   recentTransactions: [],
   expenses: [],
   budgetAllotment: 1,
+  safeToSpend: null,
+  s2sPrefs: {
+    s2s_horizon: "paycheck",
+    s2s_include_income: true,
+    s2s_include_goals: true,
+    s2s_buffer: 0,
+  },
   spendOverTime: 1,
   fixedPerMonth: 0,
   warningPosition: 25,
@@ -232,6 +301,9 @@ export const useStore = create<StoreState>((set, get) => ({
   netWorthLoaded: false,
   projectedTransactions: [],
   projectedLoaded: false,
+  forecast: null,
+  forecastLoaded: false,
+  forecastHorizon: 30,
   notifications: [],
   unreadCount: 0,
   notificationsLoaded: false,
@@ -272,6 +344,8 @@ export const useStore = create<StoreState>((set, get) => ({
       const budgetData = await budgetResponse.data;
       set({ budgetAllotment: budgetData });
 
+      await get().fetchSafeToSpend();
+
       const fixedResponse = await api.get("/expenses/fixed-per-month");
       const fixedData = await fixedResponse.data;
       set({ fixedPerMonth: fixedData });
@@ -285,6 +359,29 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ spendOverTime: spendData, hasLoaded: true });
     } catch (error) {
       console.error("Error fetching initial data:", error);
+    }
+  },
+
+  fetchSafeToSpend: async () => {
+    try {
+      const response = await api.get("/spend/safe-to-spend");
+      set({ safeToSpend: response.data });
+    } catch (error) {
+      console.error("Error fetching safe-to-spend:", error);
+    }
+  },
+
+  updateS2sPrefs: async (prefs) => {
+    set({ isLoading: true });
+    try {
+      await api.put("/settings/preferences/", prefs);
+      set((s) => ({ s2sPrefs: { ...s.s2sPrefs, ...prefs } }));
+      await get().fetchSafeToSpend();
+    } catch (error) {
+      console.error("Error updating Safe-to-Spend settings:", error);
+      throw error;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
@@ -433,6 +530,8 @@ export const useStore = create<StoreState>((set, get) => ({
       const budgetData = await budgetResponse.data;
       set({ budgetAllotment: budgetData });
 
+      await get().fetchSafeToSpend();
+
       const { startDate, endDate } = currentWeekRange();
       const spendResponse = await api.get(
         `/spend/spend-over-time?start_date=${startDate}&end_date=${endDate}`
@@ -572,6 +671,8 @@ export const useStore = create<StoreState>((set, get) => ({
       budgetsLoaded: false,
       netWorthLoaded: false,
       projectedLoaded: false,
+      forecastLoaded: false,
+      forecast: null,
       transactions: [],
       recentTransactions: [],
       expenses: [],
@@ -593,7 +694,7 @@ export const useStore = create<StoreState>((set, get) => ({
       const user = get().user;
       if (!user) return;
 
-      const response = await api.get(`/plaid/link-token?user_id=${user.id}`);
+      const response = await api.get(`/plaid/link-token/?user_id=${user.id}`);
       set({ linkToken: response.data.link_token });
     } catch (error) {
       console.error("Error fetching link token:", error);
@@ -620,10 +721,17 @@ export const useStore = create<StoreState>((set, get) => ({
     if (get().settingsLoaded) return;
 
     try {
-      const response = await api.get("/users/me/");
+      const response = await api.get("/settings/");
+      const prefs = response.data.preferences;
       set({
-        warningPosition: response.data.spend_warning,
-        savingsPercent: response.data.savings_percent,
+        warningPosition: prefs.spend_warning,
+        savingsPercent: prefs.savings_percent,
+        s2sPrefs: {
+          s2s_horizon: prefs.s2s_horizon ?? "paycheck",
+          s2s_include_income: prefs.s2s_include_income ?? true,
+          s2s_include_goals: prefs.s2s_include_goals ?? true,
+          s2s_buffer: prefs.s2s_buffer ?? 0,
+        },
         settingsLoaded: true,
       });
     } catch (error) {
@@ -731,6 +839,20 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ projectedTransactions: response.data, projectedLoaded: true });
     } catch (error) {
       console.error("Error fetching projected transactions:", error);
+    }
+  },
+
+  fetchForecast: async (days = 30) => {
+    try {
+      const response = await api.get("/forecast", { params: { days } });
+      set({
+        forecast: response.data,
+        forecastLoaded: true,
+        forecastHorizon: days,
+      });
+    } catch (error) {
+      console.error("Error fetching forecast:", error);
+      set({ forecastLoaded: true });
     }
   },
 

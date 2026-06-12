@@ -1,8 +1,6 @@
 import React, { useState, ChangeEvent, useEffect } from "react";
 import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -15,10 +13,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import styles from "./Goals.module.css";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { useStore } from "@/store/store";
+import { formatCurrency } from "@/lib/format";
+import { Certificate } from "@/components/engraving/Certificate";
+import { Seal } from "@/components/engraving/Seal";
+import { RuleEditor } from "@/components/custom/RuleEditor/RuleEditor";
+import api from "@/lib/api";
 import type { Goal } from "@/store/store";
 
 const Goals: React.FC = () => {
@@ -36,6 +38,8 @@ const Goals: React.FC = () => {
   );
   const [newGoalDialogOpen, setNewGoalDialogOpen] = useState(false);
   const [editGoalDialogOpen, setEditGoalDialogOpen] = useState(false);
+  // Which goals have auto-fund rules (goal id → true) for the ⟳ badge.
+  const [automatedGoals, setAutomatedGoals] = useState<Record<number, boolean>>({});
 
   const {
     goals,
@@ -51,6 +55,25 @@ const Goals: React.FC = () => {
   useEffect(() => {
     fetchGoals();
   }, [fetchGoals]);
+
+  // Badge data: which goals are automated (one fetch, grouped client-side).
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get("/rules/", { params: { target_kind: "goal" } })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const map: Record<number, boolean> = {};
+        for (const rule of data) {
+          if (rule.target_id != null) map[rule.target_id] = true;
+        }
+        setAutomatedGoals(map);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [goals]);
 
   const handleCreateGoal = async () => {
     await addGoal(newGoal);
@@ -179,7 +202,8 @@ const Goals: React.FC = () => {
     <>
       <PageHeader
         title="Goals"
-        description="Set savings targets and track your progress."
+        description="Savings subscriptions, sealed upon completion."
+        reference="Folio V · Sinking Funds"
         actions={newGoalDialog}
       />
 
@@ -199,57 +223,85 @@ const Goals: React.FC = () => {
                 }}
               >
                 <DialogTrigger asChild>
-                  <Card
-                    className={`${styles.goalCard} group relative cursor-pointer hover:opacity-95`}
-                  >
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="absolute right-2 top-2 z-10 h-8 w-8 p-0 opacity-0 transition-opacity group-hover:opacity-100"
+                  <Certificate seed={(goal.id ?? 1) * 17 + 3} className="h-full">
+                    <button
+                      aria-label="Delete goal"
+                      className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center text-muted-foreground opacity-0 transition-opacity hover:text-debit group-hover:opacity-100"
                       onClick={async (e) => {
                         e.stopPropagation();
                         if (!goal.id) return;
                         await deleteGoal(goal.id);
                       }}
                     >
-                      <Trash2 className="text-destructive" size={20} />
-                    </Button>
-                    <CardContent className="pt-6">
-                      <h2 className="mb-2 text-xl font-semibold">{goal.name}</h2>
-                      <p className="mb-4 text-muted-foreground">
-                        {goal.description}
-                      </p>
-                      <div className="mb-2 flex w-full flex-col gap-2 md:flex-row md:items-center">
-                        <div className="w-full">
-                          <Progress
-                            value={calculateProgress(
-                              goal.progress || 0,
-                              goal.amount
-                            )}
-                            className="w-full"
-                          />
+                      <Trash2 size={17} />
+                    </button>
+
+                    <div className="p-6">
+                      <div className="mb-4 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="dept-label">Certificate of Savings</p>
+                          <h2 className="font-display text-xl font-semibold leading-tight">
+                            {goal.name}
+                          </h2>
                         </div>
+                        {goal.completed && (
+                          <Seal label="Goal · Met · Goal · Met" size={56} tone="approved" pulse />
+                        )}
+                      </div>
+
+                      <p className="mb-5 line-clamp-2 font-sans text-sm italic text-muted-foreground">
+                        {goal.description || "—"}
+                      </p>
+
+                      <div className="mb-2 flex items-baseline justify-between">
+                        <span className="intaglio text-2xl text-foreground">
+                          {formatCurrency(goal.progress || 0)}
+                        </span>
+                        <span className="ledger-figures text-xs text-muted-foreground">
+                          of {formatCurrency(goal.amount)}
+                        </span>
+                      </div>
+
+                      <div className="relative mb-1 h-2 w-full overflow-hidden border border-rule-strong/40 bg-secondary">
+                        <div
+                          className="absolute inset-y-0 left-0 bg-credit transition-[width] duration-700 ease-out"
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              calculateProgress(goal.progress || 0, goal.amount)
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                      <p className="mb-4 text-right font-mono text-[11px] text-muted-foreground">
+                        {calculateProgress(goal.progress || 0, goal.amount).toFixed(0)}% subscribed
+                      </p>
+
+                      <div className="flex items-center justify-between border-t border-rule pt-3">
+                        <p className={`flex items-center gap-1.5 font-mono text-[11px] ${getDeadlineStatus(goal.deadline).color}`}>
+                          Matures {getDeadlineStatus(goal.deadline).text}
+                          {goal.id != null && automatedGoals[goal.id] && (
+                            <span
+                              className="flex items-center gap-0.5 text-credit"
+                              title="Auto-funded by a rule"
+                            >
+                              <RefreshCw size={10} /> auto
+                            </span>
+                          )}
+                        </p>
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-10 w-full whitespace-nowrap md:h-8 md:w-auto"
                           onClick={(e) => {
                             e.stopPropagation();
                             setProgressUpdateGoal(goal);
                           }}
                         >
-                          Update Progress
+                          Deposit
                         </Button>
                       </div>
-                      <p className="mb-1 text-sm text-muted-foreground">
-                        ${(goal.progress || 0).toLocaleString()} saved of $
-                        {goal.amount.toLocaleString()}
-                      </p>
-                      <p className={`text-sm ${getDeadlineStatus(goal.deadline).color}`}>
-                        Deadline: {getDeadlineStatus(goal.deadline).text}
-                      </p>
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </Certificate>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
@@ -313,6 +365,10 @@ const Goals: React.FC = () => {
                         }
                       />
                     </div>
+                    {/* Auto-fund: the embedded rule editor, target pre-bound */}
+                    {goal.id != null && (
+                      <RuleEditor targetKind="goal" targetId={goal.id} />
+                    )}
                   </div>
                   <DialogFooter className="flex flex-col gap-2 sm:flex-row">
                     <Button

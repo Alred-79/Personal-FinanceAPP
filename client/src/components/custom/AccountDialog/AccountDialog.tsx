@@ -134,7 +134,7 @@ export function AccountDialog({ onAccountCreated }: AccountDialogProps) {
           <div className="space-y-2">
             <Label htmlFor="balance">Initial Balance</Label>
             <div className="relative">
-              <span className="absolute left-2 top-1/2 transform -translate-y-1/2">
+              <span className="absolute left-2 top-1/2 transform -translate-y-1/2 font-mono text-muted-foreground">
                 $
               </span>
               <Input
@@ -143,7 +143,7 @@ export function AccountDialog({ onAccountCreated }: AccountDialogProps) {
                 step="0.01"
                 value={balance}
                 onChange={(e) => setBalance(e.target.value)}
-                className={styles["balance-input"]}
+                className={`${styles["balance-input"]} ledger-figures`}
                 required
               />
             </div>

@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from server.src.db.models import (
     Account as AccountORM,
     Expense as ExpenseORM,
+    Income as IncomeORM,
 )
 from server.src.dates import parse_iso_date
 from server.src.money import cents_to_dollars
@@ -126,25 +127,27 @@ class RecurringService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def project_expenses(
+    def _project_rows(
         self,
+        model,
+        tx_type: str,
         user_id: int,
         horizon_start: date,
         horizon_end: date,
     ) -> list[dict[str, Any]]:
-        """Return projected future expense instances over the horizon.
+        """Project recurring rows of *model* over the horizon (shared engine).
 
-        Each dict mirrors the transaction shape used elsewhere (dollar amounts),
-        plus ``projected: True`` and ``source_id`` (the originating expense row).
-        Results are sorted by date ascending.
+        The pure ``project_occurrences`` date math is sign-agnostic, so the same
+        walk serves expenses and income; each instance is tagged ``type`` so
+        consumers can net them.
         """
         rows = (
             self.db.execute(
-                select(ExpenseORM)
-                .join(AccountORM, ExpenseORM.account_id == AccountORM.id)
+                select(model)
+                .join(AccountORM, model.account_id == AccountORM.id)
                 .where(
                     AccountORM.user_id == user_id,
-                    ExpenseORM.recurrence.isnot(None),
+                    model.recurrence.isnot(None),
                 )
             )
             .scalars()
@@ -169,10 +172,67 @@ class RecurringService:
                         "category": row.category,
                         "recurrence": row.recurrence,
                         "account_id": row.account_id,
-                        "type": "expense",
+                        "type": tx_type,
                         "projected": True,
                     }
                 )
 
         projected.sort(key=lambda d: d["date"])
         return projected
+
+    def project_expenses(
+        self,
+        user_id: int,
+        horizon_start: date,
+        horizon_end: date,
+    ) -> list[dict[str, Any]]:
+        """Return projected future expense instances over the horizon.
+
+        Each dict mirrors the transaction shape used elsewhere (dollar amounts),
+        plus ``projected: True`` and ``source_id`` (the originating expense row).
+        Results are sorted by date ascending.
+        """
+        return self._project_rows(
+            ExpenseORM, "expense", user_id, horizon_start, horizon_end
+        )
+
+    def project_income(
+        self,
+        user_id: int,
+        horizon_start: date,
+        horizon_end: date,
+    ) -> list[dict[str, Any]]:
+        """Return projected future income instances over the horizon."""
+        return self._project_rows(
+            IncomeORM, "income", user_id, horizon_start, horizon_end
+        )
+
+    def project_cashflows(
+        self,
+        user_id: int,
+        horizon_start: date,
+        horizon_end: date,
+    ) -> list[dict[str, Any]]:
+        """Both streams merged and date-sorted, each instance tagged ``type``.
+
+        This is the single Layer-A read consumed by the forecast and
+        Safe-to-Spend (v1), and later by anything that needs "what's scheduled".
+        """
+        merged = self.project_expenses(
+            user_id, horizon_start, horizon_end
+        ) + self.project_income(user_id, horizon_start, horizon_end)
+        merged.sort(key=lambda d: d["date"])
+        return merged
+
+    def next_paycheck_date(self, user_id: int, after: date) -> date | None:
+        """The next projected income date strictly after *after*, or None.
+
+        Used as the default Safe-to-Spend horizon anchor. Looks ahead up to ~2
+        months so even monthly pay cycles resolve.
+        """
+        horizon_end = _add_months(after, 2)
+        income = self.project_income(user_id, after + timedelta(days=1), horizon_end)
+        if not income:
+            return None
+        first = parse_iso_date(income[0]["date"])
+        return first

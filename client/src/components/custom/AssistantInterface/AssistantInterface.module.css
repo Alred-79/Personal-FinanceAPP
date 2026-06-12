@@ -2,10 +2,18 @@
   position: fixed;
   bottom: 1.5rem;
   right: 1.5rem;
-  height: 3.25rem;
-  width: 3.25rem;
-  border-radius: 0;
+  height: 3.5rem;
+  width: 3.5rem;
+  border-radius: 9999px;
   padding: 0;
+  background-color: hsl(var(--sidebar));
+  color: hsl(var(--gold));
+  border: 1px solid hsl(var(--gold) / 0.6);
+  box-shadow: 0 6px 20px hsl(167 30% 12% / 0.25);
+}
+
+.assistantButton:hover {
+  transform: translateY(-2px) rotate(-6deg);
 }
 
 .sheetContent {
@@ -15,6 +23,9 @@
   width: 100%;
   flex-direction: column;
   gap: 1rem;
+  /* The Clerk's desk is paper, not the dark cover the drawer uses. */
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
 }
 
 @media (min-width: 640px) {
@@ -45,15 +56,17 @@
   place-items: center;
   width: 3rem;
   height: 3rem;
-  border: 2px solid hsl(var(--border));
-  background-color: hsl(var(--primary) / 0.1);
-  color: hsl(var(--primary));
+  border-radius: 9999px;
+  border: 1px solid hsl(var(--gold) / 0.5);
+  background-color: hsl(var(--gold) / 0.1);
+  color: hsl(var(--gold));
   margin-bottom: 0.25rem;
 }
 
 .emptyHeading {
-  font-weight: 700;
-  font-size: 1.125rem;
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 600;
+  font-size: 1.375rem;
   color: hsl(var(--foreground));
 }
 
@@ -77,7 +90,7 @@
   padding: 0.625rem 0.75rem;
   font-size: 0.8125rem;
   line-height: 1.4;
-  border: 2px solid hsl(var(--border));
+  border: 1px solid hsl(var(--rule-strong) / 0.5);
   background-color: hsl(var(--card));
   color: hsl(var(--foreground));
   cursor: pointer;
@@ -142,7 +155,7 @@
 
 .message {
   border-radius: 0;
-  border: 2px solid hsl(var(--border));
+  border: 1px solid hsl(var(--rule-strong) / 0.5);
   padding: 0.5rem 1rem;
   white-space: pre-wrap;
   word-break: break-word;
@@ -170,7 +183,7 @@
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  border: 2px solid hsl(var(--border));
+  border: 1px solid hsl(var(--rule-strong) / 0.5);
   background-color: hsl(var(--muted));
   padding: 0.625rem 1rem;
 }

@@ -209,12 +209,15 @@ export function AssistantInterface() {
           <MessageCircle className="h-6 w-6" />
         </Button>
       </SheetTrigger>
-      <SheetContent className={styles.sheetContent}>
+      <SheetContent className={`${styles.sheetContent} !bg-background !text-foreground`}>
         <SheetHeader>
-          <SheetTitle className={styles.sheetTitle}>
-            <Sparkles className="h-4 w-4" />
-            AI Assistant
+          <SheetTitle className={`${styles.sheetTitle} !text-foreground`}>
+            <Sparkles className="h-4 w-4 text-gold" />
+            <span className="font-display text-lg font-semibold">The Clerk</span>
           </SheetTitle>
+          <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+            At your service
+          </p>
         </SheetHeader>
 
         <ScrollArea ref={scrollAreaRef} className={styles.scrollArea}>

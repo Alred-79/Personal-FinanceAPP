@@ -55,5 +55,10 @@ def mark_all_notifications_read(
     ],
     db: Session = Depends(get_db),
 ):
-    count = NotificationService(db).mark_all_read(current_user.id)
+    service = NotificationService(db)
+    # Generate pending nudges first so "mark all read" really clears the bell:
+    # otherwise a nudge whose condition already holds (an overrun this month)
+    # would be created unread by the very next feed refresh.
+    service.generate(current_user.id)
+    count = service.mark_all_read(current_user.id)
     return {"message": f"Marked {count} notification(s) as read"}

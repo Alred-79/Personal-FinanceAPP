@@ -17,7 +17,7 @@ import TransactionsCard from "@/components/custom/Overview/TransactionsCard";
 import { useStore } from "@/store/store";
 
 const mockStore = (overrides = {}) => {
-  (useStore as ReturnType<typeof vi.fn>).mockReturnValue({
+  (useStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
     recentTransactions: [],
     addTransaction: vi.fn(),
     deleteTransaction: vi.fn(),

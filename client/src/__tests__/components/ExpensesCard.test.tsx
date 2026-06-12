@@ -1,10 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 
 vi.mock("@/store/store", () => ({ useStore: vi.fn() }));
 
 import ExpensesCard from "@/components/custom/Overview/ExpensesCard";
 import { useStore } from "@/store/store";
+
+const renderCard = () =>
+  render(
+    <MemoryRouter>
+      <ExpensesCard />
+    </MemoryRouter>
+  );
 
 const mockBudget = (overrides = {}) => ({
   id: 1,
@@ -22,48 +30,57 @@ const mockBudget = (overrides = {}) => ({
 
 describe("ExpensesCard", () => {
   beforeEach(() => {
-    (useStore as ReturnType<typeof vi.fn>).mockReturnValue({ budgets: [] });
+    (useStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ budgets: [] });
   });
 
   it("renders without crashing with empty budgets", () => {
-    render(<ExpensesCard />);
-    expect(screen.getByText(/no budgets configured/i)).toBeInTheDocument();
+    renderCard();
+    expect(screen.getByText(/no budget envelopes/i)).toBeInTheDocument();
   });
 
-  it("shows empty state text when budgets array is empty", () => {
-    render(<ExpensesCard />);
-    expect(screen.getByText("-- no budgets configured --")).toBeInTheDocument();
+  it("shows a prompt to create a budget when empty", () => {
+    renderCard();
+    expect(screen.getByText(/rule a budget/i)).toBeInTheDocument();
   });
 
-  it("renders chart title when budgets have data", () => {
-    (useStore as ReturnType<typeof vi.fn>).mockReturnValue({
+  it("renders the card title when budgets have data", () => {
+    (useStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       budgets: [mockBudget()],
     });
-    render(<ExpensesCard />);
+    renderCard();
     expect(screen.getByText(/budget status/i)).toBeInTheDocument();
   });
 
-  it("renders a recharts svg when budgets are present", () => {
-    (useStore as ReturnType<typeof vi.fn>).mockReturnValue({
+  it("renders each budget category when budgets are present", () => {
+    (useStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       budgets: [mockBudget()],
     });
-    const { container } = render(<ExpensesCard />);
-    expect(container.querySelector("svg")).toBeInTheDocument();
+    renderCard();
+    expect(screen.getByText("Food")).toBeInTheDocument();
   });
 
   it("shows over-budget indicator for over_budget items", () => {
-    (useStore as ReturnType<typeof vi.fn>).mockReturnValue({
-      budgets: [mockBudget({ category: "Fun", spent: 120, effective_limit: 50, over_budget: true, on_pace: false, remaining: -70 })],
+    (useStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      budgets: [
+        mockBudget({
+          category: "Fun",
+          spent: 120,
+          effective_limit: 50,
+          over_budget: true,
+          on_pace: false,
+          remaining: -70,
+        }),
+      ],
     });
-    render(<ExpensesCard />);
-    expect(screen.getByText(/over budget/i)).toBeInTheDocument();
+    renderCard();
+    expect(screen.getByText(/over/i)).toBeInTheDocument();
   });
 
   it("does not show over-budget indicator when all budgets are on pace", () => {
-    (useStore as ReturnType<typeof vi.fn>).mockReturnValue({
+    (useStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       budgets: [mockBudget({ over_budget: false })],
     });
-    render(<ExpensesCard />);
+    renderCard();
     expect(screen.queryByText(/over budget/i)).toBeNull();
   });
 });

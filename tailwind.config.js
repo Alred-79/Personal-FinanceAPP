@@ -61,6 +61,18 @@ export default {
           5: "hsl(var(--chart-5))",
           6: "hsl(var(--chart-6))",
         },
+        /* Engraver's extras */
+        gold: {
+          DEFAULT: "hsl(var(--gold))",
+          soft: "hsl(var(--gold-soft))",
+        },
+        rule: {
+          DEFAULT: "hsl(var(--rule))",
+          strong: "hsl(var(--rule-strong))",
+        },
+        debit: "hsl(var(--debit))",
+        credit: "hsl(var(--credit))",
+        wash: "hsl(var(--ink-wash))",
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -68,16 +80,31 @@ export default {
         sm: "calc(var(--radius) - 4px)",
       },
       boxShadow: {
-        brutal:      "0 0 12px rgba(0,255,136,0.15), 0 0 0 1px hsl(150,60%,15%)",
-        "brutal-sm": "0 0 6px rgba(0,255,136,0.1), 0 0 0 1px hsl(150,60%,15%)",
-        "brutal-lg": "0 0 20px rgba(0,255,136,0.2), 0 0 0 1px hsl(150,60%,15%)",
-        card:        "0 0 12px rgba(0,255,136,0.15), 0 0 0 1px hsl(150,60%,15%)",
-        "card-dark": "0 0 12px rgba(0,255,136,0.15), 0 0 0 1px hsl(150,60%,15%)",
+        /* Engraved plate shadows. The old `brutal` names are kept so any
+           component not yet redesigned still lands in the new language. */
+        plate:
+          "0 1px 0 hsl(var(--paper-high)) inset, 0 2px 10px hsl(167 30% 12% / 0.07)",
+        "plate-lg":
+          "0 1px 0 hsl(var(--paper-high)) inset, 0 10px 30px hsl(167 30% 12% / 0.12)",
+        brutal:
+          "0 1px 0 hsl(var(--paper-high)) inset, 0 2px 10px hsl(167 30% 12% / 0.08)",
+        "brutal-sm":
+          "0 1px 0 hsl(var(--paper-high)) inset, 0 1px 5px hsl(167 30% 12% / 0.07)",
+        "brutal-lg":
+          "0 1px 0 hsl(var(--paper-high)) inset, 0 10px 30px hsl(167 30% 12% / 0.12)",
+        card:
+          "0 1px 0 hsl(var(--paper-high)) inset, 0 2px 10px hsl(167 30% 12% / 0.07)",
+        "card-dark":
+          "0 1px 0 hsl(44 36% 87% / 0.04) inset, 0 2px 14px hsl(168 40% 2% / 0.5)",
+        letterpress: "inset 0 2px 4px hsl(167 30% 12% / 0.25)",
       },
       fontFamily: {
-        sans:    ["'JetBrains Mono'", "ui-monospace", "SFMono-Regular", "monospace"],
-        display: ["'JetBrains Mono'", "ui-monospace", "monospace"],
-        mono:    ["'JetBrains Mono'", "ui-monospace", "SFMono-Regular", "monospace"],
+        sans: ["'Instrument Sans'", "'Helvetica Neue'", "system-ui", "sans-serif"],
+        display: ["Fraunces", "Georgia", "serif"],
+        mono: ["'Spline Sans Mono'", "ui-monospace", "SFMono-Regular", "monospace"],
+      },
+      letterSpacing: {
+        engraved: "0.32em",
       },
       keyframes: {
         "accordion-down": {
@@ -94,14 +121,19 @@ export default {
         },
         "count-up": {
           from: { opacity: "0", transform: "translateY(4px)" },
-          to:   { opacity: "1", transform: "translateY(0)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        "rise-in": {
+          from: { opacity: "0", transform: "translateY(10px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
         },
       },
       animation: {
-        "accordion-down":  "accordion-down 0.2s ease-out",
-        "accordion-up":    "accordion-up 0.2s ease-out",
-        "terminal-blink":  "terminal-blink 1s step-end infinite",
-        "count-up":        "count-up 0.4s ease-out both",
+        "accordion-down": "accordion-down 0.2s ease-out",
+        "accordion-up": "accordion-up 0.2s ease-out",
+        "terminal-blink": "terminal-blink 1s step-end infinite",
+        "count-up": "count-up 0.4s ease-out both",
+        "rise-in": "rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both",
       },
     },
   },

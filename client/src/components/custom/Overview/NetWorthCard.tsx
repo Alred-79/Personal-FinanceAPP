@@ -1,9 +1,4 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useStore } from "@/store/store";
 import { formatCurrency } from "@/lib/format";
 import {
@@ -14,28 +9,21 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
+  CartesianGrid,
 } from "recharts";
+import { AXIS_TICK, ink, tooltipStyle } from "@/lib/chart";
 
-const TICK_STYLE = {
-  fontFamily: "JetBrains Mono, monospace",
-  fontSize: 9,
-  fill: "hsl(150,30%,40%)",
-};
-
+/** Net-worth trend as a fine engraved line on ruled chart paper. */
 export default function NetWorthCard() {
   const { netWorth } = useStore();
 
-  const current =
-    netWorth.length > 0 ? netWorth[netWorth.length - 1].total : null;
+  const current = netWorth.length > 0 ? netWorth[netWorth.length - 1].total : null;
 
-  // Month-over-month delta: compare last snapshot to the most recent snapshot from ~30 days ago
   const delta = (() => {
     if (netWorth.length < 2) return null;
     const last = netWorth[netWorth.length - 1];
-    const lastDate = new Date(last.date);
-    const targetDate = new Date(lastDate);
+    const targetDate = new Date(last.date);
     targetDate.setDate(targetDate.getDate() - 30);
-    // Find the closest snapshot on or before targetDate
     let prev = netWorth[0];
     for (const snap of netWorth) {
       if (new Date(snap.date) <= targetDate) prev = snap;
@@ -45,70 +33,61 @@ export default function NetWorthCard() {
   })();
 
   return (
-    <Card className="shadow-brutal">
+    <Card>
       <CardHeader>
-        <CardTitle className="font-mono text-xs uppercase tracking-widest text-primary">
-          [ NET WORTH ]
-        </CardTitle>
+        <CardTitle>Net Worth Trend</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {current !== null && (
-          <div className="space-y-0.5">
-            <p className="font-mono text-3xl font-bold text-primary animate-count-up">
+          <div className="flex items-baseline gap-3">
+            <p className="intaglio text-2xl text-foreground animate-count-up">
               {formatCurrency(current)}
             </p>
             {delta !== null && (
-              <p className={`font-mono text-xs ${delta >= 0 ? "text-primary" : "text-destructive"}`}>
-                {delta >= 0 ? "▲" : "▼"} {formatCurrency(Math.abs(delta))} vs 30 days ago
+              <p
+                className={`font-mono text-xs ${
+                  delta >= 0 ? "ink-credit" : "ink-debit"
+                }`}
+              >
+                {delta >= 0 ? "▲" : "▼"} {formatCurrency(Math.abs(delta))}
               </p>
             )}
           </div>
         )}
 
         {netWorth.length === 0 ? (
-          <p className="font-mono text-sm text-muted-foreground">
-            No data yet — snapshots are taken daily once accounts are linked.
+          <p className="py-6 font-sans text-sm italic text-muted-foreground">
+            No snapshots recorded yet — these are taken daily once accounts are linked.
           </p>
         ) : (
-          <ResponsiveContainer width="100%" height={180}>
+          <ResponsiveContainer width="100%" height={176}>
             <LineChart data={netWorth} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
-              <XAxis
-                dataKey="date"
-                tick={TICK_STYLE}
-                hide
-                axisLine={false}
-                tickLine={false}
+              <CartesianGrid
+                stroke={ink("--rule", 0.6)}
+                strokeDasharray="2 4"
+                vertical={false}
               />
+              <XAxis dataKey="date" hide axisLine={false} tickLine={false} />
               <YAxis
-                tick={TICK_STYLE}
+                tick={{ ...AXIS_TICK, fill: ink("--muted-foreground") }}
                 tickFormatter={(v: number) => `$${v}`}
                 axisLine={false}
                 tickLine={false}
                 width={56}
               />
               <Tooltip
-                contentStyle={{
-                  background: "hsl(240,20%,7%)",
-                  border: "1px solid hsl(150,60%,15%)",
-                  fontFamily: "JetBrains Mono, monospace",
-                  fontSize: 11,
-                  color: "hsl(145,80%,88%)",
-                }}
+                contentStyle={tooltipStyle()}
                 formatter={(v: number) => [formatCurrency(v), "Net Worth"]}
-                cursor={{ stroke: "hsl(150,100%,50%)", strokeWidth: 1, strokeDasharray: "4 4" }}
+                cursor={{ stroke: ink("--gold"), strokeWidth: 1, strokeDasharray: "4 4" }}
               />
-              <ReferenceLine
-                y={0}
-                stroke="hsl(150,60%,15%)"
-                strokeDasharray="4 4"
-              />
+              <ReferenceLine y={0} stroke={ink("--rule-strong", 0.5)} strokeDasharray="4 4" />
               <Line
                 type="monotone"
                 dataKey="total"
-                stroke="hsl(150,100%,50%)"
-                strokeWidth={2}
+                stroke={ink("--credit")}
+                strokeWidth={1.8}
                 dot={false}
-                activeDot={{ r: 4, fill: "hsl(150,100%,50%)", strokeWidth: 0 }}
+                activeDot={{ r: 3.5, fill: ink("--credit"), strokeWidth: 0 }}
               />
             </LineChart>
           </ResponsiveContainer>

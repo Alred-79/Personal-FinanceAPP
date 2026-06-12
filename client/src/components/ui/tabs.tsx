@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 
 const Tabs = TabsPrimitive.Root
 
+/** Tabs read like index-card dividers along a ruled baseline. */
 const TabsList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.List>
@@ -12,7 +13,7 @@ const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      "inline-flex h-10 items-center justify-center rounded-none border-2 border-border bg-muted p-1 text-muted-foreground",
+      "inline-flex h-10 items-center justify-center gap-1 border-b border-rule-strong/40 text-muted-foreground",
       className
     )}
     {...props}
@@ -27,7 +28,7 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "inline-flex items-center justify-center whitespace-nowrap rounded-none px-3 py-1 text-sm font-bold uppercase tracking-wide transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 data-[state=active]:border-2 data-[state=active]:border-border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground",
+      "relative -mb-px inline-flex items-center justify-center whitespace-nowrap border-b-2 border-transparent px-3 py-1.5 font-sans text-[11px] font-semibold uppercase tracking-[0.18em] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:border-gold data-[state=active]:text-foreground",
       className
     )}
     {...props}
@@ -42,7 +43,7 @@ const TabsContent = React.forwardRef<
   <TabsPrimitive.Content
     ref={ref}
     className={cn(
-      "mt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+      "mt-4 focus-visible:outline-none data-[state=active]:animate-rise-in",
       className
     )}
     {...props}

@@ -1,16 +1,13 @@
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import styles from "./styles.module.css";
 import { useStore } from "@/store/store";
 import TransactionItem from "@/components/custom/TransactionItem/TransactionItem";
 import { TransactionDialog } from "@/components/custom/TransactionDialog/TransactionDialog";
 import { ScanReceiptButton } from "@/components/custom/ScanReceiptButton/ScanReceiptButton";
 import { Transaction, Frequency, ReceiptDraft } from "@/types";
-import { useIsMobile } from "@/hooks/responsive";
 import { useState } from "react";
 
 function TransactionsCard() {
   const { recentTransactions, addTransaction, deleteTransaction } = useStore();
-  const isMobile = useIsMobile();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pendingDraft, setPendingDraft] = useState<ReceiptDraft | null>(null);
 
@@ -36,23 +33,18 @@ function TransactionsCard() {
   };
 
   return (
-    <Card className={styles.spanTwoRows}>
-      <CardHeader>
-        <CardTitle
-          className={styles.cardTitle}
-          style={isMobile ? { textAlign: "center" } : {}}
-        >
-          Recent Transactions
-        </CardTitle>
+    <Card className="flex h-full flex-col">
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle>Recent Postings</CardTitle>
+        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          Folio III
+        </span>
       </CardHeader>
-      <CardContent>
-        <div
-          className={styles.transactionsContainer}
-          style={{ padding: recentTransactions.length > 0 ? "1rem" : "0" }}
-        >
+      <CardContent className="flex flex-1 flex-col">
+        <div className="-mx-1 flex-1 overflow-y-auto pr-1" style={{ maxHeight: "30rem" }}>
           {recentTransactions.length === 0 ? (
-            <p className="font-mono text-sm text-muted-foreground py-4 text-center">
-              No recent transactions yet.
+            <p className="py-8 text-center font-sans text-sm italic text-muted-foreground">
+              No entries posted yet.
             </p>
           ) : (
             recentTransactions.map((transaction) => (
@@ -64,7 +56,7 @@ function TransactionsCard() {
             ))
           )}
         </div>
-        <div className="new-transaction flex items-center gap-2">
+        <div className="mt-4 flex items-center gap-2 border-t border-rule-strong/30 pt-4">
           <ScanReceiptButton onScanned={openDialogWith} />
           <TransactionDialog
             onSubmit={handleNewTransaction}

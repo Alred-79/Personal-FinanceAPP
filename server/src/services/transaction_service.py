@@ -29,6 +29,7 @@ from server.src.services.categorization_service import (
     CategorizationService,
     canonicalize_category,
 )
+from server.src.services.rule_engine import RuleEngine
 
 # Type alias for the two ORM model classes this service handles.
 TransactionModel = Type[ExpenseORM] | Type[IncomeORM]
@@ -181,7 +182,26 @@ class TransactionService:
 
         account.balance += balance_sign * amount_cents
         account.last_updated = datetime.now()
-        self.db.flush()
+        self.db.flush()  # row now has an id — the rules engine needs it
+
+        # v1 Layer B hook: the single creation path runs the rules engine.
+        # Plaid imports reuse this same engine later, protected by the same
+        # idempotency log. A rules failure never breaks creation.
+        tx_type = "expense" if model is ExpenseORM else "income"
+        RuleEngine(self.db).run_on_transaction(
+            user_id,
+            tx_type,
+            row.id,
+            {
+                "id": row.id,
+                "title": row.title,
+                "amount": cents_to_dollars(row.amount),
+                "date": row.date,
+                "category": row.category,
+                "account_id": row.account_id,
+                "type": tx_type,
+            },
+        )
 
         label = "Expense" if model is ExpenseORM else "Income"
         return {"message": f"{label} created successfully"}

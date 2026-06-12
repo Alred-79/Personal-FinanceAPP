@@ -1,20 +1,23 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
     <script>
-      // Set the saved theme before the first paint so it doesn't flash. Dark by default.
+      // Set the saved theme before the first paint so it doesn't flash.
+      // Paper (light) ledger by default; "dark" is the midnight vault.
       (function () {
         try {
-          var t = localStorage.getItem("theme") || "dark";
-          document.documentElement.classList.toggle("dark", t !== "light");
+          var t = localStorage.getItem("theme") || "light";
+          document.documentElement.classList.toggle("dark", t === "dark");
         } catch (e) {}
       })();
     </script>
-    <title>Finance-Tracker</title>
+    <title>The Ledger — Personal Accounts</title>
   </head>
   <body>
     <div id="root"></div>

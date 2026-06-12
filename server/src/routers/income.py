@@ -62,6 +62,7 @@ async def create_income(
         tx_date=income.date,
         category=income.category,
         account_id=income.account_id,
+        extra_fields={"recurrence": income.recurrence},
     )
 
 
@@ -84,6 +85,7 @@ async def update_income(
         tx_date=income.date,
         category=income.category,
         account_id=income.account_id,
+        extra_fields={"recurrence": income.recurrence},
     )
 
 

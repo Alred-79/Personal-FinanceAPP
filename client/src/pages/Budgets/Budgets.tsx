@@ -1,7 +1,5 @@
 import React, { ChangeEvent, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -15,11 +13,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Plus, Trash2 } from "lucide-react";
-import styles from "./Budgets.module.css";
 import PageHeader from "@/components/layout/PageHeader";
 import { useStore } from "@/store/store";
 import { chartColors } from "@/lib/colors";
 import { formatCurrency, categoryColor } from "@/lib/format";
+import { categoryIcon } from "@/lib/categoryIcon";
+import { Certificate } from "@/components/engraving/Certificate";
+import { Stamp } from "@/components/engraving/Stamp";
 import type { Budget } from "@/store/store";
 
 type BudgetForm = {
@@ -76,7 +76,8 @@ const Budgets: React.FC = () => {
     <>
       <PageHeader
         title="Budgets"
-        description="Track spending against your monthly limits."
+        description="Envelopes ruled against your monthly limits."
+        reference="Folio IV · Appropriations"
         actions={
           <Dialog open={newDialogOpen} onOpenChange={setNewDialogOpen}>
             <DialogTrigger asChild>
@@ -141,70 +142,113 @@ const Budgets: React.FC = () => {
       />
 
       {isLoading && !budgetsLoaded ? (
-        <div className="flex h-64 items-center justify-center text-muted-foreground">
-          Loading budgets...
+        <div className="flex h-64 items-center justify-center font-sans italic text-muted-foreground">
+          Counting the envelopes…
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
-          {budgets.map((b) => {
+          {budgets.map((b, i) => {
             const color = categoryColor(b.category, chartColors.primary);
+            const Icon = categoryIcon(b.category);
+            const pct = progressPercent(b);
+            const fill = b.over_budget
+              ? "hsl(var(--debit))"
+              : b.on_pace
+              ? "hsl(var(--credit))"
+              : "hsl(var(--gold))";
             return (
-              <Card
+              <Certificate
                 key={b.id}
-                className={`${styles.budgetCard} group relative cursor-pointer hover:opacity-95`}
+                seed={b.id * 13 + 1}
+                accent={color}
                 onClick={() => setEditBudget(b)}
+                className="animate-rise-in"
               >
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-2 top-2 z-10 h-8 w-8 p-0 opacity-0 transition-opacity group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(b.id);
-                  }}
-                >
-                  <Trash2 className="text-destructive" size={20} />
-                </Button>
-                <CardContent className="pt-6">
-                  <div className="mb-2 flex items-center gap-2">
-                    <span
-                      className="inline-block h-3 w-3 rounded-full"
-                      style={{ backgroundColor: color }}
-                    />
-                    <h2 className="text-xl font-semibold">{b.category}</h2>
-                  </div>
-                  <Progress value={progressPercent(b)} className="my-3 w-full" />
-                  <p className="mb-1 text-sm text-muted-foreground">
-                    {formatCurrency(b.spent)} spent of{" "}
-                    {formatCurrency(b.effective_limit)}
-                  </p>
-                  <p
-                    className={`text-sm font-medium ${
-                      b.over_budget
-                        ? "text-destructive"
-                        : b.on_pace
-                        ? "text-success"
-                        : "text-orange-500"
-                    }`}
+                <div style={{ animationDelay: `${i * 50}ms` }} className="p-6">
+                  <button
+                    aria-label="Delete budget"
+                    className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center text-muted-foreground opacity-0 transition-opacity hover:text-debit group-hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(b.id);
+                    }}
                   >
-                    {b.over_budget
-                      ? `${formatCurrency(Math.abs(b.remaining))} over budget`
-                      : `${formatCurrency(b.remaining)} remaining`}
-                  </p>
+                    <Trash2 size={17} />
+                  </button>
+
+                  <div className="mb-4 flex items-center gap-3">
+                    <span
+                      className="grid h-10 w-10 shrink-0 place-items-center border border-rule-strong/40 bg-card"
+                      style={{ color }}
+                    >
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="dept-label">Appropriation</p>
+                      <h2 className="font-display text-xl font-semibold leading-tight">
+                        {b.category}
+                      </h2>
+                    </div>
+                  </div>
+
+                  <div className="mb-3 flex items-baseline justify-between">
+                    <span className="intaglio text-2xl text-foreground">
+                      {formatCurrency(b.spent)}
+                    </span>
+                    <span className="ledger-figures text-xs text-muted-foreground">
+                      of {formatCurrency(b.effective_limit)}
+                    </span>
+                  </div>
+
+                  <div className="relative h-2 w-full overflow-hidden border border-rule-strong/40 bg-secondary">
+                    <div
+                      className="absolute inset-y-0 left-0 transition-[width] duration-700 ease-out"
+                      style={{ width: `${pct}%`, background: fill }}
+                    />
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between">
+                    <p
+                      className="font-sans text-sm font-medium"
+                      style={{ color: fill }}
+                    >
+                      {b.over_budget
+                        ? `${formatCurrency(Math.abs(b.remaining))} over`
+                        : `${formatCurrency(b.remaining)} left`}
+                    </p>
+                    {b.over_budget ? (
+                      <Stamp variant="debit" still>
+                        Over Budget
+                      </Stamp>
+                    ) : b.on_pace ? (
+                      <Stamp variant="credit" still>
+                        On Pace
+                      </Stamp>
+                    ) : (
+                      <Stamp variant="gold" still>
+                        Watch
+                      </Stamp>
+                    )}
+                  </div>
+
                   {b.rollover && b.effective_limit !== b.monthly_limit && (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Includes{" "}
-                      {formatCurrency(b.effective_limit - b.monthly_limit)} rolled
-                      over
+                    <p className="mt-2 font-sans text-[11px] italic text-muted-foreground">
+                      incl. {formatCurrency(b.effective_limit - b.monthly_limit)}{" "}
+                      rolled over
                     </p>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              </Certificate>
             );
           })}
           {budgets.length === 0 && (
-            <div className="col-span-full flex min-h-[40vh] items-center justify-center text-xl text-muted-foreground">
-              You don't have any budgets yet...
+            <div className="col-span-full flex min-h-[40vh] flex-col items-center justify-center gap-3">
+              <p className="font-display text-2xl text-muted-foreground">
+                No envelopes ruled yet
+              </p>
+              <p className="font-sans text-sm italic text-muted-foreground">
+                Rule your first budget to begin appropriating funds.
+              </p>
             </div>
           )}
         </div>

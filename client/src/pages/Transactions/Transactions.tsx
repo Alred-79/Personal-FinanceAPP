@@ -26,6 +26,7 @@ import { categoryColor } from "@/lib/format";
 import type { ProjectedTransaction } from "@/store/store";
 import { Transaction, Frequency, ReceiptDraft } from "@/types";
 import TransactionItem from "@/components/custom/TransactionItem/TransactionItem";
+import SpendingInsights from "@/components/custom/SpendingInsights/SpendingInsights";
 
 const PAGE_SIZE = 20;
 
@@ -150,15 +151,18 @@ export default function Transactions() {
     if (projected.length === 0) return null;
     return (
       <>
-        <p className="mb-2 mt-4 text-xs uppercase tracking-wide text-muted-foreground" title="Predicted future charges based on your recurring spending patterns.">
-          Expected (recurring) ⓘ
+        <p
+          className="mb-1 mt-4 font-sans text-[10px] uppercase tracking-[0.18em] text-gold"
+          title="Predicted future charges based on your recurring spending patterns."
+        >
+          ❦ Expected · recurring
         </p>
         {projected.map((t, i) => (
           <TransactionItem
             key={`projected-${t.id}-${t.date}-${i}`}
             transaction={t}
             onDelete={null}
-            style={{ opacity: 0.6 }}
+            style={{ opacity: 0.55 }}
           />
         ))}
       </>
@@ -206,8 +210,9 @@ export default function Transactions() {
   return (
     <>
       <PageHeader
-        title="Transactions"
-        description="Search, filter, and review your activity."
+        title="The Ledger"
+        description="Every posting, ruled and reconciled."
+        reference="Folio III · General Journal"
         actions={
           <div className="flex items-center gap-2">
             <ScanReceiptButton onScanned={openDialogWith} />
@@ -223,6 +228,9 @@ export default function Transactions() {
           </div>
         }
       />
+
+      {/* Spending insights (v2 analytics pivot) */}
+      <SpendingInsights />
 
       {/* Filters */}
       <Card className="mb-6">
@@ -323,10 +331,10 @@ export default function Transactions() {
         </CardContent>
       </Card>
 
-      {/* Columns */}
+      {/* Columns — three ruled ledger pages */}
       {isLoading && transactions.length === 0 ? (
-        <div className="flex h-64 items-center justify-center text-muted-foreground">
-          Loading transactions...
+        <div className="flex h-64 items-center justify-center font-sans italic text-muted-foreground">
+          Ruling the ledger…
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -337,16 +345,28 @@ export default function Transactions() {
               items.length === 0 &&
               (!showProjected || filteredProjected.length === 0);
             return (
-              <Card key={key}>
-                <CardHeader>
-                  <CardTitle>{title}</CardTitle>
-                  <p className="text-sm text-muted-foreground">{subtitle}</p>
+              <Card key={key} className="flex flex-col">
+                <CardHeader className="pb-2">
+                  <div className="flex items-baseline justify-between">
+                    <CardTitle>{title}</CardTitle>
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      {items.length}
+                    </span>
+                  </div>
+                  <p className="font-sans text-[11px] italic text-muted-foreground">
+                    {subtitle}
+                  </p>
                 </CardHeader>
-                <CardContent className="h-[60vh] overflow-y-auto">
-                  <div className="space-y-4">
+                <CardContent className="flex-1 px-3">
+                  {/* Column ruling */}
+                  <div className="grid grid-cols-[1fr_auto] border-b border-rule-strong/40 px-2.5 pb-1 font-sans text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
+                    <span>Entry</span>
+                    <span>Amount</span>
+                  </div>
+                  <div className="max-h-[58vh] overflow-y-auto">
                     {isEmpty ? (
-                      <p className="text-center text-muted-foreground">
-                        No transactions found
+                      <p className="py-10 text-center font-sans text-sm italic text-muted-foreground">
+                        No entries.
                       </p>
                     ) : (
                       items.map((transaction) => (
@@ -367,11 +387,11 @@ export default function Transactions() {
       )}
 
       {/* Pagination */}
-      <div className="mt-6 flex items-center justify-between text-sm text-muted-foreground">
+      <div className="mt-6 flex items-center justify-between border-t border-rule-strong/30 pt-4 font-mono text-xs text-muted-foreground">
         <span>
           {transactionTotal > 0
-            ? `${(page - 1) * PAGE_SIZE + 1} to ${Math.min(page * PAGE_SIZE, transactionTotal)} of ${transactionTotal} transactions`
-            : "No transactions"}
+            ? `Entries ${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, transactionTotal)} of ${transactionTotal}`
+            : "No entries on file"}
         </span>
         <div className="flex items-center gap-2">
           <Button
@@ -381,10 +401,10 @@ export default function Transactions() {
             disabled={page <= 1 || isLoading}
           >
             <ChevronLeftIcon className="h-4 w-4" />
-            Previous
+            Prev
           </Button>
-          <span className="px-2">
-            Page {page} of {totalPages}
+          <span className="px-1 tabular-nums">
+            {page} / {totalPages}
           </span>
           <Button
             variant="outline"

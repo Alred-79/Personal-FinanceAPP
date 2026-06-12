@@ -115,3 +115,122 @@ class TestProjectOccurrences:
         assert project_occurrences(
             date(2026, 1, 1), "annually", date(2026, 1, 1), date(2029, 1, 1)
         ) == [date(2027, 1, 1), date(2028, 1, 1), date(2029, 1, 1)]
+
+
+# ---------------------------------------------------------------------------
+# v1 Layer A: project_income / project_cashflows (DB-backed)
+# ---------------------------------------------------------------------------
+
+from server.src.db.models import Account, Income, Expense, User
+from server.src.services.recurring_service import RecurringService
+
+
+@pytest.fixture
+def seeded_user(db_session):
+    user = User(
+        username="rec_user",
+        full_name="Rec User",
+        email="rec@example.com",
+        hashed_password="x",
+    )
+    db_session.add(user)
+    db_session.flush()
+    account = Account(name="Checking", type="checking", balance=100_000, user_id=user.id)
+    db_session.add(account)
+    db_session.flush()
+    return user, account
+
+
+class TestProjectCashflows:
+    def test_project_income_mirrors_expenses(self, db_session, seeded_user):
+        user, account = seeded_user
+        db_session.add(
+            Income(
+                title="Paycheck",
+                amount=200_000,  # $2,000
+                date="2026-03-01",
+                category="Work",
+                recurrence="bi-weekly",
+                account_id=account.id,
+            )
+        )
+        db_session.flush()
+
+        projected = RecurringService(db_session).project_income(
+            user.id, date(2026, 3, 2), date(2026, 4, 1)
+        )
+        assert [p["date"] for p in projected] == ["2026-03-15", "2026-03-29"]
+        assert all(p["type"] == "income" for p in projected)
+        assert all(p["projected"] is True for p in projected)
+        assert projected[0]["amount"] == 2000.0
+
+    def test_non_recurring_income_not_projected(self, db_session, seeded_user):
+        user, account = seeded_user
+        db_session.add(
+            Income(
+                title="One-off",
+                amount=50_000,
+                date="2026-03-01",
+                category="Other",
+                account_id=account.id,
+            )
+        )
+        db_session.flush()
+        assert (
+            RecurringService(db_session).project_income(
+                user.id, date(2026, 3, 1), date(2026, 6, 1)
+            )
+            == []
+        )
+
+    def test_project_cashflows_merges_and_sorts(self, db_session, seeded_user):
+        user, account = seeded_user
+        db_session.add_all(
+            [
+                Income(
+                    title="Paycheck",
+                    amount=200_000,
+                    date="2026-03-01",
+                    category="Work",
+                    recurrence="monthly",
+                    account_id=account.id,
+                ),
+                Expense(
+                    title="Rent",
+                    amount=150_000,
+                    date="2026-03-05",
+                    category="Housing",
+                    recurrence="monthly",
+                    account_id=account.id,
+                ),
+            ]
+        )
+        db_session.flush()
+
+        flows = RecurringService(db_session).project_cashflows(
+            user.id, date(2026, 3, 6), date(2026, 5, 6)
+        )
+        assert [(f["date"], f["type"]) for f in flows] == [
+            ("2026-04-01", "income"),
+            ("2026-04-05", "expense"),
+            ("2026-05-01", "income"),
+            ("2026-05-05", "expense"),
+        ]
+
+    def test_next_paycheck_date(self, db_session, seeded_user):
+        user, account = seeded_user
+        db_session.add(
+            Income(
+                title="Paycheck",
+                amount=200_000,
+                date="2026-03-01",
+                category="Work",
+                recurrence="bi-weekly",
+                account_id=account.id,
+            )
+        )
+        db_session.flush()
+        svc = RecurringService(db_session)
+        assert svc.next_paycheck_date(user.id, date(2026, 3, 2)) == date(2026, 3, 15)
+        # No recurring income → None
+        assert svc.next_paycheck_date(user.id + 999, date(2026, 3, 2)) is None

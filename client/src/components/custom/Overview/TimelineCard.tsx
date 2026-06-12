@@ -1,104 +1,151 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useStore } from "@/store/store";
+import { formatCurrency } from "@/lib/format";
 import {
-  AreaChart,
+  ComposedChart,
   Area,
+  Bar,
   XAxis,
   YAxis,
   Tooltip,
   ResponsiveContainer,
+  CartesianGrid,
+  ReferenceLine,
 } from "recharts";
+import { AXIS_TICK, ink, tooltipStyle } from "@/lib/chart";
 
-const TICK_STYLE = {
-  fontFamily: "JetBrains Mono, monospace",
-  fontSize: 10,
-  fill: "hsl(150,30%,40%)",
-};
+interface CashflowPoint {
+  date: string;
+  spent?: number; // past actual daily spend
+  projIncome?: number; // projected income (forward)
+  projExpense?: number; // projected expenses (forward, negative for the bar)
+}
 
+/**
+ * Unified cashflow timeline: the engraved area of recent actual spending,
+ * extended past the "today" rule with the projected recurring cashflows —
+ * income up in credit ink, bills down in debit ink. Same card as the old
+ * spend timeline; it just learned about the future.
+ */
 export default function TimelineCard() {
-  const { recentTransactions } = useStore();
+  const { recentTransactions, forecast, forecastLoaded, fetchForecast } = useStore();
 
-  const byDate: Record<string, number> = {};
+  useEffect(() => {
+    if (!forecastLoaded) fetchForecast(30);
+  }, [forecastLoaded, fetchForecast]);
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const byDate: Record<string, CashflowPoint> = {};
   recentTransactions.forEach((t) => {
-    if (t.type === "expense") {
-      byDate[t.date] = (byDate[t.date] ?? 0) + t.amount;
+    if (t.type === "expense" && t.date <= today) {
+      const p = (byDate[t.date] ??= { date: t.date });
+      p.spent = (p.spent ?? 0) + t.amount;
     }
   });
+  (forecast?.timeline ?? []).forEach((pt) => {
+    if (pt.date <= today) return;
+    const income = pt.income ?? 0;
+    const expenses = pt.expenses ?? 0;
+    if (income === 0 && expenses === 0) return;
+    const p = (byDate[pt.date] ??= { date: pt.date });
+    if (income > 0) p.projIncome = (p.projIncome ?? 0) + income;
+    if (expenses > 0) p.projExpense = (p.projExpense ?? 0) - expenses;
+  });
 
-  const data = Object.entries(byDate)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, total]) => ({ date, total }));
-
-  if (data.length === 0) {
-    return (
-      <Card className="shadow-brutal">
-        <CardHeader>
-          <CardTitle className="font-mono text-xs uppercase tracking-widest text-primary">
-            [ SPEND TIMELINE ]
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="font-mono text-sm text-muted-foreground">-- no data --</p>
-        </CardContent>
-      </Card>
-    );
-  }
+  const data = Object.values(byDate).sort((a, b) =>
+    a.date.localeCompare(b.date)
+  );
+  const hasFuture = data.some((d) => d.date > today);
 
   return (
-    <Card className="shadow-brutal">
+    <Card>
       <CardHeader>
-        <CardTitle className="font-mono text-xs uppercase tracking-widest text-primary">
-          [ SPEND TIMELINE ]
-        </CardTitle>
+        <CardTitle>Cashflow Timeline</CardTitle>
       </CardHeader>
       <CardContent>
-        <ResponsiveContainer width="100%" height={200}>
-          <AreaChart data={data} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
-            <defs>
-              <linearGradient id="greenFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%"  stopColor="hsl(150,100%,50%)" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="hsl(150,100%,50%)" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <XAxis
-              dataKey="date"
-              tick={TICK_STYLE}
-              hide={data.length > 10}
-              axisLine={false}
-              tickLine={false}
-            />
-            <YAxis
-              tick={TICK_STYLE}
-              tickFormatter={(v: number) => `$${v}`}
-              axisLine={false}
-              tickLine={false}
-              width={48}
-            />
-            <Tooltip
-              contentStyle={{
-                background: "hsl(240,20%,7%)",
-                border: "1px solid hsl(150,60%,15%)",
-                fontFamily: "JetBrains Mono, monospace",
-                fontSize: 11,
-                color: "hsl(145,80%,88%)",
-              }}
-              cursor={{ stroke: "hsl(150,100%,50%)", strokeWidth: 1, strokeDasharray: "4 4" }}
-            />
-            <Area
-              type="monotone"
-              dataKey="total"
-              stroke="hsl(150,100%,50%)"
-              strokeWidth={2}
-              fill="url(#greenFill)"
-              dot={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+        {data.length === 0 ? (
+          <p className="py-8 text-center font-sans text-sm italic text-muted-foreground">
+            No entries posted this period.
+          </p>
+        ) : (
+          <ResponsiveContainer width="100%" height={196}>
+            <ComposedChart
+              data={data}
+              margin={{ left: 0, right: 8, top: 6, bottom: 0 }}
+              stackOffset="sign"
+            >
+              <defs>
+                <linearGradient id="spendFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={ink("--debit")} stopOpacity={0.28} />
+                  <stop offset="100%" stopColor={ink("--debit")} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid
+                stroke={ink("--rule", 0.6)}
+                strokeDasharray="2 4"
+                vertical={false}
+              />
+              <XAxis
+                dataKey="date"
+                tick={{ ...AXIS_TICK, fill: ink("--muted-foreground") }}
+                hide={data.length > 10}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ ...AXIS_TICK, fill: ink("--muted-foreground") }}
+                tickFormatter={(v: number) => `$${v}`}
+                axisLine={false}
+                tickLine={false}
+                width={48}
+              />
+              <Tooltip
+                contentStyle={tooltipStyle()}
+                formatter={(v: number, name: string) => {
+                  if (name === "projIncome") return [formatCurrency(v), "Expected pay"];
+                  if (name === "projExpense")
+                    return [formatCurrency(Math.abs(v)), "Expected bill"];
+                  return [formatCurrency(v), "Spent"];
+                }}
+                cursor={{ stroke: ink("--gold"), strokeWidth: 1, strokeDasharray: "4 4" }}
+              />
+              {/* past actuals */}
+              <Area
+                type="monotone"
+                dataKey="spent"
+                stroke={ink("--debit")}
+                strokeWidth={1.6}
+                fill="url(#spendFill)"
+                dot={false}
+                activeDot={{ r: 3, fill: ink("--debit"), strokeWidth: 0 }}
+              />
+              {/* forward projection: income up, bills down */}
+              <Bar dataKey="projIncome" fill={ink("--credit", 0.55)} barSize={5} />
+              <Bar dataKey="projExpense" fill={ink("--debit", 0.45)} barSize={5} />
+              {/* the present moment, ruled */}
+              {hasFuture && (
+                <ReferenceLine
+                  x={today}
+                  stroke={ink("--gold")}
+                  strokeDasharray="3 3"
+                  label={{
+                    value: "today",
+                    position: "insideTopRight",
+                    fontSize: 9,
+                    fill: ink("--muted-foreground"),
+                  }}
+                />
+              )}
+            </ComposedChart>
+          </ResponsiveContainer>
+        )}
+        {hasFuture && (
+          <p className="mt-1 text-right font-sans text-[10px] text-muted-foreground/70">
+            Right of the gold rule: projected recurring pay & bills
+          </p>
+        )}
       </CardContent>
     </Card>
   );

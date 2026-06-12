@@ -83,12 +83,16 @@ class NotificationService:
     def _add_if_new(
         self, user_id: int, *, type: str, title: str, message: str, ref: str
     ) -> Optional[NotificationORM]:
-        """Insert a notification unless an unread one with the same ref exists."""
+        """Insert a notification unless one with the same ref already exists.
+
+        Read or unread: a nudge the user has already seen and dismissed must
+        not resurrect on the next feed refresh (the ref embeds the period or
+        item id, so a *new* overrun next month still gets its own row).
+        """
         exists = self.db.execute(
             select(NotificationORM.id).where(
                 NotificationORM.user_id == user_id,
                 NotificationORM.ref == ref,
-                NotificationORM.read == 0,
             )
         ).first()
         if exists:

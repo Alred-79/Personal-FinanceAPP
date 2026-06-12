@@ -36,7 +36,7 @@ class Expense(Transaction):
 
 
 class Income(Transaction):
-    pass
+    recurrence: Optional[str] = Field(default=None, max_length=50)
 
 
 class Token(BaseModel):

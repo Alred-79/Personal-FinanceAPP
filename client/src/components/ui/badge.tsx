@@ -3,15 +3,16 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
+/** Category chips set like inventory tags: fine rule, mono smallcaps. */
 const badgeVariants = cva(
-  "inline-flex items-center rounded-none border-2 border-border px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background",
+  "inline-flex items-center rounded-none border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground",
-        secondary: "bg-secondary text-secondary-foreground",
-        destructive: "bg-destructive text-destructive-foreground",
-        outline: "bg-card text-card-foreground",
+        default: "border-rule-strong/60 bg-primary text-primary-foreground",
+        secondary: "border-rule-strong/40 bg-secondary text-secondary-foreground",
+        destructive: "border-debit/60 bg-transparent text-debit",
+        outline: "border-rule-strong/50 bg-transparent text-foreground",
       },
     },
     defaultVariants: {
