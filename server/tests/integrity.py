@@ -39,8 +39,13 @@ def finance_tables_fingerprint(session: Session) -> str:
     deterministically, and hashes the lot. Tables absent from this DB are
     skipped (keeps the helper usable on partial schemas).
     """
-    bind = session.get_bind()
-    inspector = inspect(bind)
+    # Inspect via the session's OWN connection, not the engine. On an in-memory
+    # SQLite + StaticPool, inspecting the engine opens a second connection that
+    # can't see the session's uncommitted (flushed-but-not-committed) rows and
+    # disturbs them; the session connection sees the live transaction and leaves
+    # it intact.
+    conn = session.connection()
+    inspector = inspect(conn)
     existing = set(inspector.get_table_names())
 
     hasher = hashlib.sha256()

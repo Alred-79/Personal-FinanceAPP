@@ -50,9 +50,10 @@ from ..db.models import (
     Expense as ExpenseORM,
     Goal as GoalORM,
     Income as IncomeORM,
+    Rule as RuleORM,
     UsedActionToken as UsedActionTokenORM,
 )
-from ..money import dollars_to_cents
+from ..money import cents_to_dollars, dollars_to_cents
 
 
 def _get_session() -> Session:
@@ -612,6 +613,32 @@ class ActionService:
             )
             return norm, summary
 
+        if action == "create_allocation":
+            # v4 package 03: an alert/what-if "fix" — move money into a goal's
+            # virtual earmark (Goal.progress). In-app only; never moves real
+            # money between banks.
+            norm = {
+                "goal_id": _coerce_int(params.get("goal_id"), "goal_id"),
+                "amount": _coerce_amount(params.get("amount")),
+            }
+            summary = (
+                f"Set aside ${norm['amount']:.2f} toward goal #{norm['goal_id']}"
+            )
+            return norm, summary
+
+        if action == "whatif_commit":
+            # v4 package 03: commit a what-if as a standing allocation rule.
+            norm = {
+                "goal_id": _coerce_int(params.get("goal_id"), "goal_id"),
+                "amount": _coerce_amount(params.get("amount")),
+                "name": (params.get("name") or "What-if commitment").strip(),
+            }
+            summary = (
+                f"Make ${norm['amount']:.2f} toward goal #{norm['goal_id']} a "
+                f"standing rule"
+            )
+            return norm, summary
+
         raise ActionError(f"Unsupported action: {action}")
 
     # ── Signed pending action tokens ──────────────────────────────────────
@@ -730,6 +757,92 @@ class ActionService:
                 "transaction_id": row.id,
                 "category": row.category,
             }
+
+        if action == "create_allocation":
+            # Move money into the goal's virtual earmark (Goal.progress) — the
+            # same write the rule engine's allocate action performs — and record
+            # the fix as a game event. No bank money moves.
+            from server.src.services.game.events import (
+                GameEventDraft,
+                record_events,
+            )
+
+            goal = db.execute(
+                select(GoalORM).where(
+                    GoalORM.id == params["goal_id"], GoalORM.user_id == user_id
+                )
+            ).scalar_one_or_none()
+            if goal is None:
+                raise ActionError("Goal not found.")
+            cents = dollars_to_cents(params["amount"])
+            goal.progress = (goal.progress or 0) + cents
+            if goal.progress >= goal.amount:
+                goal.completed = 1
+            db.flush()
+            record_events(
+                db,
+                [
+                    GameEventDraft(
+                        stream=f"user:{user_id}",
+                        type="AlertFixApplied",
+                        payload={
+                            "fix_kind": "create_allocation",
+                            "goal_id": goal.id,
+                            "amount_cents": cents,
+                        },
+                    )
+                ],
+            )
+            return {
+                "message": "Allocation created",
+                "goal_id": goal.id,
+                "progress": cents_to_dollars(goal.progress),
+            }
+
+        if action == "whatif_commit":
+            # Create a standing allocate Rule targeting the goal, and record the
+            # what-if commit. The Rule is the durable commitment; future income
+            # the rule engine sees will fund the goal.
+            from server.src.services.game.events import (
+                GameEventDraft,
+                record_events,
+            )
+
+            goal = db.execute(
+                select(GoalORM).where(
+                    GoalORM.id == params["goal_id"], GoalORM.user_id == user_id
+                )
+            ).scalar_one_or_none()
+            if goal is None:
+                raise ActionError("Goal not found.")
+            rule = RuleORM(
+                user_id=user_id,
+                name=params["name"],
+                enabled=1,
+                conditions=json.dumps([{"field": "type", "op": "eq", "value": "income"}]),
+                action_type="allocate",
+                action_params=json.dumps({"amount": params["amount"]}),
+                target_kind="goal",
+                target_id=goal.id,
+                priority=0,
+            )
+            db.add(rule)
+            db.flush()
+            record_events(
+                db,
+                [
+                    GameEventDraft(
+                        stream=f"user:{user_id}",
+                        type="WhatIfCommitted",
+                        payload={
+                            "goal_id": goal.id,
+                            "amount": params["amount"],
+                            "rule_id": rule.id,
+                        },
+                    )
+                ],
+            )
+            return {"message": "Commitment created", "rule_id": rule.id}
 
         raise ActionError(f"Unsupported action: {action}")
 

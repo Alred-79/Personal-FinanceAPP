@@ -8,6 +8,7 @@ import TransactionsCard from "@/components/custom/Overview/TransactionsCard";
 import TimelineCard from "@/components/custom/Overview/TimelineCard";
 import NetWorthCard from "@/components/custom/Overview/NetWorthCard";
 import ForecastCard from "@/components/custom/Overview/ForecastCard";
+import { SafeToSpend } from "@/components/custom/SafeToSpend/SafeToSpend";
 
 const today = new Date().toLocaleDateString("en-US", {
   year: "numeric",
@@ -32,6 +33,12 @@ function Overview() {
         description="Your standing as of the close of business."
         reference={`Form 1040-A · ${today}`}
       />
+
+      {/* The glanceable hero: ONE number, identical across modes (v4 §5.2).
+          Sits above the net-worth note so it's the first thing the eye lands on. */}
+      <div className="mb-6 animate-rise-in">
+        <SafeToSpend />
+      </div>
 
       {/* The banknote hero */}
       <div className="mb-6">

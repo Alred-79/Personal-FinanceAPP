@@ -14,5 +14,14 @@
   "settings.intensity.full": "Full",
   "settings.intensity.off.desc": "Pure finance. No game layer at all.",
   "settings.intensity.ambient.desc": "Gentle game touches; numbers stay plain.",
-  "settings.intensity.full.desc": "The full game layer, terminal styling and all."
+  "settings.intensity.full.desc": "The full game layer, terminal styling and all.",
+  "money.safe_to_spend": "War chest",
+  "alert.bill_dip.title": "Incoming hit to the war chest",
+  "alert.bill_dip.body": "This due charge could breach your buffer line. Reinforce it to hold the line.",
+  "alert.negative_ahead.title": "Hull breach ahead",
+  "alert.negative_ahead.body": "Your projected reserves go below zero within days. Here are steps to seal the gap.",
+  "alert.payday_sweep.title": "Supply drop landed",
+  "alert.payday_sweep.body": "Route part of it to your quest before it scatters.",
+  "alert.graduation.title": "Forge a standing pact?",
+  "alert.graduation.body": "You've done this a few times. Forge it into a standing rule so it runs on its own."
 }

@@ -14,5 +14,14 @@
   "settings.intensity.full": "Full",
   "settings.intensity.off.desc": "Pure finance. No game layer at all.",
   "settings.intensity.ambient.desc": "Gentle game touches; numbers stay plain.",
-  "settings.intensity.full.desc": "The full game layer, terminal styling and all."
+  "settings.intensity.full.desc": "The full game layer, terminal styling and all.",
+  "money.safe_to_spend": "Safe to spend",
+  "alert.bill_dip.title": "A bill is due soon",
+  "alert.bill_dip.body": "Paying it could drop your balance below your buffer. Set a little aside to stay covered.",
+  "alert.negative_ahead.title": "Balance dips below zero soon",
+  "alert.negative_ahead.body": "Your projected balance goes negative within a few days. Here are steps to cover the gap.",
+  "alert.payday_sweep.title": "Income arrived",
+  "alert.payday_sweep.body": "Set part of it aside toward your goal before it gets absorbed.",
+  "alert.graduation.title": "Make it standing?",
+  "alert.graduation.body": "You've done this a few times. Make it a standing rule so it happens on its own."
 }
