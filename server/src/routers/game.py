@@ -15,8 +15,38 @@ from server.src.models import UserInDB
 from server.src.services.auth_service import AuthService
 from server.src.services.game.stats import StatsService, player_xp
 from server.src.services.game.xp import LEVEL_K
+from server.src.services.game.daily import DailyService, streak_view
 
 router = APIRouter(prefix="/game", tags=["game"])
+
+
+@router.get("/streak/")
+async def get_streak(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """The streak chip + ward slots + collectible tick. Reading writes nothing.
+
+    The 'broken' concept does not exist in the data model, so it cannot leak
+    here — a lapsed streak reads as ``rebuilding`` with ``best`` preserved.
+    """
+    return streak_view(db)
+
+
+@router.post("/tick/collect/")
+async def collect_tick(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """Collect the accrued tick. Reveals the already-accrued amount and awards
+    NOTHING extra — collect is presentation, not a rewarded action."""
+    amount = DailyService(db).collect_tick(current_user)
+    db.commit()
+    return {"collected": amount}
 
 
 @router.get("/keeper/")

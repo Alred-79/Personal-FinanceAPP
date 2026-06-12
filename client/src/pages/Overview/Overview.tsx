@@ -9,6 +9,7 @@ import TimelineCard from "@/components/custom/Overview/TimelineCard";
 import NetWorthCard from "@/components/custom/Overview/NetWorthCard";
 import ForecastCard from "@/components/custom/Overview/ForecastCard";
 import { SafeToSpend } from "@/components/custom/SafeToSpend/SafeToSpend";
+import { DailySurface } from "@/components/custom/DailySurface/DailySurface";
 
 const today = new Date().toLocaleDateString("en-US", {
   year: "numeric",
@@ -38,6 +39,13 @@ function Overview() {
           Sits above the net-worth note so it's the first thing the eye lands on. */}
       <div className="mb-6 animate-rise-in">
         <SafeToSpend />
+      </div>
+
+      {/* The daily surface: today's one verb + collect (hidden in off mode).
+          NEVER more than those two elements. The Expedition home (08) will
+          replace this card as the daily surface. */}
+      <div className="mb-6">
+        <DailySurface />
       </div>
 
       {/* The banknote hero */}

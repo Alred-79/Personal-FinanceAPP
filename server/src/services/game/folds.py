@@ -305,6 +305,10 @@ def register_builtin_folds() -> None:
     # the circular import; a later call (record_events / rebuild) succeeds.
     _register_stat_folds_if_possible()
 
+    # Group 3: streak_state folds (package 05) — same circular-import shape, same
+    # retry-until-importable handling.
+    _register_daily_folds_if_possible()
+
 
 def _register_stat_folds_if_possible() -> bool:
     """Try to register the stats folds; return True once they're present.
@@ -324,9 +328,28 @@ def _register_stat_folds_if_possible() -> bool:
     return True
 
 
-# The projection name the stats folds register under (kept in sync with
-# stats.PLAYER_STATE; duplicated here to avoid importing stats at module load).
-PLAYER_STATE = "player_state"
+def _register_daily_folds_if_possible() -> bool:
+    """Try to register the streak_state folds; return True once present.
+
+    Same circular-import handling as the stats folds: ``daily`` imports
+    ``events``, so under the events-first import order the first attempt raises
+    and a later call (record_events / rebuild) succeeds.
+    """
+    if any(p == STREAK_STATE for ps in _FOLDS.values() for p, _ in ps):
+        return True
+    try:
+        from .daily import register_daily_folds
+    except ImportError:
+        logger.debug("daily folds not yet importable (circular window); will retry")
+        return False
+    register_daily_folds()
+    return True
+
+
+# Projection names the late-registered folds use (kept in sync with their
+# defining modules; duplicated here to avoid importing those modules at load).
+PLAYER_STATE = "player_state"  # stats.PLAYER_STATE
+STREAK_STATE = "streak_state"  # daily.STREAK_STATE
 
 
 register_builtin_folds()

@@ -35,5 +35,20 @@
   "keeper.calibrating": "Calibrating — keep going for a clearer picture.",
   "keeper.coming": "Coming soon",
   "toast.levelup.title": "Level up",
-  "toast.levelup.body": "Your steady actions moved you up a level."
+  "toast.levelup.body": "Your steady actions moved you up a level.",
+  "streak.label": "Streak",
+  "streak.active": "{n}-day streak",
+  "streak.rebuilding": "Rebuilding — day {n} (best: {best})",
+  "streak.reviving": "Reviving your streak: {n} of 3 days",
+  "streak.best": "Best: {best}",
+  "ward.label": "Wards",
+  "ward.held": "A ward held the line. Nothing to do.",
+  "tick.label": "Daily progress",
+  "tick.collect": "Collect",
+  "daily.verb.confirm_forecast": "Does this look right?",
+  "daily.verb.scout_bill": "Scout your next bill",
+  "daily.verb.what_if": "Try a what-if",
+  "daily.verb.worth_it_tag": "Was it worth it?",
+  "daily.title": "Today",
+  "consistency.label": "Consistency"
 }

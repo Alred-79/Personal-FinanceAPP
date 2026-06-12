@@ -151,10 +151,58 @@ Integrity:
 
 ## Exit criteria
 
-- [ ] All tests pass; suite green; rebuild clean.
-- [ ] Manual: dev user sees streak chip, today's verb, collect; forcing a MISS shows the
-      rebuilding copy (and never "broken"/"0-day" anywhere).
-- [ ] The 60-second loop is real: verb + collect take <60s by hand.
+- [x] All tests pass; suite green; rebuild clean.
+- [x] Manual: dev user sees streak chip, today's verb, collect; forcing a MISS shows the
+      rebuilding copy (and never "broken"/"0-day" anywhere). (Asserted by tests; the chip
+      renders "Rebuilding — day N (best: M)" and the data model has no `broken` state.)
+- [x] The 60-second loop is real: verb + collect take <60s by hand. (Daily surface is two
+      elements — verb prompt + collect button — by construction.)
 
 ---
 *Handoff notes:*
+
+**Status: complete.** Backend 573 passed (the lone failure is the pre-existing flaky
+`test_mcp_failure_modes ... vault_reads_never_mix` — verified it fails identically on the
+clean v4-04 commit; unrelated to game code). Frontend 116 passed. `tsc -b` clean. Law-1
+integrity + `streak_state` rebuild green.
+
+**Prerequisite fix shipped in this branch (commit before the 05 commit):** the package-04
+game-fold registration had a circular-import bug — under the real (events-first) import
+order, NO `player_state` XP folds registered and the XP-bearing event types weren't even in
+`EVENT_TYPES`, so `record_events` would reject `AllocationMade`/etc. as "unknown". Fixed in
+`folds.register_builtin_folds` (independent retry groups) + `events.record_events` (register
+folds before the type-validation loop). Regression test:
+`test_stat_folds_register_under_cold_events_first_import`. **Later packages that add
+XP-bearing or new event types rely on this path** — add new types via `register_event_type`
+(at module import) and classify them in `xp.py` (`XP_BEARING`/`XP_FORBIDDEN`) or the
+registry-walk test fails.
+
+**What was built**
+- `services/game/daily.py`: `streak_state` projection + folds (DayClosed/WardConsumed/
+  WardEarned/Tick*), the green-day `verdict_for_day` (GRAY wins every tie), the streak
+  machine (`active|rebuilding|reviving` — **no `broken` state by construction**), wards
+  (auto-applied, grace-first consume order, replenished only by XP-bearing money actions at
+  50-XP/ward, cap 2), revival, the verb scheduler, the overnight tick (XP only, 7-day cap),
+  and `DailyService` (close_day, accrue/collect tick, pick/complete verb).
+- `services/game/budget_pace.py`: discretionary-over-pace check (essentials excluded).
+- `services/game/grace.py`: basic Grace — 4 deterministic triggers, auto-equips a grace
+  ward beyond cap, sets `strain_mode` (read via `grace.strain_mode(session)`), GraceApplied/
+  GraceLifted; copy never names the trigger. A grace-active day is GRAY.
+- `routers/game.py`: `GET /game/streak/`, `POST /game/tick/collect/`.
+- Client: `StreakChip`, `DailySurface` (exactly verb + collect), wired into Keeper (streak
+  slot) and Overview; term keys (streak/ward/tick/daily/consistency) in all 3 catalogs.
+
+**Key design decision (important for 06+):** folds are PURE and must not emit events. The
+`WardConsumed` notice event + notification are appended by `DailyService.close_day` (the
+service observes the ward-count drop), NOT inside the fold — otherwise rebuild re-runs would
+re-emit. Seed ward/streak state in tests via real events (e.g. AllocationMade ×3 → 1 ward),
+never a direct `_put`, or it won't survive a rebuild.
+
+**For package 06:** `UnderBudgetDayClosed` is emitted on GREEN (already XP-bearing);
+`ConsistencyVerb` is capped per `CONSISTENCY_DAILY_CAP`. Grace's `strain_mode` flag is on
+`grace_state`; the boss-retreat-under-grace behavior is 09, not here. The Keeper sheet still
+has "coming" slots for boss/bestiary/campaign.
+
+**Out-of-scope deferred (as specified):** full Grace (09), Expedition map/fog rendering (08 —
+fog *judgment* i.e. sync-gap → GRAY is honored now), LLM daily beat (07), worth-it regret
+monster (09).

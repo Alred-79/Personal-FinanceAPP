@@ -54,6 +54,20 @@ XP_FORBIDDEN: set[str] = {
     "LoggedIn",
     "Collected",  # collect-without-accrual
     "AlertDelivered",
+    # Package 05 — the daily skeleton. The day-close and streak machinery is
+    # structural, not a rewarded action (the XP for a green day rides on the
+    # separate XP-bearing UnderBudgetDayClosed event, not on DayClosed itself).
+    "DayClosed",
+    "WardConsumed",
+    "WardEarned",
+    "RevivalOffered",
+    "RevivalCompleted",
+    "RevivalEnded",
+    "TickAccrued",
+    "TickCollected",  # collect is presentation — reveals already-accrued XP
+    # Basic Grace (pkg 05) — easing off in a hard month grants no XP, ever.
+    "GraceApplied",
+    "GraceLifted",
 }
 
 # The one capped exception. Consistency XP per day is capped at 10% of the
