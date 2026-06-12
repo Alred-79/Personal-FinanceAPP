@@ -10,6 +10,7 @@ import NetWorthCard from "@/components/custom/Overview/NetWorthCard";
 import ForecastCard from "@/components/custom/Overview/ForecastCard";
 import { SafeToSpend } from "@/components/custom/SafeToSpend/SafeToSpend";
 import { DailySurface } from "@/components/custom/DailySurface/DailySurface";
+import { SagaChapter } from "@/components/custom/SagaChapter/SagaChapter";
 
 const today = new Date().toLocaleDateString("en-US", {
   year: "numeric",
@@ -46,6 +47,11 @@ function Overview() {
           replace this card as the daily surface. */}
       <div className="mb-6">
         <DailySurface />
+      </div>
+
+      {/* The weekly saga chapter (Sunday; hidden in off). Ends in one action. */}
+      <div className="mb-6">
+        <SagaChapter />
       </div>
 
       {/* The banknote hero */}

@@ -591,6 +591,28 @@ class Liability(Base):
     defeated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
+class CanonFact(Base):
+    """The Chronicler's canon — durable facts about the user's saga (v4 §7.4).
+
+    Written ONLY by engine event subscriptions (boss defeated → roster; streak
+    best; active modifier; persona prefs). The LLM NEVER writes canon (Law 2:
+    flavor never feeds engine state). ``value`` is TEXT/JSON; ``source_event_id``
+    links the engine event that produced the fact (NULL for settings-derived).
+    """
+
+    __tablename__ = "canon_facts"
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_canon_user_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    key: Mapped[str] = mapped_column(String, nullable=False)
+    value: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+    source_event_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+
 class LiabilityAdjustment(Base):
     """A manual balance reconciliation on a liability (v4 package 06).
 

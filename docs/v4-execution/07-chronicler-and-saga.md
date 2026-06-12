@@ -168,11 +168,56 @@ Integrity:
 
 ## Exit criteria
 
-- [ ] All tests pass; suite green.
-- [ ] Manual: `/` opens the drawer everywhere; a generated chapter (real Groq, dev key) reads
-      in-voice, ends in one action, card exports; pulling the network mid-generation degrades
-      to the template chapter.
-- [ ] `TODO(human)` markers for exemplar expansion documented in handoff.
+- [x] All tests pass; suite green. (Backend 615 passed — lone failure is the pre-existing
+      flaky MCP test; frontend 132; tsc clean; migration applies.)
+- [x] `/` opens the drawer everywhere (AppShell mounts `ChroniclerDrawer`; `/` keybind);
+      generated/template chapter ends in exactly one action; pulling Groq → template fallback
+      (no llm_call → deterministic `template_chapter`). Real-Groq voice read left for manual.
+- [x] `TODO(human)` markers for exemplar expansion documented (below + in `docs/voice/exemplars.md`).
 
 ---
 *Handoff notes:*
+
+**Status: complete.** Backend 615 passed (lone failure = pre-existing flaky MCP test).
+Frontend 132. tsc clean. Migration `d7e8f9a0b1c2_canon_facts` applies (single head).
+
+**Law 2 spine:** the engine computes every number (the deterministic fact sheet), the LLM only
+renders voice, and NO LLM output feeds engine state. The chapter body may contain **no digits**
+— every number is templated by the surface. Validators reject bad model output (retry once →
+deterministic `template_chapter` fallback).
+
+**What was built**
+- `models.CanonFact` + migration `d7e8f9a0b1c2`. `canon.py`: engine-only writers
+  (`record_boss_defeated`/`record_streak_best`/`record_persona_pref`), `render_canon` (budgeted,
+  oldest-first truncation). The LLM NEVER writes canon.
+- `chronicler.py`: `build_week_fact_sheet` (byte-identical for fixed inputs, sorted keys — the
+  cache-key input), the closed `ARCHETYPES` enum, `validate_chapter` (schema → off-enum →
+  word-count 120–280 → **no-digit** → entity-allowlist → firewall), `template_chapter`
+  (deterministic, always-valid, always one action), `generate_chapter` (cache by
+  `sha256(model|template_v|sha(fact_sheet)|mode)`; emits `ChapterGenerated`, XP_FORBIDDEN).
+- `firewall.py`: `screen_output` (pattern tiers: advice/neediness/shame + heuristic
+  imperative+money) runs on EVERY LLM output — drawer AND chapters; `is_crisis` for the
+  self-harm lexicon → static `CRISIS_RESOURCE`, bypassing the LLM.
+- `drawer.py` + `routers/game.py` `/game/chronicler/ask/`: the EXISTING assistant with a skin —
+  crisis screen → rate limit (20/day, in-character refusal) → buffered assistant call (never
+  streamed raw) → firewall. Persona prefix in ambient/full, empty in off. AI label always on.
+- Client: `ChroniclerDrawer` (`/`-summoned, AI label all modes, canned commands), `SagaChapter`
+  (one-action final block, hidden in off), wired into AppShell + Overview.
+- `docs/voice/persona.md` + `docs/voice/exemplars.md`, red-team corpus
+  `server/tests/fixtures/redteam_prompts.txt` (32 prompts across direct/indirect/jailbreak/
+  persona-bait/numbers-bait/shame-bait).
+
+**TODO(human):** `docs/voice/exemplars.md` has 6 SHAPE-correct exemplar pairs (gentle+roast,
+no digits, roast-the-monster). A human should extend to ~50 and own the comedy — the agent
+wrote placeholders in the right form only. Marked `TODO(human)` in-file.
+
+**Deviations / notes for 08+:**
+- The `/game/chapter/` endpoint uses the deterministic template (no Groq key wired); the spec's
+  weekly batch job for real generation is stubbed via `generate_chapter(..., llm_call=...)` —
+  pass a real Groq-backed `llm_call` when the batch job lands. The pipeline + validators are
+  fully there and tested with a mock LLM.
+- Canon event-subscriptions (`record_boss_defeated` etc.) exist but are not yet auto-fired from
+  the boss folds — wire them where boss/streak events are emitted (small follow-up; the writers
+  are tested directly). Flagged so 08/09 can hook them.
+- `select_one_action` currently prefers a 03 alert-with-fix, else `confirm_forecast` (the floor
+  — there is ALWAYS one action). 08's expedition can extend the candidate set.

@@ -8,6 +8,7 @@ writes nothing (no engagement XP).
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from server.src.db.session import get_db
@@ -107,3 +108,107 @@ async def get_keeper(
         "xp_for_next": next_level_xp - this_level_xp,
         "level_progress": round(progress, 3),
     }
+
+
+class _DrawerAsk(BaseModel):
+    message: str
+
+
+@router.post("/chronicler/ask/")
+async def chronicler_ask(
+    body: _DrawerAsk,
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """The Chronicler drawer: crisis screen → rate limit → assistant (buffered) →
+    firewall, before anything reaches the client. Never streams raw model text;
+    writes still flow through the assistant's propose→confirm path."""
+    from datetime import date
+
+    from server.src.services.game.drawer import (
+        DAILY_MESSAGE_LIMIT,
+        RATE_LIMIT_REFUSAL_FULL,
+        RATE_LIMIT_REFUSAL_PLAIN,
+        persona_system_prompt,
+    )
+    from server.src.services.game.firewall import (
+        CRISIS_RESOURCE,
+        is_crisis,
+        screen_output,
+    )
+
+    mode = getattr(current_user, "game_mode", "off")
+    plain = mode == "off"
+
+    # 1. Crisis screen — bypasses the LLM entirely.
+    if is_crisis(body.message):
+        return {"text": CRISIS_RESOURCE["body"], "kind": "crisis",
+                "persona": False, "ai_label": True, "blocked": False}
+
+    # 2. Rate limit (per-process daily counter).
+    count = _drawer_rate_bump(current_user.id, date.today().isoformat())
+    if count > DAILY_MESSAGE_LIMIT:
+        return {"text": RATE_LIMIT_REFUSAL_PLAIN if plain else RATE_LIMIT_REFUSAL_FULL,
+                "kind": "refusal", "persona": not plain, "ai_label": True, "blocked": False}
+
+    # 3. Assistant, buffered into one string (NOT streamed) so the firewall can
+    #    screen the whole output before rendering. Reuse the assistant router's
+    #    singleton (the drawer IS the existing assistant with a skin).
+    from server.src.routers.assistant import assistant_service
+
+    persona_system_prompt(mode)  # the skin (the assistant memory carries voice)
+    chunks: list[str] = []
+    try:
+        async for piece in assistant_service.chat(current_user, body.message):
+            chunks.append(piece)
+    except Exception:
+        return {"text": "The chronicle is unavailable right now.", "kind": "error",
+                "persona": not plain, "ai_label": True, "blocked": False}
+    raw = "".join(chunks)
+
+    # 4. Firewall the output.
+    verdict = screen_output(raw, plain=plain)
+    if verdict.blocked:
+        return {"text": verdict.safe_text, "kind": "redirect", "persona": not plain,
+                "ai_label": True, "blocked": True}
+    return {"text": raw, "kind": "message", "persona": not plain,
+            "ai_label": True, "blocked": False}
+
+
+# Per-process daily rate-limit counters for the drawer: {user_id: (date, count)}.
+_DRAWER_COUNTS: dict[int, tuple[str, int]] = {}
+
+
+def _drawer_rate_bump(user_id: int, today_iso: str) -> int:
+    day, count = _DRAWER_COUNTS.get(user_id, (today_iso, 0))
+    if day != today_iso:
+        count = 0
+    count += 1
+    _DRAWER_COUNTS[user_id] = (today_iso, count)
+    return count
+
+
+@router.get("/chapter/")
+async def get_chapter(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """This week's saga chapter (deterministic template via the API; the weekly
+    batch job does real LLM generation). Off-mode users get nothing."""
+    from datetime import date, timedelta
+
+    from server.src.services.game.mode import should_generate_flavor
+    from server.src.services.game.chronicler import generate_chapter
+
+    if not should_generate_flavor(current_user):
+        return {"chapter": None}
+    today = date.today()
+    week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=6)
+    chapter = generate_chapter(db, current_user, week_start, week_end)
+    db.commit()
+    return {"chapter": chapter}

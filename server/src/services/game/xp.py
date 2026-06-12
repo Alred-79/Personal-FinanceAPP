@@ -79,6 +79,9 @@ XP_FORBIDDEN: set[str] = {
     "BossSealed",
     "BossBanished",
     "BossCorrected",
+    # Package 07 — the Chronicler. Generating flavor text is never a rewarded
+    # action (Law 2: flavor never feeds engine state, including XP).
+    "ChapterGenerated",
 }
 
 # The one capped exception. Consistency XP per day is capped at 10% of the

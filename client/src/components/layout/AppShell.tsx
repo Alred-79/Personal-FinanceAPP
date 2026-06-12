@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useStore } from "@/store/store";
 import { useToast } from "@/hooks/useToast";
 import { AssistantInterface } from "@/components/custom/AssistantInterface/AssistantInterface";
+import { ChroniclerDrawer } from "@/components/custom/ChroniclerDrawer/ChroniclerDrawer";
 import Header from "./Header";
 import { titleForPath } from "./nav";
 
@@ -89,6 +90,8 @@ export default function AppShell() {
       </main>
 
       <AssistantInterface />
+      {/* The Chronicler drawer: `/`-summoned over any page, every mode. */}
+      <ChroniclerDrawer />
     </div>
   );
 }
