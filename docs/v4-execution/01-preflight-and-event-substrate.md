@@ -192,11 +192,80 @@ Integrity & migrations:
 
 ## Exit criteria
 
-- [ ] All 20 test groups above pass; full pre-existing suite passes.
-- [ ] v1 gate boxes all checked and noted in the handoff.
-- [ ] `python -m src.services.game.rebuild --all` runs clean on the dev DB.
-- [ ] WAL pragmas confirmed (`journal_mode=WAL`, `busy_timeout`); DB confirmed local-tree.
-- [ ] Handoff note appended below.
+- [x] All 20 test groups above pass; full pre-existing suite passes (510 backend
+      / 87 frontend; one pre-existing flaky MCP concurrency test deselected).
+- [x] v1 gate boxes all checked and noted in the handoff.
+- [x] `python -m server.src.services.game.rebuild --all` runs clean on the dev DB.
+- [x] WAL pragmas confirmed (`journal_mode=WAL`, `foreign_keys=ON`,
+      `busy_timeout=5000`); DB confirmed local-tree.
+- [x] Handoff note appended below.
 
 ---
 *Handoff notes (filled by the executing agent):*
+
+## Handoff — package 01 (event substrate) — DONE
+
+**v1 gate: all boxes verified by reading code.**
+- `ForecastService.forecast` projects income **and** expenses and exposes
+  `will_go_negative` ([forecast_service.py](../../server/src/services/forecast_service.py)).
+  Note: the income+expense projection lives on `RecurringService.project_cashflows`,
+  which `ForecastService` consumes — not a method literally named `project_cashflows`
+  on `forecast_service`. Functionally the v1 deliverable is present.
+- Safe-to-Spend exists server-side: `SpendService.safe_to_spend`
+  ([spend_service.py:141](../../server/src/services/spend_service.py)).
+- Rules engine: `Rule` + `RuleExecution` in models, migration
+  `e4f5a6b7c8d9_add_rules_engine` applied (it was the prior alembic head).
+  `RuleExecution` has `amount_cents`, `action_type`, `fired_at`. `Rule` has the
+  generic `target_kind` + `target_id`. ✓
+- `notification_service.py` delivers in-app notifications (writes `Notification`
+  rows, dedup by `ref`). ✓
+- Live SQLite file is repo-root `finance_tracker.db`, on the **local tree** (not
+  OneDrive), `journal_mode=WAL`, `foreign_keys=ON`, and now `busy_timeout=5000`.
+
+**What was built**
+- Migration `f6a7b8c9d0e1_game_event_substrate` (additive only): `game_events`
+  (+ append-only UPDATE/DELETE triggers), `projection_meta`, `llm_cache`;
+  `users.game_mode` (default `off`), `expenses.worth_it` / `income.worth_it`,
+  and `category_settings` seeded with default essentials. Down-migration drops
+  only the new objects; round-trips clean.
+- `server/src/services/game/`: `events.record_events` (the single write path —
+  idempotency via `idempotency_key`, per-stream `seq`, synchronous folds in the
+  same txn), `folds` (registry + `sync_state` and `txn_ledger` projections via a
+  generic `game_projection_kv` table), `clamp.clamped_xp_delta` (one-sided
+  ratchet), `upcasters` (identity + the versioning seam), `rebuild` (truncate →
+  replay by id → watermark → status round-trip) with a `__main__` entry point,
+  and `backfill` (one `BackfillSnapshot` per stream, idempotent).
+- Plaid sync hooks in `plaid_service.py` (additive): posted txns → `TxnPosted`
+  (`plaid:<id>:posted`); pending txns emit nothing; modifies → `TxnCorrected`
+  (`field_deltas`, `caused_by` → original); removes → `TxnReversed`
+  (compensation from the **original** payload, not current state). Events are
+  recorded in the same transaction as the CRUD apply and are best-effort (a fold
+  bug is logged, never breaks the finance sync).
+- `server/tests/integrity.py`: `finance_tables_fingerprint` for the Law-1 check
+  reused by every later package.
+
+**Tests:** `test_game_substrate.py` (groups 1-9, 13-20) and
+`test_game_sync_fold.py` (groups 10-12) — 20 passing. Full backend suite: 510
+passing. Full frontend suite: 87 passing.
+
+**Deviations / things the next package must know**
+- This schema splits "transactions" into **`expenses` + `income`** (no single
+  `transactions` table); there is **no categories table** (categories are
+  strings). So `worth_it` was added to both expense/income, and essentials live
+  in `category_settings` keyed by category name. Plan future packages
+  accordingly.
+- Plaid sync cursor already existed as `tokens.cursor`; no `plaid_items` table
+  and no `sync_cursor` column was added (the doc's "only if it doesn't already
+  exist" branch).
+- Projections are stored in a generic `game_projection_kv` table created lazily
+  via `CREATE TABLE IF NOT EXISTS` (kept out of the migration to keep the
+  substrate self-contained). Later packages can graduate a hot projection to its
+  own real table + migration.
+- **Pre-existing flaky test:** `test_mcp_failure_modes.py::TestConcurrencyIsolation::test_concurrent_cross_user_vault_reads_never_mix`
+  fails ~half the time on **clean `main`** too (verified in a worktree) — it's a
+  threaded in-memory-SQLite timing test, untouched by this package. The 510-pass
+  count deselects it; it is NOT a regression.
+- `SyncGapOpened`/`SyncGapClosed` events exist and fold into `sync_state`, but
+  the sync path does not yet *generate* them automatically (no gap-detection
+  logic wired into `sync_token`). The event types + fold are ready for whichever
+  later package needs lenient in-gap handling to emit them.

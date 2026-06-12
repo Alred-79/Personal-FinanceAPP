@@ -43,6 +43,10 @@ def _set_sqlite_pragmas(dbapi_connection, connection_record):
     try:
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA foreign_keys=ON")
+        # Single-writer model: a concurrent writer (e.g. a background sync while
+        # a request commits game events) should wait briefly for the lock rather
+        # than fail immediately with "database is locked".
+        cursor.execute("PRAGMA busy_timeout=5000")
     finally:
         cursor.close()
 

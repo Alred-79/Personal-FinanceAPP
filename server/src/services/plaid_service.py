@@ -29,6 +29,7 @@ from server.src.services.categorization_service import (
     CategorizationService,
     canonicalize_category,
 )
+from server.src.services.game.events import GameEventDraft, record_events
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,17 @@ def _extract_category(txn: dict) -> str:
         return canonicalize_category(cats[0])
 
     return "Other"
+
+
+def _is_pending(txn: dict) -> bool:
+    """Whether a Plaid transaction is still pending.
+
+    Pending transactions are excluded from the game event log entirely — they
+    emit nothing here and will render as "fog" in package 08. Plaid sets
+    ``pending`` true while a charge is authorizing; a missing flag is treated as
+    posted (the conservative default for legacy feeds that omit it).
+    """
+    return bool(txn.get("pending", False))
 
 
 def _is_usd(txn: dict) -> bool:
@@ -138,9 +150,28 @@ class PlaidService:
             token.key, token.cursor or ""  # type: ignore[arg-type]
         )
 
-        added = self._process_added(result.added, account_id, token.user_id)
-        modified = self._process_modified(result.modified, account_id)
-        removed = self._process_removed(result.removed, account_id)
+        # Game event drafts collected during the CRUD apply. They are recorded
+        # in the SAME transaction (Law 1: fold synchronously with the apply) so
+        # the event log and the financial rows commit together or not at all.
+        drafts: list[GameEventDraft] = []
+
+        added = self._process_added(
+            result.added, account_id, token.user_id, drafts
+        )
+        modified = self._process_modified(result.modified, account_id, drafts)
+        removed = self._process_removed(result.removed, account_id, drafts)
+
+        # Record the game events (posted txns, corrections, reversals). This is
+        # best-effort: a fold bug must never break the finance sync, so a failure
+        # here is logged and swallowed — the financial rows are already applied.
+        if drafts:
+            try:
+                record_events(self.db, drafts)
+            except Exception:  # noqa: BLE001 — game layer is best-effort
+                logger.exception(
+                    "game event recording failed during sync for account %s",
+                    account_id,
+                )
 
         # Persist the cursor so the next sync is incremental.
         token.cursor = result.next_cursor
@@ -167,10 +198,157 @@ class PlaidService:
 
         return summaries
 
+    # ── Game event hooks (v4 package 01) ───────────────────────────────
+    #
+    # These translate Plaid sync deltas into game-domain events on the
+    # 'sync' stream. The events are recorded in the same transaction as the
+    # CRUD apply (see sync_token). Pending transactions emit nothing.
+
+    def _find_posted_event(self, plaid_txn_id: str):
+        """The original ``TxnPosted`` event id for a Plaid txn, if any.
+
+        Corrections/reversals set ``caused_by`` to this so the chain is
+        traceable and the reversal can compute compensation from the ORIGINAL
+        payload, never from current projection state.
+        """
+        from server.src.db.models import GameEvent
+
+        return self.db.execute(
+            select(GameEvent)
+            .where(
+                GameEvent.type == "TxnPosted",
+                GameEvent.idempotency_key
+                == f"plaid:{plaid_txn_id}:posted",
+            )
+        ).scalar_one_or_none()
+
+    def _emit_posted(
+        self,
+        drafts: list[GameEventDraft] | None,
+        txn: dict,
+        account_id: int,
+        kind: str,
+        amount_cents: int,
+        category: str,
+    ) -> None:
+        """Append a ``TxnPosted`` draft for a newly inserted POSTED txn.
+
+        No-op when *drafts* is None (callers that don't record events) or when
+        the txn is still pending (pending emits nothing — package 08 fog).
+        """
+        if drafts is None or _is_pending(txn):
+            return
+        plaid_txn_id = txn["transaction_id"]
+        drafts.append(
+            GameEventDraft(
+                stream="sync",
+                type="TxnPosted",
+                payload={
+                    "plaid_transaction_id": plaid_txn_id,
+                    "account_id": account_id,
+                    "kind": kind,  # 'expense' | 'income'
+                    "amount_cents": amount_cents,
+                    "category": category,
+                    "date": str(txn.get("date")),
+                },
+                idempotency_key=f"plaid:{plaid_txn_id}:posted",
+            )
+        )
+
+    def _emit_correction(
+        self,
+        drafts: list[GameEventDraft] | None,
+        txn: dict,
+        account_id: int,
+        new_amount_cents: int,
+        new_category: str,
+    ) -> None:
+        """Append a ``TxnCorrected`` draft for a modified posted txn.
+
+        Computes ``field_deltas`` against the original ``TxnPosted`` payload so
+        folds consume the delta, not absolute state. No-op for pending txns or
+        txns with no recorded ``TxnPosted`` (nothing to correct).
+        """
+        if drafts is None or _is_pending(txn):
+            return
+        plaid_txn_id = txn["transaction_id"]
+        original = self._find_posted_event(plaid_txn_id)
+        if original is None:
+            return
+        import json as _json
+
+        orig_payload = _json.loads(original.payload)
+        old_amount = orig_payload.get("amount_cents", 0)
+        field_deltas: dict = {}
+        if new_amount_cents != old_amount:
+            field_deltas["amount_cents"] = new_amount_cents - old_amount
+        if new_category != orig_payload.get("category"):
+            field_deltas["category"] = {
+                "from": orig_payload.get("category"),
+                "to": new_category,
+            }
+        if not field_deltas:
+            return  # nothing actually changed
+        drafts.append(
+            GameEventDraft(
+                stream="sync",
+                type="TxnCorrected",
+                payload={
+                    "plaid_transaction_id": plaid_txn_id,
+                    "account_id": account_id,
+                    "field_deltas": field_deltas,
+                },
+                idempotency_key=(
+                    f"plaid:{plaid_txn_id}:corrected:"
+                    f"{txn.get('date')}:{new_amount_cents}"
+                ),
+                caused_by=original.id,
+            )
+        )
+
+    def _emit_reversal(
+        self,
+        drafts: list[GameEventDraft] | None,
+        plaid_txn_id: str,
+        account_id: int,
+    ) -> None:
+        """Append a ``TxnReversed`` draft for a removed posted txn.
+
+        Compensation is computed downstream from the ORIGINAL ``TxnPosted``
+        payload (carried here as ``original_amount_cents``), never from current
+        projection state. No-op when no ``TxnPosted`` was recorded.
+        """
+        if drafts is None:
+            return
+        original = self._find_posted_event(plaid_txn_id)
+        if original is None:
+            return
+        import json as _json
+
+        orig_payload = _json.loads(original.payload)
+        drafts.append(
+            GameEventDraft(
+                stream="sync",
+                type="TxnReversed",
+                payload={
+                    "plaid_transaction_id": plaid_txn_id,
+                    "account_id": account_id,
+                    "original_amount_cents": orig_payload.get("amount_cents", 0),
+                    "original_kind": orig_payload.get("kind"),
+                },
+                idempotency_key=f"plaid:{plaid_txn_id}:reversed",
+                caused_by=original.id,
+            )
+        )
+
     # ── Helpers ────────────────────────────────────────────────────────
 
     def _process_added(
-        self, transactions: list[dict], account_id: int, user_id: int | None = None
+        self,
+        transactions: list[dict],
+        account_id: int,
+        user_id: int | None = None,
+        drafts: list[GameEventDraft] | None = None,
     ) -> int:
         """Insert new transactions, deduplicating on ``plaid_transaction_id``.
 
@@ -179,6 +357,9 @@ class PlaidService:
         falling back to Plaid's own category — canonicalized to the app's
         taxonomy — so a manual rename keeps sticking on later syncs. Without a
         *user_id* the canonicalized Plaid category is used as-is.
+
+        When *drafts* is given, every newly inserted **posted** transaction
+        appends a ``TxnPosted`` event draft (pending transactions emit nothing).
         """
         categorizer = (
             CategorizationService(self.db) if user_id is not None else None
@@ -230,6 +411,10 @@ class PlaidService:
                         )
                     )
                     count += 1
+                    self._emit_posted(
+                        drafts, txn, account_id, "expense",
+                        dollars_to_cents(float(amount)), category,
+                    )
             else:
                 # Income (money entering account)
                 existing = self.db.execute(
@@ -249,12 +434,25 @@ class PlaidService:
                             account_id=account_id,
                         )
                     )
+                    self._emit_posted(
+                        drafts, txn, account_id, "income",
+                        dollars_to_cents(-float(amount)), category,
+                    )
                     count += 1
 
         return count
 
-    def _process_modified(self, transactions: list[dict], account_id: int) -> int:
-        """Update existing transactions by ``plaid_transaction_id``."""
+    def _process_modified(
+        self,
+        transactions: list[dict],
+        account_id: int,
+        drafts: list[GameEventDraft] | None = None,
+    ) -> int:
+        """Update existing transactions by ``plaid_transaction_id``.
+
+        When *drafts* is given, a ``TxnCorrected`` event is appended for each
+        posted txn that actually changed against its original ``TxnPosted``.
+        """
         count = 0
         for txn in transactions:
             if not _is_usd(txn):
@@ -267,6 +465,16 @@ class PlaidService:
             plaid_txn_id = txn["transaction_id"]
             category = _extract_category(txn)
             amount = txn["amount"]
+            # New signed amount in cents: expense (amount>=0) positive, income
+            # negative — matches how _process_added stored amount_cents.
+            new_amount_cents = (
+                dollars_to_cents(float(amount))
+                if amount >= 0
+                else dollars_to_cents(-float(amount))
+            )
+            self._emit_correction(
+                drafts, txn, account_id, new_amount_cents, category
+            )
 
             # Try to find in expenses first, then income
             expense = self.db.execute(
@@ -355,8 +563,18 @@ class PlaidService:
 
         return count
 
-    def _process_removed(self, transactions: list[dict], account_id: int) -> int:
-        """Delete transactions by ``plaid_transaction_id``."""
+    def _process_removed(
+        self,
+        transactions: list[dict],
+        account_id: int,
+        drafts: list[GameEventDraft] | None = None,
+    ) -> int:
+        """Delete transactions by ``plaid_transaction_id``.
+
+        When *drafts* is given, a ``TxnReversed`` event is appended for each
+        removed txn that had a recorded ``TxnPosted`` (compensation computed
+        downstream from the original payload, never from current state).
+        """
         count = 0
         for txn in transactions:
             plaid_txn_id = txn.get("transaction_id")
@@ -373,6 +591,7 @@ class PlaidService:
             if expense:
                 self.db.delete(expense)
                 count += 1
+                self._emit_reversal(drafts, plaid_txn_id, account_id)
                 continue
 
             # Try income
@@ -385,5 +604,6 @@ class PlaidService:
             if income:
                 self.db.delete(income)
                 count += 1
+                self._emit_reversal(drafts, plaid_txn_id, account_id)
 
         return count

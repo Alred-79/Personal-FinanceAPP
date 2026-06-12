@@ -20,11 +20,13 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
+    DDL,
     DateTime,
     ForeignKey,
     Integer,
     String,
     UniqueConstraint,
+    event,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -54,6 +56,11 @@ class User(Base):
     # v4 enabler (see docs/v3.md → "v1/v2 enablers"): nullable, unused by v1
     # logic; unlocks percentile/cohort mechanics later with no migration.
     birth_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # v4 package 02: the game mode is one end-to-end variable. 'off' is the
+    # default — the app behaves exactly as v1 until the user opts in.
+    game_mode: Mapped[str] = mapped_column(
+        String, nullable=False, default="off"
+    )  # 'off' | 'ambient' | 'full'
 
     accounts = relationship(
         "Account", back_populates="user", cascade="all, delete-orphan"
@@ -117,6 +124,8 @@ class Expense(Base):
     category: Mapped[str] = mapped_column(String, nullable=False)
     recurrence: Mapped[Optional[str]] = mapped_column(String)
     plaid_transaction_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # Plaid's own dedup key
+    # v4 packages 05/09: was this purchase worth it? 'yes' | 'no' | NULL (unset).
+    worth_it: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     account_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("accounts.id", ondelete="CASCADE"),
@@ -136,6 +145,8 @@ class Income(Base):
     category: Mapped[str] = mapped_column(String, nullable=False)
     recurrence: Mapped[Optional[str]] = mapped_column(String)  # mirrors Expense.recurrence
     plaid_transaction_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # Plaid's own dedup key
+    # v4 packages 05/09: mirrors Expense.worth_it. 'yes' | 'no' | NULL (unset).
+    worth_it: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     account_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("accounts.id", ondelete="CASCADE"),
@@ -435,3 +446,122 @@ class MCPKey(Base):
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="mcp_keys")
+
+
+# ---------------------------------------------------------------------------
+# v4 game domain (package 01) — the event substrate.
+#
+# Law 1: game_state = fold(event_stream). These tables are rebuildable
+# projections of an append-only log; game code NEVER writes to financial truth
+# (accounts/expenses/income/budgets/goals/rules). The single write path is
+# ``server.src.services.game.events.record_events`` — nothing else inserts into
+# game_events.
+# ---------------------------------------------------------------------------
+
+
+class GameEvent(Base):
+    """One append-only event in the game domain.
+
+    ``id`` (rowid) is the global order under a single writer. ``(stream, seq)``
+    is the per-stream order, ``seq`` starting at 1. ``payload`` is JSON owned by
+    the event ``type``. ``idempotency_key`` is nullable but REQUIRED for any
+    event derived from external data (a Plaid txn id, a backfill stream) so a
+    replay inserts nothing. ``caused_by`` links a correction/reversal back to the
+    event it compensates. The table is append-only — enforced by DB triggers
+    (see ``_install_append_only_triggers`` below); ``record_events`` is the only
+    code that inserts.
+    """
+
+    __tablename__ = "game_events"
+    __table_args__ = (
+        UniqueConstraint("stream", "seq", name="uq_game_events_stream_seq"),
+        UniqueConstraint("idempotency_key", name="uq_game_events_idem"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    stream: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    v: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    payload: Mapped[str] = mapped_column(String, nullable=False)  # JSON
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    caused_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("game_events.id"), nullable=True
+    )
+    created_at: Mapped[str] = mapped_column(String, nullable=False)  # ISO 8601
+
+
+class ProjectionMeta(Base):
+    """Per-projection watermark + rebuild status.
+
+    ``last_event_id`` is the highest ``game_events.id`` this projection has
+    folded. ``status`` round-trips ``live`` → ``rebuilding`` → ``live`` during a
+    rebuild so readers can tell a half-built projection apart from a live one.
+    """
+
+    __tablename__ = "projection_meta"
+
+    name: Mapped[str] = mapped_column(String, primary_key=True)
+    last_event_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rebuilt_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="live")
+
+
+class LlmCache(Base):
+    """Cache for LLM flavor output (Law 2: flavor never feeds engine state).
+
+    Keyed by ``sha256(model|template_ver|input_hash|mode)``. The table exists
+    from package 01 so the caching seam is in place; package 07 fills it.
+    """
+
+    __tablename__ = "llm_cache"
+
+    cache_key: Mapped[str] = mapped_column(String, primary_key=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    content: Mapped[str] = mapped_column(String, nullable=False)
+    model: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    expires_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
+class CategorySettings(Base):
+    """Per-category flags. Categories are plain strings on expenses/income (no
+    categories table), so essentials are tracked here keyed by category name.
+
+    ``essential`` marks rent/groceries/etc — categories later packages treat
+    leniently. ``user_confirmed`` is 0 for a seeded default, 1 once the user has
+    reviewed it.
+    """
+
+    __tablename__ = "category_settings"
+
+    name: Mapped[str] = mapped_column(String, primary_key=True)
+    essential: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    user_confirmed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+# Append-only enforcement, mirrored from the Alembic migration so that a DB
+# built with ``Base.metadata.create_all`` (the test suite) gets the same guard
+# as a migrated DB. SQLite fires these BEFORE any UPDATE/DELETE on game_events
+# and aborts the statement.
+_NO_UPDATE_TRIGGER = DDL(
+    "CREATE TRIGGER IF NOT EXISTS game_events_no_update "
+    "BEFORE UPDATE ON game_events "
+    "BEGIN SELECT RAISE(ABORT, 'game_events is append-only'); END"
+)
+_NO_DELETE_TRIGGER = DDL(
+    "CREATE TRIGGER IF NOT EXISTS game_events_no_delete "
+    "BEFORE DELETE ON game_events "
+    "BEGIN SELECT RAISE(ABORT, 'game_events is append-only'); END"
+)
+
+event.listen(
+    GameEvent.__table__,
+    "after_create",
+    _NO_UPDATE_TRIGGER.execute_if(dialect="sqlite"),
+)
+event.listen(
+    GameEvent.__table__,
+    "after_create",
+    _NO_DELETE_TRIGGER.execute_if(dialect="sqlite"),
+)
