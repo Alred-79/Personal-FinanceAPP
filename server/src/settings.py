@@ -101,6 +101,15 @@ class Settings(BaseSettings):
     # Per-key throttle on the MCP tool surface, enforced in MCPAuthMiddleware
     # (keyed on the resolved key_id). In-memory / per-process for v1.
     mcp_rate_limit_enabled: bool = True
+    # Pre-auth IP throttle (Step 05): rejects a flood of *bad* keys before any
+    # DB query, keyed on the proxy-aware client (so it limits the real client
+    # behind a trusted proxy, not the proxy IP). Like ``_rate_limiter`` it is a
+    # module-level, in-memory, per-process singleton — it does NOT coordinate
+    # across workers/hosts and resets on restart (single-worker invariant,
+    # shared with Steps 02/09). Disabled by default to keep existing behaviour;
+    # enable in deployment.
+    mcp_preauth_rate_limit_enabled: bool = False
+    mcp_preauth_ip_rate_limit: str = "60/minute"
 
     # --- MCP credential store ---
     mcp_allowed_scopes: list[str] = [

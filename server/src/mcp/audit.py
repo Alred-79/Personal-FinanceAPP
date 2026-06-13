@@ -77,3 +77,47 @@ def record(
         "latency_ms": round(latency_ms, 2),
     }
     _audit_log.info(json.dumps(entry, separators=(",", ":")))
+
+
+def record_failure(
+    *,
+    reason: str,
+    key_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    client: Optional[str] = None,
+) -> None:
+    """Emit a structured audit line for a *rejected* MCP request.
+
+    Unlike :func:`record` (which audits resolved tool calls), this audits the
+    deny / throttle paths in the auth middleware where we usually do **not**
+    yet have a principal (the key was unknown, the owner disabled, or the
+    request was throttled before resolution). ``user_id``/``key_id`` are
+    therefore optional.
+
+    Parameters
+    ----------
+    reason : str
+        Machine-readable cause — one of ``"unknown_key"`` | ``"disabled"`` |
+        ``"rate_limited"`` | ``"ip_rate_limited"``. This is the *real* reason
+        for the owner's audit trail, even though the caller's deny message
+        stays opaque.
+    key_id, user_id : int or None
+        Populated only when a principal was resolved before the failure
+        (e.g. the per-key throttle trips after resolution).
+    client : str or None
+        The (proxy-aware) client key, for IP-throttle failures. Never a raw
+        credential.
+
+    The audit store is currently log-only (MEDIUM finding); persisting these
+    rows to a DB-backed store is backlogged.
+    """
+    entry = {
+        "user_id": user_id,
+        "key_id": key_id,
+        "resource": "auth",
+        "decision": "deny",
+        "reason": reason,
+    }
+    if client is not None:
+        entry["client"] = client
+    _audit_log.warning(json.dumps(entry, separators=(",", ":")))

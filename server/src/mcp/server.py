@@ -18,6 +18,7 @@ from limits.strategies import MovingWindowRateLimiter
 from starlette.middleware import Middleware
 from starlette.responses import Response
 
+from server.src.mcp import audit
 from server.src.mcp.principal import Principal
 from server.src.services.mcp_key_service import MCPKeyService
 from server.src.settings import settings
@@ -32,6 +33,18 @@ from server.src.settings import settings
 # store (Redis) is the later upgrade for multi-worker deployments.
 _rate_item = parse(settings.mcp_key_rate_limit)
 _rate_limiter = MovingWindowRateLimiter(MemoryStorage())
+
+# ---------------------------------------------------------------------------
+# Pre-auth IP rate limiting (Step 05)
+# ---------------------------------------------------------------------------
+# Runs at the *top* of the middleware, BEFORE any DB query, so a flood of bad
+# keys is shed without costing a `resolve()` query. Keyed on the proxy-aware
+# client (see ``_client_key_from_scope``) so it limits the real client behind a
+# trusted proxy, not the proxy IP. Same caveat as ``_rate_limiter``:
+# module-level, in-memory, per-process singleton — no cross-worker coordination,
+# resets on restart (single-worker deployment invariant, shared w/ Steps 02/09).
+_preauth_rate_item = parse(settings.mcp_preauth_ip_rate_limit)
+_preauth_rate_limiter = MovingWindowRateLimiter(MemoryStorage())
 
 # ---------------------------------------------------------------------------
 # Principal context
@@ -81,6 +94,18 @@ class MCPAuthMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # --- Pre-auth IP throttle (Step 05) -------------------------------
+        # Shed a flood of bad keys BEFORE any DB hit. Keyed on the proxy-aware
+        # client so it limits the real client behind a trusted proxy. This runs
+        # ahead of `self._db_factory()` / `resolve` deliberately: an invalid or
+        # flooding key must not cost a query.
+        if settings.mcp_preauth_rate_limit_enabled:
+            client_key = _client_key_from_scope(scope)
+            if not _preauth_rate_limiter.hit(_preauth_rate_item, client_key):
+                audit.record_failure(reason="ip_rate_limited", client=client_key)
+                await _too_many(scope, receive, send)
+                return
+
         headers = dict(scope.get("headers", []))
         auth_bytes = headers.get(b"authorization", b"")
         auth = auth_bytes.decode("latin-1")
@@ -116,7 +141,15 @@ class MCPAuthMiddleware:
             db.close()
 
         if principal is None:
-            # Don't reveal whether the key was unknown / expired / revoked.
+            # Don't reveal whether the key was unknown / expired / revoked /
+            # disabled — the deny message stays opaque to a probing caller. The
+            # audit row records the real reason for the owner. `resolve` folds
+            # "disabled owner" into None too (so it can't be distinguished from
+            # the outside); we audit it as `unknown_key` here because the
+            # middleware can't tell the cases apart without re-querying, and the
+            # opaque-from-outside contract is what matters. (The disabled case
+            # is independently covered by the resolve() change + its own test.)
+            audit.record_failure(reason="unknown_key")
             await _deny(
                 scope, receive, send,
                 message="API key rejected (unknown, expired, or revoked).",
@@ -127,14 +160,52 @@ class MCPAuthMiddleware:
         if settings.mcp_rate_limit_enabled and not _rate_limiter.hit(
             _rate_item, str(principal.key_id)
         ):
+            audit.record_failure(
+                reason="rate_limited",
+                key_id=principal.key_id,
+                user_id=principal.user_id,
+            )
             await _too_many(scope, receive, send)
             return
 
+        # Bind the re-authenticated principal both in the ContextVar (used by
+        # the tools) AND on the ASGI scope (defense-in-depth for the SDK's
+        # session-owner check). With stateless_http the SDK no longer freezes a
+        # session principal at session creation, so this scope["user"] reflects
+        # the principal we just re-resolved for *this* request.
+        scope["user"] = principal
         token = _current_principal.set(principal)
         try:
             await self.app(scope, receive, send)
         finally:
             _current_principal.reset(token)
+
+
+def _client_key_from_scope(scope) -> str:
+    """Resolve the proxy-aware rate-limit key from a raw ASGI scope.
+
+    Mirrors ``server.src.limiter._client_key`` but operates on the ASGI scope
+    (the MCP middleware sees a scope, not a FastAPI ``Request``): honor the
+    left-most ``X-Forwarded-For`` hop then ``X-Real-IP`` ONLY when
+    ``settings.trust_proxy`` is set, otherwise fall back to the direct peer
+    (``scope["client"]``). Malformed/empty headers fall through gracefully —
+    never raises — and a missing ``client`` (e.g. a hand-built test scope)
+    degrades to ``"unknown"`` so all such requests share one bucket.
+    """
+    headers = dict(scope.get("headers", []))
+    if settings.trust_proxy:
+        fwd = headers.get(b"x-forwarded-for", b"").decode("latin-1")
+        if fwd:
+            first = fwd.split(",")[0].strip()
+            if first:
+                return first
+        real = headers.get(b"x-real-ip", b"").decode("latin-1").strip()
+        if real:
+            return real
+    client = scope.get("client")
+    if client and client[0]:
+        return str(client[0])
+    return "unknown"
 
 
 # Query params that callers commonly (and mistakenly) use to pass a token.
@@ -169,8 +240,13 @@ async def _too_many(scope, receive, send) -> None:
 
 
 def reset_rate_limiter() -> None:
-    """Clear the in-memory rate-limit window (test hook only)."""
+    """Clear the in-memory per-key rate-limit window (test hook only)."""
     _rate_limiter.storage.reset()
+
+
+def reset_preauth_throttle() -> None:
+    """Clear the in-memory pre-auth IP throttle window (test hook only)."""
+    _preauth_rate_limiter.storage.reset()
 
 
 # ---------------------------------------------------------------------------
@@ -188,9 +264,18 @@ def build_mcp_starlette(db_factory: Callable | None = None):
 
     ``db_factory`` is passed to ``MCPAuthMiddleware`` so this module never
     imports ``SessionLocal`` directly (the import guard enforces this).
+
+    ``stateless_http=True`` (verified supported on the installed fastmcp 3.4.2 —
+    ``FastMCP.http_app`` exposes the kwarg) matches the per-request auth the
+    middleware already performs: the SDK no longer dispatches tool calls under a
+    session principal frozen at session creation, so a disabled/revoked owner
+    loses access on the very next request with no cached session keeping them
+    alive. This is the transport half of C2; the ``scope["user"]`` binding in
+    the middleware is the half that lands regardless of this flag.
     """
     return mcp.http_app(
         path="/",
         transport="streamable-http",
+        stateless_http=True,
         middleware=[Middleware(MCPAuthMiddleware, db_factory=db_factory)],
     )

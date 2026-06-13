@@ -182,11 +182,17 @@ class MCPKeyService:
             if expires < _utcnow():
                 return None
 
-        # Load the user to make sure they still exist.
+        # Load the user to make sure they still exist AND are not disabled.
+        # A disabled account (the owner locked themselves out, or an admin
+        # revoked them) must lose MCP access on the very next request, even
+        # mid-session — there is no cached session principal to keep them
+        # alive once the stateless transport is on. We return ``None`` (not a
+        # distinct error) so the middleware's deny message stays opaque and a
+        # probing caller can't tell "disabled" apart from "unknown/expired".
         user = db.execute(
             select(UserORM).where(UserORM.id == row.user_id)
         ).scalar_one_or_none()
-        if user is None:
+        if user is None or user.disabled:
             return None
 
         # Throttled last_used_at update.

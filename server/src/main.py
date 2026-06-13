@@ -52,15 +52,20 @@ if settings.mcp_enabled:
     from server.src.mcp.server import build_mcp_starlette
 
     _mcp_starlette = build_mcp_starlette(db_factory=SessionLocal)
-    if settings.mcp_rate_limit_enabled:
-        # The MCP per-key rate limiter is in-memory / per-process. Running more
-        # than one worker gives each process its own counter, so the effective
-        # limit is multiplied by the worker count. Safe only at one worker until
-        # a shared store (Redis) is wired in.
+    # HARD DEPLOYMENT REQUIREMENT (shared with Steps 02/09): the MCP per-key
+    # throttle, the Step 05 pre-auth IP throttle, and the slowapi limiter are
+    # all module-level, in-memory, per-process singletons; the Step 09
+    # scheduler is in-process too. Running >1 worker gives each process its own
+    # counters (limits multiplied) and double-fires scheduled jobs. Run a SINGLE
+    # worker until a shared store (Redis) + leader election exist. This is not a
+    # caveat — it is a deploy precondition. (Documented in docs/v5 execution.)
+    if settings.mcp_rate_limit_enabled or settings.mcp_preauth_rate_limit_enabled:
         _mcp_log.warning(
-            "MCP per-key rate limit (%s) is in-memory and per-process; run a "
-            "single worker or the limit is multiplied across workers.",
+            "MCP rate limits (per-key=%s, pre-auth IP=%s) are in-memory and "
+            "per-process; run a SINGLE worker or the limits are multiplied "
+            "across workers.",
             settings.mcp_key_rate_limit,
+            settings.mcp_preauth_ip_rate_limit,
         )
 else:
     # Explains the /mcp 404 a client sees when the surface ships dark.
