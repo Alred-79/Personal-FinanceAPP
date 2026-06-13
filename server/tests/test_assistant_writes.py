@@ -13,7 +13,14 @@ from server.src.db.models import (
     Income as IncomeORM,
     Goal as GoalORM,
 )
-from server.src.services.assistant_service import ActionService, AddTransactionTool
+from server.src.services.assistant_service import (
+    ActionService,
+    ActionError,
+    AddTransactionTool,
+    SUPPORTED_ACTIONS,
+    _HANDLED,
+)
+import pytest
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -395,3 +402,237 @@ def test_write_tool_only_proposes(client, db_session):
     claims = ActionService.decode_token(payload["confirm_token"])
     assert claims["action"] == "add_transaction"
     assert db_session.execute(select(ExpenseORM)).scalars().all() == []
+
+
+# ── C5: allowlist is the single, enforced source of truth ────────────────────
+
+
+def test_validate_rejects_unlisted_actions():
+    """The two money-moving extras must NOT be reachable through validate.
+
+    ``create_allocation`` / ``whatif_commit`` have handler branches in the code
+    but are deliberately out of ``SUPPORTED_ACTIONS``/``_HANDLED``: the top-of-
+    ``validate`` allowlist guard rejects them before any param coercion.
+    """
+    for action in ("create_allocation", "whatif_commit"):
+        with pytest.raises(ActionError) as exc:
+            ActionService.validate(action, {"goal_id": 1, "amount": 10.0})
+        assert "Unsupported action" in str(exc.value)
+        assert action in str(exc.value)
+
+
+def test_supported_actions_matches_handlers():
+    """Anti-drift: the explicit handled-set mirrors the advertised allowlist.
+
+    A dev adding a handler branch (or an allowlist entry) without updating both
+    sets fails here. Explicit-set comparison — no AST parsing of method bodies.
+    """
+    assert _HANDLED == set(SUPPORTED_ACTIONS)
+
+
+def test_propose_unlisted_action_400(client):
+    """A disabled money-moving action is rejected at the propose endpoint."""
+    headers = _auth_header(client)
+    resp = client.post(
+        "/api/assistant/actions/propose/",
+        json={"action": "whatif_commit", "params": {"goal_id": 1, "amount": 10.0}},
+        headers=headers,
+    )
+    assert resp.status_code == 400, resp.text
+    assert "Unsupported action" in resp.json()["detail"]
+
+
+def test_propose_confirm_happy_path(client, db_session):
+    """End-to-end through the real endpoints: propose → confirm → row + balance."""
+    headers = _auth_header(client)
+    acct = _create_account(client, headers, balance=1000.00)
+    proposal = client.post(
+        "/api/assistant/actions/propose/",
+        json={
+            "action": "add_transaction",
+            "params": {
+                "account_id": acct,
+                "title": "Lunch",
+                "amount": 30.00,
+                "date": "2026-05-02",
+                "category": "Food and Drink",
+            },
+        },
+        headers=headers,
+    )
+    assert proposal.status_code == 200, proposal.text
+    token = proposal.json()["token"]
+
+    confirm = client.post(
+        "/api/assistant/actions/confirm/",
+        json={"token": token},
+        headers=headers,
+    )
+    assert confirm.status_code == 200, confirm.text
+
+    db_session.expire_all()
+    expense = db_session.execute(select(ExpenseORM)).scalar_one()
+    assert expense.title == "Lunch"
+    assert expense.amount == 3000  # cents
+    balance = db_session.execute(
+        select(AccountORM.balance).where(AccountORM.id == acct)
+    ).scalar_one()
+    assert balance == 97000  # 1000 - 30
+
+
+def test_confirm_token_replay_409(client, db_session):
+    """Confirming the same token twice → second is 409 (reserve_jti backstop)."""
+    headers = _auth_header(client)
+    acct = _create_account(client, headers, balance=1000.00)
+    token = client.post(
+        "/api/assistant/actions/propose/",
+        json={
+            "action": "add_transaction",
+            "params": {
+                "account_id": acct,
+                "title": "Coffee",
+                "amount": 5.00,
+                "date": "2026-05-01",
+                "category": "Food and Drink",
+            },
+        },
+        headers=headers,
+    ).json()["token"]
+
+    first = client.post(
+        "/api/assistant/actions/confirm/", json={"token": token}, headers=headers
+    )
+    second = client.post(
+        "/api/assistant/actions/confirm/", json={"token": token}, headers=headers
+    )
+    assert first.status_code == 200
+    assert second.status_code == 409
+    db_session.expire_all()
+    assert len(db_session.execute(select(ExpenseORM)).scalars().all()) == 1
+
+
+def test_confirm_token_wrong_user_403(client):
+    """A token minted for user A cannot be confirmed while authed as B."""
+    headers_a = _auth_header(client, username="useraa", email="aa@example.com")
+    acct_a = _create_account(client, headers_a)
+    token = client.post(
+        "/api/assistant/actions/propose/",
+        json={
+            "action": "add_transaction",
+            "params": {
+                "account_id": acct_a,
+                "title": "Coffee",
+                "amount": 5.0,
+                "date": "2026-05-01",
+                "category": "Food and Drink",
+            },
+        },
+        headers=headers_a,
+    ).json()["token"]
+
+    headers_b = _auth_header(client, username="userbb", email="bb@example.com")
+    resp = client.post(
+        "/api/assistant/actions/confirm/", json={"token": token}, headers=headers_b
+    )
+    assert resp.status_code == 403
+
+
+def test_propose_rate_limited(client, rate_limited, monkeypatch):
+    """With a 1/minute limit, the 2nd propose in the window → 429.
+
+    Uses the Step 02 ``rate_limited`` fixture (flips ``limiter.enabled``, the
+    instance, never the setting). The limit is read live via the callable, so
+    monkeypatching the setting tightens the live decorator.
+    """
+    from server.src import settings as settings_mod
+
+    monkeypatch.setattr(settings_mod.settings, "assistant_rate_limit", "1/minute")
+    headers = _auth_header(client)
+
+    body = {
+        "action": "add_goal",
+        "params": {"name": "Fund", "amount": 100.0, "date": "2026-12-31"},
+    }
+    first = client.post(
+        "/api/assistant/actions/propose/", json=body, headers=headers
+    )
+    second = client.post(
+        "/api/assistant/actions/propose/", json=body, headers=headers
+    )
+    assert first.status_code == 200, first.text
+    assert second.status_code == 429
+
+
+def test_add_transaction_rejects_plaid_account(client, db_session):
+    """add_transaction onto a Plaid-synced account is refused (422), not double-counted.
+
+    Pins the cross-step 06↔08 coupling: the guard reuses the transfer endpoint's
+    ``_is_plaid_managed`` (name-keyed today, plaid_account_id after Step 08), so
+    if Step 08's de-name-keying breaks the guard this test fails. A manual
+    account still works.
+    """
+    from server.src.db.models import Token as TokenORM
+
+    headers = _auth_header(client)
+    # A manually-managed account works.
+    manual = _create_account(client, headers, balance=1000.00)
+
+    # A Plaid-linked account: same name + user as a Token row (the link key).
+    client.post(
+        "/api/accounts/",
+        json={"name": "Plaid Checking", "type": "checking", "balance": 500.0},
+        headers=headers,
+    )
+    plaid_acct = client.get("/api/accounts/", headers=headers).json()[-1]["id"]
+    uid = _user_id(db_session, username="awuser")
+    db_session.add(TokenORM(user_id=uid, name="Plaid Checking", key="tok"))
+    db_session.commit()
+
+    # Proposing onto the Plaid account is refused at propose time with 422 + a
+    # human explanation (not a silent generic error).
+    resp = client.post(
+        "/api/assistant/actions/propose/",
+        json={
+            "action": "add_transaction",
+            "params": {
+                "account_id": plaid_acct,
+                "title": "Starbucks",
+                "amount": 5.0,
+                "date": "2026-05-01",
+                "category": "Food and Drink",
+            },
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "manually-managed" in resp.json()["detail"]
+
+    # No write happened.
+    db_session.expire_all()
+    assert db_session.execute(select(ExpenseORM)).scalars().all() == []
+
+    # A manual account still proposes + confirms fine (don't over-tighten).
+    proposal = client.post(
+        "/api/assistant/actions/propose/",
+        json={
+            "action": "add_transaction",
+            "params": {
+                "account_id": manual,
+                "title": "Lunch",
+                "amount": 10.0,
+                "date": "2026-05-01",
+                "category": "Food and Drink",
+            },
+        },
+        headers=headers,
+    )
+    assert proposal.status_code == 200, proposal.text
+    confirm = client.post(
+        "/api/assistant/actions/confirm/",
+        json={"token": proposal.json()["token"]},
+        headers=headers,
+    )
+    assert confirm.status_code == 200, confirm.text
+    db_session.expire_all()
+    expense = db_session.execute(select(ExpenseORM)).scalar_one()
+    assert expense.account_id == manual

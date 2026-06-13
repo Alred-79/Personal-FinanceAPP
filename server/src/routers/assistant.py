@@ -3,7 +3,12 @@ from fastapi.responses import StreamingResponse
 from typing import Dict, List, Annotated
 from sqlalchemy.orm import Session
 
-from ..services.assistant_service import AssistantService, ActionService, ActionError
+from ..services.assistant_service import (
+    AssistantService,
+    ActionService,
+    ActionError,
+    PlaidAccountError,
+)
 from server.src.db.session import get_db
 from server.src.models import (
     UserInDB,
@@ -104,12 +109,21 @@ async def clear_history(
 # ---------------------------------------------------------------------------
 # Write actions that need a confirmation step
 # ---------------------------------------------------------------------------
+# Rate-limit propose/confirm against abuse/cost (C5). Same Step 02 gotcha as
+# /chat/: pass a CALLABLE so the limit honors ``settings.assistant_rate_limit``
+# live per request; the limiter's frozen ``enabled`` flag is flipped by tests via
+# ``limiter.enabled`` (the instance), never the setting. (Confirm is also
+# replay-guarded by ``reserve_jti`` — the rate limit is about abuse/cost, not
+# correctness.)
 @router.post("/actions/propose/")
+@limiter.limit(lambda: settings.assistant_rate_limit)
 def propose_action(
+    request: Request,
     payload: AssistantActionRequest,
     current_user: Annotated[
         UserInDB, Depends(AuthService.get_current_active_user)
     ],
+    db: Session = Depends(get_db),
 ) -> AssistantActionProposal:
     """Validate a proposed write action and return a confirmation token.
 
@@ -118,6 +132,12 @@ def propose_action(
     """
     try:
         norm, summary = ActionService.validate(payload.action, payload.params)
+        # Surface the Plaid double-count refusal at propose time so the user is
+        # told before they ever see an Approve button (rather than only at
+        # confirm). ``execute`` re-checks as the backstop.
+        ActionService.guard_account(db, current_user.id, payload.action, norm)
+    except PlaidAccountError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     except ActionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     token = ActionService.make_token(current_user.id, payload.action, norm)
@@ -127,7 +147,9 @@ def propose_action(
 
 
 @router.post("/actions/confirm/")
+@limiter.limit(lambda: settings.assistant_rate_limit)
 def confirm_action(
+    request: Request,
     payload: AssistantActionConfirm,
     current_user: Annotated[
         UserInDB, Depends(AuthService.get_current_active_user)
@@ -159,6 +181,10 @@ def confirm_action(
         result = ActionService.execute(
             db, current_user.id, claims["action"], claims["params"]
         )
+    except PlaidAccountError as exc:
+        # Account got Plaid-linked between propose and confirm: refuse with 422
+        # (and the human explanation) rather than a generic 400.
+        raise HTTPException(status_code=422, detail=str(exc))
     except ActionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

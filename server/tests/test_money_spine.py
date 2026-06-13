@@ -203,9 +203,10 @@ def test_create_allocation_fix_records_event_and_funds_goal(db_session, user_acc
                    completed=0, progress=0)
     db_session.add(goal)
     db_session.flush()
-    norm, _summary = ActionService.validate(
-        "create_allocation", {"goal_id": goal.id, "amount": 25.0}
-    )
+    # The assistant allowlist (C5) intentionally no longer validates this action
+    # (it is not in SUPPORTED_ACTIONS). We exercise the underlying allocate
+    # MACHINERY directly with normalized params — that machinery is unchanged.
+    norm = {"goal_id": goal.id, "amount": 25.0}
     result = ActionService.execute(db_session, user.id, "create_allocation", norm)
     db_session.flush()
     db_session.refresh(goal)
@@ -289,8 +290,9 @@ def test_whatif_commit_creates_rule_and_records_event(db_session, user_acct):
                    completed=0, progress=0)
     db_session.add(goal)
     db_session.flush()
-    norm, _ = ActionService.validate("whatif_commit",
-                                     {"goal_id": goal.id, "amount": 30.0})
+    # whatif_commit is intentionally out of the C5 assistant allowlist; exercise
+    # the underlying rule-creation machinery directly with normalized params.
+    norm = {"goal_id": goal.id, "amount": 30.0, "name": "What-if commitment"}
     result = ActionService.execute(db_session, user.id, "whatif_commit", norm)
     db_session.flush()
     rule_count = db_session.execute(text("SELECT COUNT(*) FROM rules WHERE id=:i"),
@@ -359,9 +361,10 @@ def test_alert_fix_cycle_only_changes_expected_rows(db_session, user_acct):
     # Evaluating alerts writes no finance rows.
     AlertEngine(db_session).evaluate(_u(user), AS_OF)
     assert finance_tables_fingerprint(db_session) == before
-    # The fix DOES change finance (goal.progress) — via the sanctioned path.
-    norm, _ = ActionService.validate("create_allocation",
-                                     {"goal_id": goal.id, "amount": 10.0})
+    # The fix DOES change finance (goal.progress) — via the underlying allocate
+    # machinery (create_allocation is intentionally out of the C5 allowlist, so
+    # build normalized params directly rather than through the gated validate).
+    norm = {"goal_id": goal.id, "amount": 10.0}
     ActionService.execute(db_session, user.id, "create_allocation", norm)
     db_session.flush()
     after = finance_tables_fingerprint(db_session)

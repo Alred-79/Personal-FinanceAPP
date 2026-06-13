@@ -478,12 +478,35 @@ class InformationTool(BaseTool):
 
 SUPPORTED_ACTIONS = ("add_transaction", "add_goal", "recategorize_transaction")
 
+# Anti-drift single source of truth (C5). ``_HANDLED`` is the explicit set of
+# actions ``validate``/``execute`` are *allowed* to run. ``validate`` dispatches
+# off membership in this set (see the guard at the top of ``validate``), so it is
+# load-bearing, not decorative — an unlisted action is rejected before any param
+# coercion or write. A test pins ``_HANDLED == set(SUPPORTED_ACTIONS)`` so a dev
+# who adds a handler branch (or an entry to one set) without updating the other
+# fails CI. NOTE: ``create_allocation`` / ``whatif_commit`` still have handler
+# branches below for historical reasons, but they are deliberately NOT in this
+# set, so the guard makes them unreachable — they are dead but safe. To actually
+# support them, a product owner must add them HERE and to ``SUPPORTED_ACTIONS``
+# *and* wire their UI — never one without the other.
+_HANDLED = {"add_transaction", "add_goal", "recategorize_transaction"}
+
 _ACTION_TOKEN_TYPE = "assistant_action"
 _ACTION_TOKEN_TTL = timedelta(minutes=10)
 
 
 class ActionError(ValueError):
     """A proposed action is malformed or cannot be executed."""
+
+
+class PlaidAccountError(ActionError):
+    """``add_transaction`` targeted a Plaid-synced account (sync double-count).
+
+    A subtype of ``ActionError`` so callers that only catch ``ActionError`` still
+    handle it, but distinct so the router can map it to 422 (a semantically-valid
+    request the server refuses) with a user-facing explanation, rather than the
+    generic 400 used for malformed input.
+    """
 
 
 def _coerce_amount(value: Any) -> float:
@@ -540,6 +563,49 @@ class ActionService:
             return False
         return True
 
+    # ── Plaid double-count guard (C5 / cross-step 06↔08) ──────────────────
+    @staticmethod
+    def guard_account(db: Session, user_id: int, action: str, params: dict) -> None:
+        """Reject ``add_transaction`` onto a Plaid-synced account.
+
+        A manually-added "$5 Starbucks" on a bank-linked account would be
+        duplicated when the next Plaid sync pulls the same row from the bank.
+        Reuses the exact same guard the transfer endpoint uses
+        (``routers.accounts._is_plaid_managed``) so the two stay coupled: it is
+        name-keyed today and Step 08 de-name-keys it via ``plaid_account_id`` —
+        importing the shared function means that rewrite fixes both at once. The
+        rejection test pins this so Step 08 can't silently break it.
+
+        Touches the DB (resolves the account name), so it lives OUTSIDE
+        ``validate`` (which is DB-free by contract). ``add_goal`` and
+        ``recategorize_transaction`` are unaffected — the former creates no
+        account-bound row and the latter relabels an existing row.
+        """
+        if action != "add_transaction":
+            return
+        account_id = params.get("account_id")
+        if account_id is None:
+            return
+        # Lazy import to avoid any router<->service import-order fragility.
+        from ..routers.accounts import _is_plaid_managed
+
+        name = db.execute(
+            select(AccountORM.name).where(
+                AccountORM.id == account_id, AccountORM.user_id == user_id
+            )
+        ).scalar_one_or_none()
+        if name is None:
+            # Unknown / not-this-user's account: let the normal execute path
+            # surface the error; this guard only blocks the Plaid double-count.
+            return
+        if _is_plaid_managed(db, user_id, name):
+            raise PlaidAccountError(
+                "I can only add transactions to manually-managed accounts. "
+                f"'{name}' is linked to a bank, so adding it here would "
+                "double-count once your bank sync imports the same charge. "
+                "Add it on a manual account, or record it at your bank instead."
+            )
+
     # ── Validation + human summary ────────────────────────────────────────
     @staticmethod
     def validate(action: str, params: dict) -> tuple[dict, str]:
@@ -547,6 +613,15 @@ class ActionService:
 
         Performs NO writes and does not touch the database.
         """
+        # C5 allowlist enforcement (anti-drift, single source of truth). This is
+        # the FIRST statement so an unknown or deliberately-disabled action 400s
+        # before any param coercion or token minting. ``_HANDLED`` mirrors
+        # ``SUPPORTED_ACTIONS`` (pinned by a test), and the historical
+        # ``create_allocation`` / ``whatif_commit`` branches below are unreachable
+        # because they are not in the set.
+        if action not in _HANDLED:
+            raise ActionError(f"Unsupported action: {action}")
+
         if not isinstance(params, dict):
             raise ActionError("params must be an object")
 
@@ -678,6 +753,23 @@ class ActionService:
     # ── Execution (only ever called from the confirm endpoint) ────────────
     @staticmethod
     def execute(db: Session, user_id: int, action: str, params: dict) -> dict:
+        # NOTE on the C5 allowlist boundary: enforcement lives in ``validate``
+        # (and the propose endpoint), which is the ONLY path that mints a confirm
+        # token. ``execute`` runs only from the confirm endpoint, which decodes a
+        # token that ``validate`` produced — so an unlisted assistant action can
+        # never reach here (it is rejected at propose, no token, nothing to
+        # confirm). The ``create_allocation`` / ``whatif_commit`` branches below
+        # are therefore DEAD from the assistant path, but the underlying
+        # allocate/rule machinery is still exercised directly by the money-spine
+        # internals (test_money_spine) — gating ``execute`` here too would block
+        # that legitimate non-assistant caller, so the gate is deliberately at
+        # ``validate``, not here.
+
+        # Block the Plaid sync double-count at the write boundary (the confirm
+        # path is the only writer). ``propose`` also runs this, but a token could
+        # in principle be minted before an account is linked, so re-check here.
+        ActionService.guard_account(db, user_id, action, params)
+
         if action == "add_transaction":
             svc = TransactionService(db)
             if params.get("type") == "income":
