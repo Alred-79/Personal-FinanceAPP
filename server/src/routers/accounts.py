@@ -162,8 +162,28 @@ class TransferIn(BaseModel):
     note: str = Field(default="", max_length=200)
 
 
-def _is_plaid_managed(db: Session, user_id: int, account_name: str) -> bool:
-    """Plaid links Token ↔ Account by shared name under the same user."""
+def _is_plaid_managed(
+    db: Session,
+    user_id: int,
+    account_name: str,
+    *,
+    plaid_account_id: str | None = None,
+) -> bool:
+    """Whether an account is Plaid-synced (Step 08: id-keyed, name fallback).
+
+    Step 08 de-name-keys Plaid: an account created by the exchange flow carries
+    its ``plaid_account_id``, and THAT — not a shared name — is the durable link.
+    So the primary check is ``plaid_account_id IS NOT NULL``, which survives a
+    rename (the old name-keyed guard would have silently mis-classified a renamed
+    Plaid account as manual and let a transfer double-count on the next sync).
+
+    A name-match against a ``Token`` row is kept as a FALLBACK so a pre-Step-08
+    (un-migrated) link — and the existing test corpus that seeds a Token with a
+    matching name but no ``plaid_account_id`` — is still classified as managed.
+    Pass ``plaid_account_id`` from the account row to get the id-keyed check.
+    """
+    if plaid_account_id is not None:
+        return True
     return (
         db.execute(
             select(TokenORM.id).where(
@@ -205,15 +225,15 @@ async def transfer_between_accounts(
         ).scalar_one_or_none()
         if row is None:
             raise HTTPException(status_code=404, detail=f"Account ({label}) not found")
-        # ── Plaid guard (Step 06; name-keyed) ────────────────────────────────
+        # ── Plaid guard (Step 06 → Step 08: id-keyed) ────────────────────────
         # Plaid-synced accounts are refused: the next sync would overwrite the
-        # local balance and silently undo the transfer. This guard is name-keyed
-        # TODAY (Token.name == Account.name). ⚠ Step 08 de-name-keys Plaid onto
-        # Account.plaid_account_id and MUST update _is_plaid_managed (and this
-        # call) accordingly, or a *renamed* Plaid account is misclassified as
-        # manual and a transfer into it double-counts on the next sync. 06 and 08
-        # are run back-to-back precisely to keep this window from shipping.
-        if _is_plaid_managed(db, current_user.id, row.name):
+        # local balance and silently undo the transfer. Step 08 de-name-keyed
+        # this onto ``Account.plaid_account_id`` (passed below), so a *renamed*
+        # Plaid account is still correctly refused; the name→Token fallback in
+        # ``_is_plaid_managed`` keeps un-migrated links classified too.
+        if _is_plaid_managed(
+            db, current_user.id, row.name, plaid_account_id=row.plaid_account_id
+        ):
             raise HTTPException(
                 status_code=422,
                 detail=(

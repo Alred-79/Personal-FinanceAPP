@@ -78,9 +78,13 @@ def _make_plaid_txn(
     amount: float,
     date: str = "2024-06-15",
     category: list | None = None,
+    account_id: str | None = None,
 ) -> dict:
-    """Build a minimal Plaid transaction dict."""
-    return {
+    """Build a minimal Plaid transaction dict.
+
+    *account_id* is the Plaid account id the txn belongs to (Step 08 routing).
+    """
+    txn = {
         "transaction_id": txn_id,
         "name": name,
         "amount": amount,
@@ -88,6 +92,24 @@ def _make_plaid_txn(
         "category": ["Shopping"] if category is None else category,
         "personal_finance_category": None,
     }
+    if account_id is not None:
+        txn["account_id"] = account_id
+    return txn
+
+
+class _FakeBalanceAccount:
+    """A stand-in for a Plaid balance account object with ``.to_dict()``."""
+
+    def __init__(self, account_id: str, available: float | None, current: float | None):
+        self._d = {
+            "account_id": account_id,
+            "type": "depository",
+            "name": account_id,
+            "balances": {"available": available, "current": current},
+        }
+
+    def to_dict(self) -> dict:
+        return self._d
 
 
 # ── Tests ────────────────────────────────────────────────────────────────────
@@ -440,3 +462,261 @@ class TestCategoryExtraction:
 
         expense = db_session.execute(select(ExpenseORM)).scalar_one()
         assert expense.category == "Other"
+
+
+# ── Step 08: integrity ────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def seed_id_keyed_account(db_session, seed_user):
+    """A Plaid token + a local account keyed by ``plaid_account_id`` (Step 08)."""
+    token = TokenORM(
+        user_id=seed_user.id,
+        name="Chase",
+        # An encrypted token at rest; sync decrypts before the Plaid call.
+        key=_enc("access-sandbox-fake"),
+        cursor=None,
+    )
+    db_session.add(token)
+    db_session.flush()
+
+    account = AccountORM(
+        name="Chase Checking",
+        type="depository",
+        balance=0,
+        plaid_account_id="plaid_acct_A",
+        user_id=seed_user.id,
+    )
+    db_session.add(account)
+    db_session.flush()
+    return account, token
+
+
+def _enc(plaintext: str) -> str:
+    from server.src.services import plaid_crypto
+
+    return plaid_crypto.encrypt(plaintext)
+
+
+class TestTokenEncryption:
+    def test_access_token_encrypted_at_rest(self):
+        """The stored ciphertext differs from the plaintext, and round-trips."""
+        from server.src.services import plaid_crypto
+
+        plaintext = "access-sandbox-super-secret"
+        stored = plaid_crypto.encrypt(plaintext)
+        assert stored != plaintext
+        assert plaintext not in stored  # not merely prefixed plaintext
+        assert plaid_crypto.is_encrypted(stored)
+        assert plaid_crypto.decrypt(stored) == plaintext
+
+    def test_legacy_plaintext_token_tolerated(self):
+        """A pre-migration plaintext token decrypts to itself (no crash)."""
+        from server.src.services import plaid_crypto
+
+        assert not plaid_crypto.is_encrypted("access-plain")
+        assert plaid_crypto.decrypt("access-plain") == "access-plain"
+
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_sync_decrypts_token_for_plaid_call(
+        self, MockPDB, db_session, seed_user, seed_id_keyed_account
+    ):
+        """sync passes the DECRYPTED token to the Plaid client, not ciphertext."""
+        account, token = seed_id_keyed_account
+
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=[], modified=[], removed=[], next_cursor="c1",
+        )
+        mock_plaid.get_balance.return_value = []
+
+        PlaidService(db_session).sync_all_tokens(seed_user)
+
+        called_token = mock_plaid.sync_transactions.call_args[0][0]
+        assert called_token == "access-sandbox-fake"  # decrypted
+        assert not called_token.startswith("enc:")
+
+
+class TestMultiAccountRouting:
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_multi_account_item_routes_by_account_id(
+        self, MockPDB, db_session, seed_user, seed_id_keyed_account
+    ):
+        """A batch spanning two Plaid accounts lands in the two local accounts."""
+        account_a, token = seed_id_keyed_account
+        account_b = AccountORM(
+            name="Chase Savings",
+            type="depository",
+            balance=0,
+            plaid_account_id="plaid_acct_B",
+            user_id=seed_user.id,
+        )
+        db_session.add(account_b)
+        db_session.flush()
+
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=[
+                _make_plaid_txn("t_a1", "Coffee", 4.50, account_id="plaid_acct_A"),
+                _make_plaid_txn("t_b1", "Card Payment", 30.00, account_id="plaid_acct_B"),
+            ],
+            modified=[],
+            removed=[],
+            next_cursor="c1",
+        )
+        mock_plaid.get_balance.return_value = []
+
+        PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        by_acct = {
+            e.account_id: e.plaid_transaction_id
+            for e in db_session.execute(select(ExpenseORM)).scalars().all()
+        }
+        assert by_acct == {account_a.id: "t_a1", account_b.id: "t_b1"}
+
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_renamed_account_still_syncs(
+        self, MockPDB, db_session, seed_user, seed_id_keyed_account
+    ):
+        """Renaming the local account doesn't break id-keyed routing."""
+        account, token = seed_id_keyed_account
+        account.name = "Totally Different Name"
+        db_session.flush()
+
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=[_make_plaid_txn("t1", "Coffee", 4.50, account_id="plaid_acct_A")],
+            modified=[],
+            removed=[],
+            next_cursor="c1",
+        )
+        mock_plaid.get_balance.return_value = []
+
+        PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        rows = db_session.execute(select(ExpenseORM)).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].account_id == account.id
+
+
+class TestDedupConstraint:
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_duplicate_plaid_transaction_id_is_noop(
+        self, MockPDB, db_session, seed_user, seed_id_keyed_account
+    ):
+        """Syncing the same txn id twice yields one row (IntegrityError path)."""
+        account, token = seed_id_keyed_account
+
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+        mock_plaid.get_balance.return_value = []
+        txns = [_make_plaid_txn("dup", "Once", 19.99, account_id="plaid_acct_A")]
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=txns, modified=[], removed=[], next_cursor="c1",
+        )
+        PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        # Second sync re-presents the SAME id (cursor replay / race).
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=txns, modified=[], removed=[], next_cursor="c2",
+        )
+        PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        rows = db_session.execute(select(ExpenseORM)).scalars().all()
+        assert len(rows) == 1
+
+    def test_partial_unique_index_allows_null_manual_rows(self, db_session, seed_user):
+        """Two manual rows (NULL plaid_transaction_id) don't collide."""
+        acct = AccountORM(
+            name="Manual", type="checking", balance=0, user_id=seed_user.id
+        )
+        db_session.add(acct)
+        db_session.flush()
+        db_session.add_all(
+            [
+                ExpenseORM(title="a", amount=100, date="2026-01-01", category="X", account_id=acct.id),
+                ExpenseORM(title="b", amount=200, date="2026-01-02", category="X", account_id=acct.id),
+            ]
+        )
+        db_session.flush()  # would raise if NULLs collided
+        assert len(db_session.execute(select(ExpenseORM)).scalars().all()) == 2
+
+
+class TestBalanceRefresh:
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_sync_updates_account_balance(
+        self, MockPDB, db_session, seed_user, seed_id_keyed_account
+    ):
+        """After sync, the local balance equals Plaid's reported balance."""
+        account, token = seed_id_keyed_account
+
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=[], modified=[], removed=[], next_cursor="c1",
+        )
+        mock_plaid.get_balance.return_value = [
+            _FakeBalanceAccount("plaid_acct_A", available=1234.56, current=1300.00)
+        ]
+
+        PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+        db_session.refresh(account)
+        assert account.balance == dollars_to_cents(1234.56)  # available preferred
+
+
+class TestPerTokenIsolation:
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_one_failing_token_does_not_abort_others(
+        self, MockPDB, db_session, seed_user
+    ):
+        """First token raises; the second still syncs and its rows persist."""
+        # Token 1: will fail on sync.
+        t1 = TokenORM(user_id=seed_user.id, name="BadBank", key=_enc("k1"))
+        a1 = AccountORM(
+            name="BadBank", type="depository", balance=0,
+            plaid_account_id="acct_bad", user_id=seed_user.id,
+        )
+        # Token 2: healthy.
+        t2 = TokenORM(user_id=seed_user.id, name="GoodBank", key=_enc("k2"))
+        a2 = AccountORM(
+            name="GoodBank", type="depository", balance=0,
+            plaid_account_id="acct_good", user_id=seed_user.id,
+        )
+        db_session.add_all([t1, a1, t2, a2])
+        db_session.flush()
+
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+        mock_plaid.get_balance.return_value = []
+
+        good_result = SyncResult(
+            added=[_make_plaid_txn("g1", "Lunch", 12.00, account_id="acct_good")],
+            modified=[],
+            removed=[],
+            next_cursor="cg",
+        )
+
+        def _sync(decrypted_token, cursor):
+            if decrypted_token == "k1":
+                raise RuntimeError("ITEM_LOGIN_REQUIRED")
+            return good_result
+
+        mock_plaid.sync_transactions.side_effect = _sync
+
+        summaries = PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        # The good token's row is present despite the bad token failing.
+        rows = db_session.execute(select(ExpenseORM)).scalars().all()
+        assert [r.plaid_transaction_id for r in rows] == ["g1"]
+        # Per-token summary reflects one error, one success.
+        errored = [s for s in summaries if s.get("error")]
+        assert len(errored) == 1 and errored[0]["token"] == "BadBank"

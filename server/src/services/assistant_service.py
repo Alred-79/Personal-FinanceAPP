@@ -571,13 +571,14 @@ class ActionService:
         A manually-added "$5 Starbucks" on a bank-linked account would be
         duplicated when the next Plaid sync pulls the same row from the bank.
         Reuses the exact same guard the transfer endpoint uses
-        (``routers.accounts._is_plaid_managed``) so the two stay coupled: it is
-        name-keyed today and Step 08 de-name-keys it via ``plaid_account_id`` —
-        importing the shared function means that rewrite fixes both at once. The
-        rejection test pins this so Step 08 can't silently break it.
+        (``routers.accounts._is_plaid_managed``) so the two stay coupled: Step 08
+        de-name-keyed it onto ``Account.plaid_account_id`` (passed below), with a
+        name→Token fallback for un-migrated links — importing the shared function
+        means both call sites move together. The rejection test pins this so the
+        de-name-keying can't silently break it.
 
-        Touches the DB (resolves the account name), so it lives OUTSIDE
-        ``validate`` (which is DB-free by contract). ``add_goal`` and
+        Touches the DB (resolves the account), so it lives OUTSIDE ``validate``
+        (which is DB-free by contract). ``add_goal`` and
         ``recategorize_transaction`` are unaffected — the former creates no
         account-bound row and the latter relabels an existing row.
         """
@@ -589,16 +590,19 @@ class ActionService:
         # Lazy import to avoid any router<->service import-order fragility.
         from ..routers.accounts import _is_plaid_managed
 
-        name = db.execute(
-            select(AccountORM.name).where(
+        acct = db.execute(
+            select(AccountORM.name, AccountORM.plaid_account_id).where(
                 AccountORM.id == account_id, AccountORM.user_id == user_id
             )
-        ).scalar_one_or_none()
-        if name is None:
+        ).one_or_none()
+        if acct is None:
             # Unknown / not-this-user's account: let the normal execute path
             # surface the error; this guard only blocks the Plaid double-count.
             return
-        if _is_plaid_managed(db, user_id, name):
+        name, plaid_account_id = acct
+        if _is_plaid_managed(
+            db, user_id, name, plaid_account_id=plaid_account_id
+        ):
             raise PlaidAccountError(
                 "I can only add transactions to manually-managed accounts. "
                 f"'{name}' is linked to a bank, so adding it here would "

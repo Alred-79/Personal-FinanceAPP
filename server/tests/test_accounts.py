@@ -425,10 +425,11 @@ class TestTransfers:
         assert resp.status_code == 422
 
     def test_transfer_plaid_account_422(self, client, db_session):
-        """The name-keyed Plaid guard still refuses a Plaid-synced source.
+        """The Plaid guard refuses a Plaid-synced source.
 
-        ⚠ This guard is name-keyed in Step 06; Step 08 de-name-keys Plaid and
-        must update it (see _is_plaid_managed) so a *renamed* Plaid account is
+        Step 08 de-name-keyed the guard onto ``Account.plaid_account_id`` with a
+        name→Token fallback. This case exercises the FALLBACK (a Token with a
+        matching name, account has no plaid_account_id) so an un-migrated link is
         still detected."""
         headers = _auth_header(client, "plaidx", "plaidx@example.com")
         a = _make_account(client, headers, "Plaid Checking", 100.00)
@@ -443,6 +444,39 @@ class TestTransfers:
         resp = client.post(
             "/api/accounts/transfer/",
             json={"from_account_id": a, "to_account_id": b, "amount": 5.00},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        assert "synced" in resp.json()["detail"]
+
+    def test_transfer_renamed_plaid_account_422(self, client, db_session):
+        """A *renamed* Plaid account is still refused (id-keyed guard).
+
+        Pins the Step 08 de-name-keying: the account carries plaid_account_id, so
+        even though its name no longer matches any Token, the guard refuses it.
+        The OLD name-keyed guard would have mis-classified this as manual and let
+        a transfer double-count on the next sync."""
+        from server.src.db.models import Account as AccountORM, User
+
+        headers = _auth_header(client, "renamed", "renamed@example.com")
+        b = _make_account(client, headers, "Cash", 0.00)
+
+        user = db_session.query(User).filter_by(username="renamed").one()
+        # A Plaid-synced account whose name matches NO token (it was renamed),
+        # linked instead by plaid_account_id.
+        synced = AccountORM(
+            name="My Renamed Bank",
+            type="depository",
+            balance=10000,
+            plaid_account_id="plaid_acct_renamed",
+            user_id=user.id,
+        )
+        db_session.add(synced)
+        db_session.commit()
+
+        resp = client.post(
+            "/api/accounts/transfer/",
+            json={"from_account_id": synced.id, "to_account_id": b, "amount": 5.00},
             headers=headers,
         )
         assert resp.status_code == 422

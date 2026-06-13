@@ -10,6 +10,14 @@ class Settings(BaseSettings):
     plaid_client_id: str
     plaid_client_secret: str
     plaid_environment: str
+    # --- Plaid access-token encryption at rest (Step 08) ---
+    # The Plaid access token grants read access to the user's real bank, so it
+    # is encrypted (Fernet) before it touches the DB. Supply an explicit Fernet
+    # key (urlsafe-base64, 32 bytes) here to rotate independently of the JWT
+    # secret; when unset, the key is derived deterministically from
+    # ``jwt_secret_key`` so single-user/dev deployments encrypt with no extra
+    # config (see server/src/services/plaid_crypto.py).
+    plaid_token_key: str | None = None
     database_url: str = "sqlite:///finance_tracker.db"
 
     # --- Auth and cookie hardening ---

@@ -373,3 +373,122 @@ class TestCreationHookAndEarmarks:
         assert len(preview) == 1  # only the Food txn matches
         assert preview[0]["amount"] == 0.50
         assert client.get("/api/goals/", headers=headers).json()[-1]["progress"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Step 08: rules fire on Plaid-synced transactions (not just manual entry)
+# ---------------------------------------------------------------------------
+
+class TestRulesFireOnSync:
+    def test_rule_fires_on_synced_transaction(self, db_session, rule_user):
+        """A roundup rule that fires on a manual txn also fires on a synced one.
+
+        Closes the report finding that ``sync_token`` never called the rule
+        engine (the in-code comment claimed it did). The synced expense funds the
+        goal exactly as a manual entry would.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from server.src.db.models import Token as TokenORM
+        from server.src.databridge.plaid_client import SyncResult
+        from server.src.models import UserInDB
+        from server.src.services.plaid_service import PlaidService
+
+        user, account, goal = rule_user
+        # An id-keyed Plaid account so sync routes by plaid_account_id.
+        account.plaid_account_id = "acct_X"
+        token = TokenORM(user_id=user.id, name="Bank", key="access-plain")
+        db_session.add(token)
+        db_session.flush()
+
+        _mk_rule(db_session, user, "roundup", {"nearest": "1"}, goal=goal)
+
+        user_in_db = UserInDB(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            full_name=user.full_name,
+            disabled=False,
+            hashed_password=user.hashed_password,
+        )
+
+        with patch("server.src.services.plaid_service.PlaidClient") as MockPDB:
+            mock_plaid = MagicMock()
+            MockPDB.return_value = mock_plaid
+            mock_plaid.get_balance.return_value = []
+            mock_plaid.sync_transactions.return_value = SyncResult(
+                added=[
+                    {
+                        "transaction_id": "synced_1",
+                        "name": "Coffee",
+                        "amount": 4.50,  # → rounds up 50¢ into the goal
+                        "date": "2026-03-10",
+                        "category": ["Food"],
+                        "personal_finance_category": None,
+                        "account_id": "acct_X",
+                    }
+                ],
+                modified=[],
+                removed=[],
+                next_cursor="c1",
+            )
+            PlaidService(db_session).sync_all_tokens(user_in_db)
+            db_session.flush()
+
+        db_session.refresh(goal)
+        assert goal.progress == 50  # the rule fired on the synced expense
+
+    def test_synced_rule_is_idempotent_on_resync(self, db_session, rule_user):
+        """Re-syncing the same txn id doesn't double-fire the rule (one row,
+        one firing) — relies on the rule_executions unique key + the partial
+        unique index."""
+        from unittest.mock import MagicMock, patch
+
+        from server.src.db.models import (
+            RuleExecution as RuleExecutionORM,
+            Token as TokenORM,
+        )
+        from server.src.databridge.plaid_client import SyncResult
+        from server.src.models import UserInDB
+        from server.src.services.plaid_service import PlaidService
+
+        user, account, goal = rule_user
+        account.plaid_account_id = "acct_Y"
+        db_session.add(TokenORM(user_id=user.id, name="Bank", key="access-plain"))
+        db_session.flush()
+        _mk_rule(db_session, user, "roundup", {"nearest": "1"}, goal=goal)
+
+        user_in_db = UserInDB(
+            id=user.id, username=user.username, email=user.email,
+            full_name=user.full_name, disabled=False,
+            hashed_password=user.hashed_password,
+        )
+        txn = {
+            "transaction_id": "synced_dup",
+            "name": "Coffee",
+            "amount": 4.50,
+            "date": "2026-03-10",
+            "category": ["Food"],
+            "personal_finance_category": None,
+            "account_id": "acct_Y",
+        }
+
+        with patch("server.src.services.plaid_service.PlaidClient") as MockPDB:
+            mock_plaid = MagicMock()
+            MockPDB.return_value = mock_plaid
+            mock_plaid.get_balance.return_value = []
+            mock_plaid.sync_transactions.return_value = SyncResult(
+                added=[txn], modified=[], removed=[], next_cursor="c1",
+            )
+            PlaidService(db_session).sync_all_tokens(user_in_db)
+            db_session.flush()
+            # Re-present the same id (cursor replay).
+            mock_plaid.sync_transactions.return_value = SyncResult(
+                added=[txn], modified=[], removed=[], next_cursor="c2",
+            )
+            PlaidService(db_session).sync_all_tokens(user_in_db)
+            db_session.flush()
+
+        db_session.refresh(goal)
+        assert goal.progress == 50  # not 100
+        assert db_session.query(RuleExecutionORM).count() == 1

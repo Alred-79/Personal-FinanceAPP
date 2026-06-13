@@ -24,11 +24,13 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
     event,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -104,6 +106,12 @@ class Account(Base):
     type: Mapped[str] = mapped_column(String, nullable=False)
     balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # stored as cents
     last_updated: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
+    # Step 08: the Plaid ``account_id`` this local account mirrors, set at
+    # exchange time (one local Account per Plaid account). NULL for a
+    # manually-managed account. Routing and the transfer guard key on this id
+    # instead of the old shared-name match, so a renamed account keeps syncing
+    # and is still correctly classified as Plaid-managed.
+    plaid_account_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     user_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -121,6 +129,20 @@ class Account(Base):
 
 class Expense(Base):
     __tablename__ = "expenses"
+    # Step 08: race-safe Plaid dedup. A PARTIAL unique index (NULLs excluded)
+    # so manual rows — where ``plaid_transaction_id`` is NULL — are unaffected,
+    # while two concurrent syncs can't both insert the same Plaid txn id. A
+    # Plaid transaction id is globally unique per item, so the single-column
+    # partial index suffices. SQLite honours ``sqlite_where``; the Alembic
+    # migration creates the same partial index on a migrated DB.
+    __table_args__ = (
+        Index(
+            "uq_expense_plaid_txn",
+            "plaid_transaction_id",
+            unique=True,
+            sqlite_where=text("plaid_transaction_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
@@ -142,6 +164,16 @@ class Expense(Base):
 
 class Income(Base):
     __tablename__ = "income"
+    # Step 08: partial unique index mirroring Expense (see that note). NULLs are
+    # excluded so manual income rows are unaffected.
+    __table_args__ = (
+        Index(
+            "uq_income_plaid_txn",
+            "plaid_transaction_id",
+            unique=True,
+            sqlite_where=text("plaid_transaction_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String, nullable=False)

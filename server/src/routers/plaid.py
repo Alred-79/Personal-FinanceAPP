@@ -17,6 +17,7 @@ from typing import Annotated
 
 from server.src.databridge.plaid_client import PlaidClient
 from server.src.services.plaid_service import PlaidService
+from server.src.services import plaid_crypto
 from server.src.services.auth_service import AuthService
 from server.src.db.session import get_db, SessionLocal
 from server.src.db.models import (
@@ -70,16 +71,20 @@ async def exchange_public_token(
     databridge = PlaidClient()
     access_token = databridge.exchange_public_token(token.public_token)
 
-    # Store the access token
+    # Store the access token ENCRYPTED at rest (Step 08). A copied DB file is
+    # ciphertext, not live bank access. Never log the decrypted value.
     new_token = TokenORM(
         user_id=current_user.id,
         name=token.name,
-        key=access_token,
+        key=plaid_crypto.encrypt(access_token),
     )
     db.add(new_token)
     db.flush()  # assign PK
 
-    # Get plaid account balance and create the local account.
+    # Get plaid account balances and create ONE local account per Plaid account
+    # (Step 08). A single item often spans checking + savings + a card; each
+    # gets its own local Account carrying its ``plaid_account_id`` so later sync
+    # routes every transaction to the right account by id, not by name.
     # Guard against institutions that return zero accounts.
     plaid_accounts = databridge.get_balance(access_token)
     if not plaid_accounts:
@@ -88,22 +93,37 @@ async def exchange_public_token(
             detail="No accounts returned by the linked institution.",
         )
 
-    plaid_account = plaid_accounts[0].to_dict()
-
-    new_account = AccountORM(
-        name=token.name,
-        type=plaid_account["type"],
-        balance=dollars_to_cents(
-            plaid_account["balances"].get("available")
-            if plaid_account["balances"].get("available") is not None
-            else plaid_account["balances"].get("current")
-            if plaid_account["balances"].get("current") is not None
+    for i, pa in enumerate(plaid_accounts):
+        plaid_account = pa.to_dict()
+        balances = plaid_account.get("balances") or {}
+        available = balances.get("available")
+        current = balances.get("current")
+        balance_value = (
+            available
+            if available is not None
+            else current
+            if current is not None
             else 0
-        ),
-        user_id=current_user.id,
-    )
-    db.add(new_account)
-    db.flush()  # assign PK
+        )
+        # Name each local account from Plaid's own account name when present so
+        # a multi-account item reads sensibly; the single-account case keeps the
+        # user-chosen token name for backward-compatible behaviour.
+        plaid_name = plaid_account.get("name") or plaid_account.get("official_name")
+        account_name = (
+            token.name
+            if len(plaid_accounts) == 1 or not plaid_name
+            else f"{token.name} — {plaid_name}"
+        )
+        db.add(
+            AccountORM(
+                name=account_name,
+                type=plaid_account["type"],
+                balance=dollars_to_cents(balance_value),
+                plaid_account_id=str(plaid_account.get("account_id") or "") or None,
+                user_id=current_user.id,
+            )
+        )
+    db.flush()  # assign PKs
     db.commit()
 
     # Kick off the initial sync in the background so this endpoint returns
