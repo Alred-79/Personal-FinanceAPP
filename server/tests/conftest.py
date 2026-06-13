@@ -22,6 +22,30 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 
 from server.src.db.models import Base
+from server.src.settings import settings
+
+
+@pytest.fixture(autouse=True)
+def _suite_single_user_off():
+    """Default the whole suite to multi-user-allowed (Step 01).
+
+    The production default is ``single_user=True`` (registration closes after the
+    first account). But the cross-user isolation / IDOR corpus deliberately signs
+    up TWO real users in one test to prove ownership is enforced end-to-end; the
+    guard would 409 the second signup. So we flip ``single_user`` off by default
+    for every test. The guard's own tests opt back IN via
+    ``monkeypatch.setattr(settings, "single_user", True)``.
+
+    This is read fresh from the settings singleton inside the signup handler, so
+    mutating the singleton here (and restoring it) is sufficient — unlike the
+    slowapi limiter, which is frozen at construction.
+    """
+    previous = settings.single_user
+    settings.single_user = False
+    try:
+        yield
+    finally:
+        settings.single_user = previous
 
 
 @pytest.fixture

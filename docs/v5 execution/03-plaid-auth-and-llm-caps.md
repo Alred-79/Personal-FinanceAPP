@@ -27,7 +27,33 @@ limit, no cost budget, and an `AgentExecutor` with no iteration/time caps).
 
 ## Preconditions
 - Step 02 merged: `settings.assistant_rate_limit`, `llm_budget.check_and_reserve/record_actual`,
-  proxy-aware limiter, `assistant_max_iterations`, `assistant_max_execution_seconds`.
+  proxy-aware limiter, `assistant_max_iterations`, `assistant_max_execution_seconds`,
+  `settings.llm_daily_request_budget`.
+- **Decide the budget unit (Step 02 §4).** The hard cap is **requests/day**, not tokens — the
+  streaming path has no token count to reconcile (see §3 below). If you want a token cap, wire a real
+  source first (one of: a `len(prompt)//4` pre-flight estimate; a LangChain `UsageMetadataCallback`
+  if it fires on `astream_events` in the installed `langchain`/`langchain_groq` version — verify; or
+  call the model non-streaming for the final turn to capture `usage_metadata`). Until then, do not
+  ship a token cap that meters 0.
+
+## ⚠ Reality check on the chat endpoint (verify before coding §2/§3)
+The current endpoint (`routers/assistant.py:20-31`) is:
+```python
+@router.post("/chat/")
+async def chat(
+    message: str,
+    current_user: Annotated[UserInDB, Depends(AuthService.get_current_active_user)],
+):
+    return StreamingResponse(assistant_service.chat(current_user, message), ...)
+```
+It takes **no `Depends(get_db)`** — there is no request-scoped session here at all. The service opens
+its own short-lived `SessionLocal()` per tool call (`assistant_service.py:59 _get_session`). Two
+consequences the original plan got wrong:
+- The pre-flight budget check (§2) **must add `db: Session = Depends(get_db)` to the endpoint** — it
+  does not exist yet to "reuse."
+- The reconciliation worry (§3) about FastAPI tearing down the request `db` before the stream
+  finishes is **moot** — there is no request `db` in the generator. The generator must open its own
+  session regardless; keep that conclusion, drop the (incorrect) justification.
 
 ## Implementation
 1. **Authenticate the link-token endpoint** (`plaid.py::get_link_token`):
@@ -43,17 +69,18 @@ limit, no cost budget, and an `AgentExecutor` with no iteration/time caps).
    be stable per user — `str(current_user.id)` is.
 2. **Rate-limit + pre-flight budget check at the endpoint** (`assistant.py::chat`):
    - Add `request: Request` and `@limiter.limit(settings.assistant_rate_limit)`.
-   - **Pre-flight only** — before returning the `StreamingResponse`, call
-     `llm_budget.check_and_reserve(db, current_user.id, est_tokens=<rough estimate>)` using the
-     endpoint's `Depends(get_db)` session. On `BudgetExceeded`, return HTTP **429** with a clear
-     body (not a mid-stream error). This is the only budget call that may use the request `db`.
-3. **⚠ Reconciliation must NOT use the request session.** `chat` is `async def -> AsyncGenerator`
-   (`assistant_service.py:1002`); the endpoint returns a `StreamingResponse` and FastAPI tears down
-   the request-scoped `Depends(get_db)` session **before** the generator finishes streaming. So
-   `record_actual(...)` cannot use the endpoint's `db` — it would be a use-after-close. Run
-   reconciliation **inside the generator** with its **own** `SessionLocal()`, opened and closed
-   within the generator (the exact pattern the Plaid background task already uses,
-   `plaid.py:~100-112`):
+   - **Add `db: Session = Depends(get_db)` to the endpoint signature** (it has none today — see the
+     Reality check above). Before returning the `StreamingResponse`, call
+     `llm_budget.check_and_reserve(db, current_user.id, requests=1, est_tokens=<rough estimate>)`.
+     This reserves **one request** (the real hard cap) and an advisory token estimate. On
+     `BudgetExceeded`, return HTTP **429** with a clear body (not a mid-stream error).
+   - This pre-flight runs entirely **before** the generator is created, so it uses the request `db`
+     safely (the session is still open during the synchronous endpoint body).
+3. **Reconciliation runs inside the generator with its OWN session** — because the generator has no
+   request `db` to borrow (the endpoint's `Depends(get_db)` session is for the pre-flight only, and
+   FastAPI closes it once the endpoint returns the `StreamingResponse`). Open/close a fresh
+   `SessionLocal()` inside the generator, the same pattern the Plaid background task uses
+   (`plaid.py:~100-112`):
    ```python
    async def chat(self, user, message):
        ...
@@ -62,14 +89,25 @@ limit, no cost budget, and an `AgentExecutor` with no iteration/time caps).
        finally:
            db2 = SessionLocal()
            try:
-               llm_budget.record_actual(db2, user.id, tokens_used)  # 0 if nothing spent
+               # tokens_used is typically None on the streaming path (astream_events
+               # v2 exposes no usage metadata in the installed version — VERIFY). When
+               # it's None this is a no-op for the cap (the request was already counted
+               # at reserve time); only reconcile the advisory token figure if a real
+               # count is available.
+               llm_budget.record_actual(db2, user.id, tokens_used or 0)
                db2.commit()
            finally:
                db2.close()
    ```
-   The pre-flight reservation (step 2) covers the cap; this reconciles the estimate to actual after
-   streaming. If the stream errors before any token, `record_actual(..., 0)` (or reconcile the
-   reservation back down) so a failed request doesn't permanently consume budget.
+   - **`tokens_used` has no guaranteed source on streaming.** Do not assume `astream_events`
+     yields it. Either (a) capture it via a usage callback / a final non-streaming turn if you wired
+     one (precondition), or (b) leave it `None` and rely on the request cap. The cap stays correct
+     either way because the *request* was reserved pre-flight.
+   - **If the stream errors before any model call**, reconcile the reserved **request** back down
+     (decrement `requests` for the day) so a request that 500s before doing any paid work doesn't
+     permanently consume a slot. `record_actual(..., 0)` alone does not undo the reservation — add a
+     `release_request(db2, user.id)` (or reserve the request *after* the first model token instead of
+     pre-flight, if you prefer fail-open on early errors; pre-flight + release is the safer default).
 4. **Executor caps + cache invalidation** (`assistant_service.py`): pass
    `max_iterations=settings.assistant_max_iterations`,
    `max_execution_time=settings.assistant_max_execution_seconds`,
@@ -88,17 +126,19 @@ plus the Plaid suite:
   called with `str(user.id)` (monkeypatch `PlaidClient.create_link_token` to capture the arg).
 - `test_chat_rate_limited`: use the Step 02 `rate_limited` fixture (flip `limiter.enabled`, **not**
   the setting), set `assistant_rate_limit="1/minute"`; second chat call → 429.
-- `test_chat_over_budget_returns_429`: set `llm_daily_token_budget` tiny; pre-fill usage to the
-  cap; chat → 429 with a readable detail; assert no Groq call was attempted (monkeypatch the agent
-  to raise if invoked). Works because the cap is a **pre-flight** check on the request session.
+- `test_chat_over_budget_returns_429`: set `llm_daily_request_budget` tiny (e.g. 1); pre-fill usage
+  to the cap; chat → 429 with a readable detail; assert no Groq call was attempted (monkeypatch the
+  agent to raise if invoked). Works because the **request** cap is a pre-flight check on the request
+  session — it does not depend on any post-stream token count.
+- `test_failed_stream_releases_reserved_request`: force the stream to error before any model call;
+  assert the day's reserved request is released (usage back to pre-call), so a failure doesn't burn a
+  slot permanently.
 - `test_executor_receives_caps`: **clear the executor cache first** (`assistant_service.agents.clear()`
   or use a fresh `AssistantService`), then trigger a chat and assert the newly-built `AgentExecutor`
   has `max_iterations`/`max_execution_time` from settings — else a cached capless instance false-passes.
-- `test_reconciliation_uses_own_session`: pin the use-after-close fix — monkeypatch `SessionLocal`
-  to a counting factory and assert reconciliation opens its **own** session (not the request `db`),
-  and the budget row is updated even though the request session is already closed.
-- `test_budget_not_consumed_on_pre_llm_failure`: force the stream to error before any token; assert
-  the day's usage reconciles back to ~0 (no permanent consumption).
+- `test_reconciliation_uses_own_session`: monkeypatch `SessionLocal` to a counting factory and
+  assert reconciliation opens its **own** session inside the generator (the endpoint's pre-flight
+  `db` is already closed by the time the generator runs).
 - Update any existing Plaid test that called `/plaid/link-token/?user_id=...` to the authed form.
 
 ## User-centric & edge-case checks
@@ -120,6 +160,11 @@ plus the Plaid suite:
 
 ## Done-when
 - [ ] `/plaid/link-token/` requires auth and derives the user from the session; `user_id` param gone.
-- [ ] `/assistant/chat/` is rate-limited and budget-gated; over-cap → clean 429.
-- [ ] `AgentExecutor` has iteration + time caps; usage reconciled to budget.
-- [ ] New tests green; no plaintext `user_id` accepted; assistant security tests still pass.
+- [ ] `/assistant/chat/` is rate-limited and **request-budget**-gated (the hard cap that works on
+      streaming); over-cap → clean 429. Endpoint now injects `db` for the pre-flight reserve.
+- [ ] Reservation runs pre-flight on the request `db`; reconciliation runs in the generator's own
+      session; a stream that fails before any model call releases its reserved request.
+- [ ] Token metering is wired to a real source OR explicitly left advisory (not presented as a hard
+      cap) — no silent `record_actual(..., 0)` masquerading as enforcement.
+- [ ] `AgentExecutor` has iteration + time caps. New tests green; no plaintext `user_id` accepted;
+      assistant security tests still pass.

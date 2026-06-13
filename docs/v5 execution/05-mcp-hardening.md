@@ -30,15 +30,31 @@ and the per-key throttle runs *after* a DB hit (so invalid keys still cost a que
 
 ## Preconditions
 - Step 02 merged (proxy-aware key for the pre-auth IP throttle).
-- `stateless_http` is **confirmed supported** by `mcp.http_app()` in the installed package, so the
-  core change is viable. Still re-read the `http_app` signature before editing to confirm the exact
-  kwarg name/placement for this version.
+- **⚠ `stateless_http` support is NOT yet verified — verify before relying on it.** The original
+  draft called it "confirmed supported," but that confirmation is not in the codebase (no comment,
+  test, or doc) and could not be reproduced against the installed `fastmcp` (3.4.2). **Before
+  building §1**, actually check: `python -c "import inspect, fastmcp; print(inspect.signature(fastmcp.FastMCP.http_app))"`
+  (or read the installed `fastmcp` source). If the kwarg exists → proceed. **If it does not exist or
+  is named differently**, §1's stateless transport is the part of C2 that stalls — fall back to the
+  defense-in-depth pieces that don't depend on it (set `scope["user"]` per request; reject disabled
+  users; pre-auth throttle; audit) and record the transport change as blocked-pending-upgrade rather
+  than shipping a call that errors at startup.
+- **Single-worker deployment invariant (shared across Steps 02/05/09).** The pre-auth throttle (§3)
+  and the existing per-key throttle are module-level, in-memory, per-process singletons — they do not
+  coordinate across workers. `main.py:56-64` already warns the MCP per-key limiter is unsafe past one
+  worker. This step (and Step 09's in-process scheduler) makes single-worker a **hard deployment
+  requirement**, not a caveat. State it explicitly in the deploy docs / a startup check, not just in
+  passing here.
 
 ## Implementation
-1. **Stateless transport + scope user** (`server.py::build_mcp_starlette`): pass
-   `stateless_http=True` to `mcp.http_app(...)`. In `MCPAuthMiddleware.__call__`, after resolving
-   the principal, set `scope["user"] = principal` (defense-in-depth for the SDK's owner check)
-   alongside the existing `_current_principal.set(principal)`.
+1. **Stateless transport + scope user** (`server.py::build_mcp_starlette`):
+   - **If the precondition verifies `stateless_http` is supported:** pass `stateless_http=True` to
+     `mcp.http_app(...)`.
+   - **Regardless** (this part has no dependency on the kwarg): in `MCPAuthMiddleware.__call__`,
+     after resolving the principal, set `scope["user"] = principal` (defense-in-depth for the SDK's
+     owner check) alongside the existing `_current_principal.set(principal)`. This `scope["user"]`
+     binding is the part of C2 that always lands; the transport flag is the part that's gated on the
+     installed version.
 2. **Reject disabled users:** in `MCPKeyService.resolve` (or right after it in the middleware),
    load the owning `User` and return `None` / deny when `user.disabled`. Prefer doing it in
    `resolve` so every caller benefits and the deny message stays the existing opaque
@@ -89,8 +105,11 @@ and the per-key throttle runs *after* a DB hit (so invalid keys still cost a que
   (the import guard must still pass — don't import `SessionLocal` directly in `server.py`).
 
 ## Done-when
-- [ ] App built stateless; `scope["user"]` set per request.
+- [ ] `scope["user"]` set per request (always). App built stateless **if** `stateless_http` verified
+      supported; otherwise that transport change is recorded as blocked-pending-upgrade and the rest
+      of C2 still ships.
 - [ ] Disabled users denied; deny message stays opaque.
 - [ ] Pre-auth IP throttle rejects floods without a DB hit; per-key throttle still present.
+- [ ] Single-worker deployment invariant documented/enforced (shared with Steps 02/09).
 - [ ] Auth failures + rate-limit hits audited.
 - [ ] MCP suite green (flaky concurrency test excepted).

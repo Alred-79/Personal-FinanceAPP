@@ -64,7 +64,11 @@ keying "first or none of it works in deployment."
    trust_proxy: bool = False
    signup_rate_limit: str = "5/hour"
    assistant_rate_limit: str = "20/hour"
-   # LLM cost ceiling (denial-of-wallet). Tokens/day across chat + actions.
+   # LLM cost ceiling (denial-of-wallet). The HARD cap is requests/day — it needs no
+   # post-stream token count, so it actually enforces on the streaming path.
+   llm_daily_request_budget: int = 100
+   # Token budget is ADVISORY/observability only until a real streaming token source is
+   # wired (see Step 03). Do not present it to the user as a hard cap while it meters 0.
    llm_daily_token_budget: int = 200_000
    assistant_max_iterations: int = 8
    assistant_max_execution_seconds: int = 60
@@ -91,32 +95,66 @@ keying "first or none of it works in deployment."
    and deterministic. (If the installed slowapi `Limiter` lacks `.reset()`, clear
    `limiter._limiter` / its storage as `reset_rate_limiter()` does for the MCP throttle — verify the
    method name against the installed version.)
-4. **LLM budget module** (`server/src/services/llm_budget.py`), DB-backed, race-safe:
+4. **LLM budget module** (`server/src/services/llm_budget.py`), DB-backed, race-safe.
+
+   **⚠ Token counts are NOT available on the streaming path — decide the budget unit first.** The
+   chat path streams via `executor.astream_events(version="v2")` (`assistant_service.py:1056`),
+   which does **not** surface usage metadata the way `.invoke()` does — there is no `tokens_used`
+   value to record after a stream (verified). Step 03's reconciliation snippet assumes one exists; it
+   doesn't. So this primitive must be **dual-unit and honest about what it actually meters**:
+   - **Primary, always-correct unit = `requests`.** Every chat/propose call costs 1 request. This is
+     the cap that genuinely protects against denial-of-wallet on the streaming path, because it needs
+     no post-hoc token count. Make `settings.llm_daily_request_budget: int` the real ceiling.
+   - **Tokens = best-effort estimate, not a hard guarantee.** Keep a `tokens` column for
+     observability and a *pre-flight* estimate (e.g. `len(prompt)//4 + ceil`), but treat the token
+     ceiling as advisory unless/until a real usage source is wired (see Step 03's "token source"
+     note for the options: char-estimate, a LangChain usage callback that *does* fire on streaming in
+     the installed version, or switching the model call to capture `usage_metadata`). Do **not**
+     ship a "200k tokens/day" cap whose enforcement is silently `record_actual(..., 0)` — that reads
+     to the user as a working cap while metering nothing.
    - New ORM table `LlmUsage(user_id, day TEXT, tokens INT, requests INT)`, PK `(user_id, day)`.
      Add to `server/src/db/models.py` (so `Base.metadata.create_all` picks it up in tests).
    - `class BudgetExceeded(Exception)`.
    - `def today_key() -> str`: one canonical server-local date string (note the report's
      server-local-date caveat; use a single helper so chat + actions agree on the day boundary).
-   - `def check_and_reserve(db, user_id, est_tokens) -> None`: upsert the row and atomically add
-     `est_tokens`; if the new total > `settings.llm_daily_token_budget`, **roll back the increment**
-     and raise `BudgetExceeded`. Use `INSERT … ON CONFLICT(user_id,day) DO UPDATE SET tokens =
-     tokens + :est` (SQLite supports it) — not check-then-insert — then re-read and compare.
-   - `def record_actual(db, user_id, tokens) -> None`: reconcile after a run (add the delta between
-     the estimate reserved and tokens actually used; never go negative).
-   - `def remaining(db, user_id) -> int`: for surfacing "you're near your daily AI limit" to the UI.
+   - `def check_and_reserve(db, user_id, *, est_tokens=0, requests=1) -> None`: atomically add
+     `requests` (and `est_tokens` for observability) via one SQL UPDATE that runs inside the request
+     transaction. Use a **conditional UPDATE** so the cap check and the increment are a single
+     statement (no read-then-write window):
+     ```sql
+     -- ensure the row exists, then:
+     UPDATE llm_usage SET requests = requests + :req, tokens = tokens + :est
+       WHERE user_id = :uid AND day = :day AND requests + :req <= :request_budget
+     ```
+     `rowcount == 0` (after confirming the row exists) → over cap → raise `BudgetExceeded`. This is
+     the same TOCTOU-free pattern Step 06 uses for transfers; it does **not** depend on "increment
+     then roll back," which is racy under read-then-compare. Seed the row first with
+     `INSERT … ON CONFLICT(user_id,day) DO NOTHING`.
+   - `def record_actual(db, user_id, tokens) -> None`: reconcile the *token* estimate after a run if
+     and only if a real token count is available; a no-op when it isn't (the request was already
+     counted at reserve time, so the cap is intact regardless). Never go negative.
+   - `def remaining(db, user_id) -> int`: requests remaining today, for surfacing "you're near your
+     daily AI limit" to the UI.
 
 ## Tests to add (`server/tests/test_hardening.py`)
 - `test_limiter_key_uses_forwarded_when_trusted`: monkeypatch `settings.trust_proxy=True`; build a
   fake `Request` with `x-forwarded-for: "1.2.3.4, 10.0.0.1"`; assert `_client_key` → `"1.2.3.4"`.
 - `test_limiter_key_ignores_forwarded_when_untrusted`: `trust_proxy=False` + spoofed header →
   falls back to `request.client.host` (assert it does **not** return the spoofed value).
-- `test_budget_blocks_over_cap`: with a tiny `llm_daily_token_budget`, two `check_and_reserve`
-  calls — second raises `BudgetExceeded`; assert the over-cap reservation did **not** persist
-  (tokens stayed at the first reservation, not first+second).
+- `test_budget_blocks_over_cap`: with a tiny `llm_daily_request_budget` (e.g. 1), two
+  `check_and_reserve(requests=1)` calls — second raises `BudgetExceeded`; assert the over-cap
+  reservation did **not** persist (`requests` stayed at 1, not 2).
 - `test_budget_resets_next_day`: reserve to the cap for `day=D`; with `today_key` monkeypatched to
   `D+1`, a reservation succeeds (fresh row).
-- `test_budget_concurrent_upsert_no_lost_update`: two sequential `check_and_reserve(est=N)` sum to
-  `2N` in the row (proves atomic `+=`, not read-modify-write).
+- `test_budget_atomic_increment_no_lost_update`: N sequential `check_and_reserve(requests=1, est=K)`
+  calls leave `requests=N` and `tokens=N*K` in the row (proves the increment is an issued SQL
+  UPDATE, not a read-modify-write on a stale Python value). **Do not call this a concurrency test —
+  sequential calls cannot surface a lost update; they only prove the arithmetic.** The real
+  concurrency guarantee is the *conditional UPDATE* (cap-and-increment in one statement) plus
+  SQLite's single-writer serialization; assert that property structurally (the WHERE clause carries
+  the cap) rather than claiming a sequential test proves it. If genuine parallelism is wanted, stage
+  it against a **file-backed** SQLite DB with real threads — the in-memory StaticPool single
+  connection used by the suite cannot interleave writers.
 - `test_signup_rate_limited`: use the `rate_limited` fixture (NOT `monkeypatch.setattr(settings,
   ...)`), set `signup_rate_limit="1/minute"` via `monkeypatch.setattr(settings, ...)` **and**
   re-decorate is not needed (the decorator reads the string at call time via the limiter), second
@@ -130,10 +168,13 @@ keying "first or none of it works in deployment."
 - Empty/malformed forwarded header → graceful fallback, never a 500.
 - Budget rollover at local midnight must be deterministic (single `today_key`) so a user isn't
   blocked at 23:59 then mysteriously unblocked at 00:01 by a *different* date function elsewhere.
-- A failed LLM call before any token spend must **not** consume budget (Step 03 wires the
-  rollback); the primitive must support `record_actual(... , 0)`-style reconciliation.
-- Surface `remaining()` so the UI can warn before the hard cap — denying with no explanation reads
-  as a bug to the user.
+- A failed LLM call before any work starts must **not** consume budget. Because the unit is
+  *requests* reserved at the endpoint, Step 03 must reconcile the reserved request back down (or
+  reserve only after the stream actually starts) so a request that 500s before any model call doesn't
+  permanently burn a slot. `record_actual(..., 0)` is a no-op for the request count by design.
+- Surface `remaining()` (requests left today) so the UI can warn before the hard cap — denying with
+  no explanation reads as a bug to the user. Do **not** surface a token "remaining" number derived
+  from a meter that records 0 on streaming — it would always read full and mislead.
 
 ## Regression guardrails
 - Existing login/refresh/receipt limits unchanged (same `limiter` object, same decorators).
@@ -150,6 +191,7 @@ keying "first or none of it works in deployment."
 ## Done-when
 - [ ] Proxy-aware key honors forwarded headers only when `trust_proxy`; ignores spoofs otherwise.
 - [ ] New settings exist; signup is rate-limited.
-- [ ] `llm_budget` blocks over cap, resets daily, upserts atomically; `BudgetExceeded` + `remaining`
-      available.
+- [ ] `llm_budget` enforces a **request/day** hard cap via a conditional UPDATE (no read-then-write),
+      resets daily; `BudgetExceeded` + `remaining` available. Token figure is advisory-only and not
+      presented as a hard cap.
 - [ ] conftest env-var mismatch fixed; new tests green; full suite green.

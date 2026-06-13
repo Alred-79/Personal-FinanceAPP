@@ -1,5 +1,11 @@
 """Auth endpoint tests."""
 
+from sqlalchemy import func, select
+
+from server.src.db.models import User as UserORM
+from server.src.services.auth_service import AuthService
+from server.src.settings import settings
+
 
 def _signup(client, username="authuser", email="auth@example.com", password="Test-password1"):
     return client.post(
@@ -101,3 +107,75 @@ class TestMe:
         ).json()
         assert "username" in body
         assert "email" in body
+
+
+class TestSingleUserGuard:
+    """Step 01 — registration closes after the first account when single_user=True.
+
+    The suite default is single_user=False (see conftest._suite_single_user_off),
+    so each guard test here opts IN via monkeypatch. single_user is read fresh from
+    the settings singleton inside the signup handler, so monkeypatch reaches it
+    (this is NOT the slowapi frozen-at-construction gotcha).
+    """
+
+    def test_first_signup_succeeds(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "single_user", True)
+        resp = _signup(client)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["access_token"]
+        assert body["token_type"] == "bearer"
+
+    def test_second_signup_blocked(self, client, db_session, monkeypatch):
+        monkeypatch.setattr(settings, "single_user", True)
+        first = _signup(client, username="userA", email="a@example.com")
+        assert first.status_code == 200, first.text
+
+        second = _signup(client, username="userB", email="b@example.com")
+        assert second.status_code == 409, second.text
+        assert "single-user" in second.json()["detail"].lower()
+
+        # The DB still has exactly one user.
+        count = db_session.execute(select(func.count(UserORM.id))).scalar_one()
+        assert count == 1
+
+    def test_second_signup_does_not_hash_password(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "single_user", True)
+        first = _signup(client, username="userA", email="a@example.com")
+        assert first.status_code == 200, first.text
+
+        def _boom(self, password):
+            raise AssertionError("password hashing must not run for a blocked signup")
+
+        monkeypatch.setattr(AuthService, "get_password_hash", _boom)
+
+        second = _signup(client, username="userB", email="b@example.com")
+        assert second.status_code == 409, second.text
+
+    def test_login_works_after_registration_closed(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "single_user", True)
+        first = _signup(client, username="userA", email="a@example.com")
+        assert first.status_code == 200, first.text
+
+        # A second signup would 409 now, but the existing user can still log in.
+        login = _login(client, username="userA")
+        assert login.status_code == 200, login.text
+        assert login.json()["access_token"]
+
+    def test_allow_signup_false_returns_403(self, client, monkeypatch):
+        # Independent of single_user: even the FIRST signup is refused.
+        monkeypatch.setattr(settings, "allow_signup", False)
+        resp = _signup(client)
+        assert resp.status_code == 403, resp.text
+        assert "disabled" in resp.json()["detail"].lower()
+
+    def test_multi_user_signup_allowed_when_single_user_off(self, client, db_session):
+        # The suite default (single_user=False) — pins that the cross-user
+        # corpus is unaffected: two distinct signups both succeed.
+        first = _signup(client, username="userA", email="a@example.com")
+        assert first.status_code == 200, first.text
+        second = _signup(client, username="userB", email="b@example.com")
+        assert second.status_code == 200, second.text
+
+        count = db_session.execute(select(func.count(UserORM.id))).scalar_one()
+        assert count == 2

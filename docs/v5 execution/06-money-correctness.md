@@ -81,6 +81,15 @@ these are the bugs where the numbers can be quietly *wrong*.
      name-based guard now — but **Step 08 must update this guard** to check `Account.plaid_account_id`
      (or the new mapping) when it de-name-keys, or transfers will wrongly allow/deny Plaid-synced
      accounts afterward. Cross-referenced in Step 08's implementation.
+   - **⚠ Transient broken window between 06 and 08 — name it, don't ignore it.** In the interval
+     after 06 lands (transfers now write real ledger rows and move balances) but before 08 de-name-
+     keys, a user who has **renamed a Plaid-synced account** has a guard that no longer matches that
+     account — so a transfer into it is wrongly *allowed*, and the moved amount then **double-counts**
+     when the next sync pulls the bank's own rows. For a single-user app the blast radius is small,
+     but it is a real regression window opened by 06's new ledger writes. Mitigation: land 06 and 08
+     **together or back-to-back** (don't leave the window open across releases), and add a test that a
+     renamed Plaid account is still detected as Plaid-managed (it will fail under 06's name-key and
+     pass after 08 — useful as the canary that gates the window closed).
 3. **Fix the spend summary user load** (`read_queries.py:308`): replace the fabricated `UserInDB`
    with the existing loader (the `:296-305` builder) so `savings_percent` matches the UI. Add a
    guard for "user not found."

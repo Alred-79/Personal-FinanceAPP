@@ -11,9 +11,11 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from typing import Annotated
 
+from server.src.db.models import User as UserORM
 from server.src.db.session import get_db
 from server.src.models import NewUser, Token
 from server.src.limiter import limiter
@@ -70,6 +72,23 @@ async def signup(
     user: NewUser,
     db: Session = Depends(get_db),
 ):
+    # Registration guard (Step 01). Runs FIRST so a doomed second signup never
+    # reaches password hashing (defends the bcrypt-CPU enumeration angle before
+    # Step 02's limiter exists). Read fresh from the settings singleton each
+    # request, so monkeypatching settings.single_user in tests reaches it.
+    if not settings.allow_signup:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registration is disabled.",
+        )
+    if settings.single_user:
+        existing = db.execute(select(func.count(UserORM.id))).scalar_one()
+        if existing >= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Registration is closed (single-user instance).",
+            )
+
     authed_user = auth_service.create_user(db, user)
     if not authed_user:
         raise HTTPException(

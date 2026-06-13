@@ -18,6 +18,16 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     cookie_domain: str | None = None  # leave as None to let the browser figure it out
 
+    # --- Single-user instance (Step 01) ---
+    # This is a one-account instance. ``single_user=True`` means registration
+    # closes after the first account exists: the signup guard 409s any second
+    # /signup/. ``allow_signup`` is a master switch — set it False to disable
+    # registration entirely (the very first signup 403s too), independent of
+    # single_user. The cross-user test corpus flips single_user=False so its
+    # two-user IDOR flows keep working; the guard's own tests opt back in.
+    single_user: bool = True  # one-account instance; blocks a 2nd signup
+    allow_signup: bool = True  # master switch; first signup still allowed when single_user
+
     # CORS: which origins are allowed to send credentialed requests.
     # Set this in env as a JSON array: ALLOWED_ORIGINS=["https://app.example.com"]
     allowed_origins: list[str] = ["http://localhost:5173"]
