@@ -425,3 +425,46 @@ class TestQuerySpendSummary:
         _make_expense(db_session, acct.id, amount_cents=20_00, date=today, recurrence=None)
         result = query_spend_summary(db_session, user.id)
         assert result["weekly_spend"] == 20.00
+
+    def test_spend_summary_uses_real_savings_percent(self, db_session):
+        """Step 06: the summary loads the real user row, so a non-default
+        ``savings_percent`` is reflected — matching what ``SpendService`` computes
+        with the actual user (not a fabricated default-percent user)."""
+        from server.src.models import UserInDB
+        from server.src.services.spend_service import SpendService
+
+        # Distinctive savings_percent (40), not the model default (10).
+        user = _make_user(db_session, username="saver", email="saver@example.com")
+        user.savings_percent = 40
+        db_session.flush()
+        acct = _make_account(db_session, user.id)
+        _make_income(db_session, acct.id, category="Work", amount_cents=200_00)
+
+        summary = query_spend_summary(db_session, user.id)
+
+        real_user = UserInDB(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            full_name=user.full_name,
+            disabled=False,
+            hashed_password="x",
+            savings_percent=40,
+        )
+        expected = SpendService(db_session).get_budget_allotment(real_user)
+        assert summary["weekly_max_budget"] == expected
+
+        # And it must differ from what a default-percent (10) user would yield —
+        # proving the real percent is actually threaded through.
+        default_user = UserInDB(
+            id=user.id, username=user.username, email=user.email,
+            full_name=user.full_name, disabled=False, hashed_password="x",
+            savings_percent=10,
+        )
+        assert SpendService(db_session).get_budget_allotment(default_user) != expected
+
+    def test_spend_summary_missing_user_raises(self, db_session):
+        import pytest
+
+        with pytest.raises(ValueError):
+            query_spend_summary(db_session, 999999)

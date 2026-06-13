@@ -242,3 +242,38 @@ class TestBudgetAllotment:
         svc = SpendService(db)
         # savings = 0, no fixed, no goals → 1000 / 2 = 500
         assert svc.get_budget_allotment(user) == pytest.approx(500.0)
+
+    def test_budget_allotment_non_negative_integer(self, db, user, account):
+        """Step 06: in a healthy (income > commitments) scenario the allotment is
+        a non-negative number and is DETERMINISTIC across repeated runs — the
+        recurring-expense aggregate now groups by every non-aggregated column
+        (incl. recurrence), so SQLite can't pick an arbitrary cadence.
+
+        Note: the allotment is intentionally allowed to go *negative* when fixed
+        costs exceed income (a documented, MCP-surfaced signal of over-commitment
+        — see test_goal_with_none_progress and the MCP caveats). This test pins
+        the non-negative, deterministic behaviour of the healthy case without
+        clamping that meaningful negative away.
+        """
+        _add_income(db, account, 2000.0)
+        # Two recurring expenses sharing title/amount/category but DIFFERENT
+        # cadences — the case the partial GROUP BY made nondeterministic.
+        e1 = ExpenseORM(
+            title="Sub", amount=dollars_to_cents(100.0),
+            date=datetime.now().strftime("%Y-%m-%d"),
+            category="Bills", recurrence="weekly", account_id=account.id,
+        )
+        e2 = ExpenseORM(
+            title="Sub", amount=dollars_to_cents(100.0),
+            date=datetime.now().strftime("%Y-%m-%d"),
+            category="Bills", recurrence="monthly", account_id=account.id,
+        )
+        db.add_all([e1, e2])
+        db.flush()
+
+        svc = SpendService(db)
+        first = svc.get_budget_allotment(user)
+        assert first >= 0
+        # Deterministic: same inputs, same result on every call.
+        for _ in range(5):
+            assert svc.get_budget_allotment(user) == first

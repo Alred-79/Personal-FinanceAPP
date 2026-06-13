@@ -5,19 +5,20 @@ transactions, newest first. Amounts go from cents to dollars for the response.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from typing import Annotated, Optional
 
 from server.src.models import UserInDB
 from server.src.services.auth_service import AuthService
+from server.src.services.read_queries import paginated_transactions_page
 from server.src.db.session import get_db
 from server.src.db.models import (
     Account as AccountORM,
     Expense as ExpenseORM,
     Income as IncomeORM,
 )
-from server.src.money import cents_to_dollars, dollars_to_cents
+from server.src.money import dollars_to_cents
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -41,17 +42,6 @@ def _apply_filters(model, account_ids, q, category, date_from, date_to, amount_m
     if amount_max is not None:
         conditions.append(model.amount <= dollars_to_cents(amount_max))
     return conditions
-
-
-def _row_to_dict(row, tx_type: str) -> dict:
-    return {
-        "id": row.id,
-        "title": row.title,
-        "amount": cents_to_dollars(row.amount),
-        "date": row.date,
-        "category": row.category,
-        "type": tx_type,
-    }
 
 
 @router.get("/")
@@ -103,28 +93,17 @@ async def get_all_transactions(
         amount_max=amount_max,
     )
 
-    income_rows = (
-        db.execute(
-            select(IncomeORM).where(and_(*_apply_filters(IncomeORM, **filter_args)))
-        )
-        .scalars()
-        .all()
+    # SQL-side pagination: a single UNION ALL with LIMIT/OFFSET for the page plus
+    # a COUNT for ``total`` — no more loading every income+expense row into Python
+    # to merge/sort/slice. The same ``_apply_filters`` conditions are applied to
+    # each leg, so ``q`` / category / date / amount filters all still bite, and
+    # ownership is scoped via ``account_id.in_(account_ids)``. The response shape
+    # ``{items, total, page, page_size}`` is unchanged, so the client is
+    # unaffected.
+    return paginated_transactions_page(
+        db,
+        expense_where=_apply_filters(ExpenseORM, **filter_args),
+        income_where=_apply_filters(IncomeORM, **filter_args),
+        page=page,
+        page_size=page_size,
     )
-    expense_rows = (
-        db.execute(
-            select(ExpenseORM).where(and_(*_apply_filters(ExpenseORM, **filter_args)))
-        )
-        .scalars()
-        .all()
-    )
-
-    # Merge both lists, sort, then slice so pagination spans both tables
-    items = [_row_to_dict(r, "income") for r in income_rows]
-    items += [_row_to_dict(r, "expense") for r in expense_rows]
-    items.sort(key=lambda t: t["date"], reverse=True)
-
-    total = len(items)
-    offset = (page - 1) * page_size
-    page_items = items[offset : offset + page_size]
-
-    return {"items": page_items, "total": total, "page": page, "page_size": page_size}

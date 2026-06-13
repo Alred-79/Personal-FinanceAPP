@@ -117,6 +117,82 @@ def _paginated_transactions(
     }
 
 
+def paginated_transactions_page(
+    db: Session,
+    *,
+    expense_where: list,
+    income_where: list,
+    page: int,
+    page_size: int,
+) -> dict:
+    """SQL-side page of expenses + income for the router's ``{items, total, …}``.
+
+    A sibling of ``_paginated_transactions`` for the richer-filter / page-number
+    case (the transactions router), kept separate so the 3 existing offset-based
+    callers of ``_paginated_transactions`` are untouched. Does a single UNION ALL
+    with ``LIMIT``/``OFFSET`` for the page and a separate ``COUNT`` for ``total``,
+    so neither the work nor the count is done in Python. Ordering matches the rest
+    of the read layer (date DESC, id DESC) for a stable, deterministic page.
+
+    Each row carries a ``type`` ('expense' | 'income') and dollar amounts.
+    """
+    page = max(page, 1)
+    page_size = max(page_size, 1)
+    offset = (page - 1) * page_size
+
+    expense_sel = (
+        select(
+            ExpenseORM.id.label("id"),
+            ExpenseORM.title.label("title"),
+            ExpenseORM.amount.label("amount"),
+            ExpenseORM.date.label("date"),
+            ExpenseORM.category.label("category"),
+            literal("expense").label("type"),
+        ).where(*expense_where)
+    )
+    income_sel = (
+        select(
+            IncomeORM.id.label("id"),
+            IncomeORM.title.label("title"),
+            IncomeORM.amount.label("amount"),
+            IncomeORM.date.label("date"),
+            IncomeORM.category.label("category"),
+            literal("income").label("type"),
+        ).where(*income_where)
+    )
+
+    unioned = expense_sel.union_all(income_sel).subquery()
+
+    total = db.execute(
+        select(func.count()).select_from(unioned)
+    ).scalar() or 0
+
+    rows = db.execute(
+        select(unioned)
+        .order_by(unioned.c.date.desc(), unioned.c.id.desc())
+        .limit(page_size)
+        .offset(offset)
+    ).all()
+
+    items = [
+        {
+            "id": r.id,
+            "title": r.title,
+            "amount": cents_to_dollars(r.amount),
+            "date": r.date,
+            "category": r.category,
+            "type": r.type,
+        }
+        for r in rows
+    ]
+    return {
+        "items": items,
+        "total": int(total),
+        "page": page,
+        "page_size": page_size,
+    }
+
+
 def query_transactions_by_date_range(
     db: Session,
     user_id: int,
@@ -306,15 +382,18 @@ def query_user(db: Session, user_id: int) -> UserInDB | None:
 
 
 def query_spend_summary(db: Session, user_id: int) -> dict:
-    """Return weekly budget allotment and spend for *user_id*."""
-    user = UserInDB(
-        id=user_id,
-        username="",
-        email="",
-        full_name="",
-        disabled=False,
-        hashed_password="",
-    )
+    """Return weekly budget allotment and spend for *user_id*.
+
+    Loads the real user row (via ``query_user``) rather than fabricating a bare
+    ``UserInDB``: the allotment reads ``savings_percent`` off the user, so a
+    fabricated user (defaulting ``savings_percent`` to the model default) would
+    report a *different* budget than the dashboard/UI computes. Raises 404-style
+    ValueError when the user is missing so a stale id can't silently return a
+    default-percent figure.
+    """
+    user = query_user(db, user_id)
+    if user is None:
+        raise ValueError(f"User {user_id} not found")
     spend_service = SpendService(db)
     # The allotment silently returns 0 when there is no 'Work'-categorized income;
     # surface that explicitly so a consumer can tell a real $0 budget from "no

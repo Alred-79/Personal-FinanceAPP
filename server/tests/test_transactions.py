@@ -146,3 +146,71 @@ class TestTransactionFilters:
         assert resp.status_code == 200
         items = resp.json()["items"]
         assert all(t["category"] == "Income" for t in items)
+
+
+class TestSqlPagination:
+    """Step 06: pagination happens SQL-side (UNION ALL + LIMIT/OFFSET + COUNT)."""
+
+    def _seed(self, client, h, acct, n):
+        # Distinct dates so ordering (date DESC) is deterministic across the page.
+        for i in range(n):
+            day = f"2026-03-{i + 1:02d}"
+            client.post(
+                "/api/income/",
+                json={
+                    "title": f"Pay {i:02d}", "amount": 1.0, "date": day,
+                    "category": "Income", "account_id": acct,
+                },
+                headers=h,
+            )
+
+    def test_transactions_pagination_sql(self, client):
+        h = _auth_header(client, "pag_user", "pag@x.com")
+        acct = _create_account(client, h, balance=1000.0)
+        self._seed(client, h, acct, 25)  # > default page_size of 20
+
+        page1 = client.get("/api/transactions/?page=1&page_size=10", headers=h).json()
+        assert page1["total"] == 25
+        assert page1["page"] == 1
+        assert page1["page_size"] == 10
+        assert len(page1["items"]) == 10
+        # Newest first: 2026-03-25 leads.
+        assert page1["items"][0]["date"] == "2026-03-25"
+
+        page2 = client.get("/api/transactions/?page=2&page_size=10", headers=h).json()
+        assert len(page2["items"]) == 10
+        # No overlap between page 1 and page 2.
+        ids1 = {t["id"] for t in page1["items"]}
+        ids2 = {t["id"] for t in page2["items"]}
+        assert ids1.isdisjoint(ids2)
+
+        # Last partial page (rows 21-25).
+        page3 = client.get("/api/transactions/?page=3&page_size=10", headers=h).json()
+        assert len(page3["items"]) == 5
+        assert page3["total"] == 25
+
+        # Empty page beyond the end.
+        page4 = client.get("/api/transactions/?page=4&page_size=10", headers=h).json()
+        assert page4["items"] == []
+        assert page4["total"] == 25
+
+    def test_pagination_filters_still_apply(self, client):
+        h = _auth_header(client, "pagfilt", "pagfilt@x.com")
+        acct = _create_account(client, h, balance=1000.0)
+        client.post(
+            "/api/income/",
+            json={"title": "Bonus", "amount": 5.0, "date": "2026-03-01",
+                  "category": "Work", "account_id": acct},
+            headers=h,
+        )
+        client.post(
+            "/api/expenses/",
+            json={"title": "Coffee", "amount": 3.0, "date": "2026-03-02",
+                  "category": "Food", "account_id": acct},
+            headers=h,
+        )
+        # Category filter narrows the SQL count + page.
+        resp = client.get("/api/transactions/?category=Food&page=1&page_size=10", headers=h).json()
+        assert resp["total"] == 1
+        assert len(resp["items"]) == 1
+        assert resp["items"][0]["category"] == "Food"

@@ -102,6 +102,34 @@ class BudgetService:
         ).scalar()
         return int(total or 0)
 
+    def _had_prior_period(
+        self, account_ids: list[int], category: str, start: date, end: date
+    ) -> bool:
+        """Whether the budget could have run in the prior period ``[start, end)``.
+
+        The schema keeps only a single ``monthly_limit`` per (user, category) with
+        no created-at, so there is no direct record of "this budget existed last
+        month." The available durable signal is whether the category saw any
+        expense activity in the prior period: that's the only thing that lets us
+        distinguish a brand-new budget (no prior period → no surplus to carry)
+        from one that existed and underspent (real surplus to roll over). Without
+        this gate, a first-month budget credits a phantom full ``monthly_limit``
+        of rollover because ``prior_spent == 0``.
+        """
+        if not account_ids:
+            return False
+        hit = self.db.execute(
+            select(ExpenseORM.id)
+            .where(
+                ExpenseORM.account_id.in_(account_ids),
+                ExpenseORM.category == category,
+                ExpenseORM.date >= start.isoformat(),
+                ExpenseORM.date < end.isoformat(),
+            )
+            .limit(1)
+        ).first()
+        return hit is not None
+
     def summarize(
         self, user_id: int, today: date | None = None
     ) -> list[dict[str, Any]]:
@@ -132,10 +160,21 @@ class BudgetService:
                 _add_one_month(first_day),
             )
 
-            prior_spent = self._spent_cents(
+            # Only carry a surplus when a prior period actually existed. A
+            # brand-new budget has no prior period, so prior_spent would be 0 and
+            # the old code credited a phantom full ``base_limit`` of rollover. The
+            # prior period's limit is this same ``base_limit`` (the schema stores
+            # one limit per budget, no historical/per-period limit), so that part
+            # was already correct; the missing guard was prior-period existence.
+            if rollover and self._had_prior_period(
                 account_ids, category, prev_first, first_day
-            )
-            prior_remaining = base_limit - prior_spent
+            ):
+                prior_spent = self._spent_cents(
+                    account_ids, category, prev_first, first_day
+                )
+                prior_remaining = base_limit - prior_spent
+            else:
+                prior_remaining = 0
             effective_limit = apply_rollover(base_limit, rollover, prior_remaining)
 
             prorated = prorate_limit(effective_limit, days_elapsed, days_in_month)

@@ -7,7 +7,17 @@ from datetime import date
 
 import pytest
 
-from server.src.services.budget_service import apply_rollover, prorate_limit
+from server.src.db.models import (
+    Account as AccountORM,
+    Budget as BudgetORM,
+    Expense as ExpenseORM,
+    User as UserORM,
+)
+from server.src.services.budget_service import (
+    BudgetService,
+    apply_rollover,
+    prorate_limit,
+)
 
 
 # ── pure calc ──────────────────────────────────────────────────────────────
@@ -236,3 +246,70 @@ class TestNetWorthAndProjection:
         assert dates == ["2026-02-01", "2026-03-01", "2026-04-01"]
         assert all(p["projected"] is True for p in projected)
         assert projected[0]["amount"] == 15.99
+
+
+# ── Step 06: first-month rollover phantom surplus ──────────────────────────────
+
+
+def _budget_user(db, username="rolluser", email="roll@example.com"):
+    user = UserORM(username=username, full_name="Roll", email=email,
+                   hashed_password="x", disabled=0)
+    db.add(user)
+    db.flush()
+    acct = AccountORM(name="Checking", type="checking", balance=0, user_id=user.id)
+    db.add(acct)
+    db.flush()
+    return user, acct
+
+
+def _budget(db, user_id, category="Food", limit_cents=300_00, rollover=True):
+    b = BudgetORM(user_id=user_id, category=category,
+                  monthly_limit=limit_cents, rollover=1 if rollover else 0)
+    db.add(b)
+    db.flush()
+    return b
+
+
+def _expense(db, account_id, amount_cents, date_str, category="Food"):
+    e = ExpenseORM(title="X", amount=amount_cents, date=date_str,
+                   category=category, account_id=account_id)
+    db.add(e)
+    db.flush()
+    return e
+
+
+class TestRolloverFirstMonth:
+    TODAY = date(2026, 3, 10)  # March → prior month is February 2026
+
+    def test_budget_first_month_no_phantom_rollover(self, db_session):
+        """A brand-new rollover budget with NO prior-period activity shows
+        effective_limit == monthly_limit (no doubled surplus)."""
+        user, _acct = _budget_user(db_session)
+        _budget(db_session, user.id, rollover=True)
+
+        out = BudgetService(db_session).summarize(user.id, today=self.TODAY)
+        assert len(out) == 1
+        b = out[0]
+        # No phantom rollover: effective == monthly.
+        assert b["effective_limit"] == b["monthly_limit"] == 300.0
+
+    def test_prior_underspent_month_rolls_over(self, db_session):
+        """A budget WITH a prior under-spent month does roll over: last month's
+        surplus (limit − prior_spent) is added to this month's effective limit."""
+        user, acct = _budget_user(db_session, "roll2", "roll2@example.com")
+        _budget(db_session, user.id, limit_cents=300_00, rollover=True)
+        # Prior month (Feb 2026): spent $100 of the $300 → $200 surplus.
+        _expense(db_session, acct.id, 100_00, "2026-02-10")
+
+        out = BudgetService(db_session).summarize(user.id, today=self.TODAY)
+        b = out[0]
+        # 300 + (300 - 100) = 500.
+        assert b["effective_limit"] == 500.0
+
+    def test_rollover_disabled_never_credits(self, db_session):
+        user, acct = _budget_user(db_session, "roll3", "roll3@example.com")
+        _budget(db_session, user.id, limit_cents=300_00, rollover=False)
+        _expense(db_session, acct.id, 100_00, "2026-02-10")
+
+        out = BudgetService(db_session).summarize(user.id, today=self.TODAY)
+        assert out[0]["effective_limit"] == 300.0

@@ -76,7 +76,12 @@ class SpendService:
 
         paycheck_amount = cents_to_dollars(paycheck_row)
 
-        # Fixed (recurring) expenses with their recurrence cadence
+        # Fixed (recurring) expenses with their recurrence cadence.
+        # ``recurrence`` is SELECTed but was previously absent from GROUP BY, so
+        # SQLite picked an arbitrary recurrence per group (nondeterministic
+        # proration across runs / engines). Every non-aggregated selected column
+        # is now in the GROUP BY (incl. ``recurrence``) so the cadence used for
+        # proration is the row's real cadence and the result is deterministic.
         fixed_rows = (
             self.db.execute(
                 select(ExpenseORM.amount, ExpenseORM.recurrence)
@@ -85,7 +90,12 @@ class SpendService:
                     ExpenseORM.recurrence.isnot(None),
                     AccountORM.user_id == user.id,
                 )
-                .group_by(ExpenseORM.title, ExpenseORM.amount, ExpenseORM.category)
+                .group_by(
+                    ExpenseORM.title,
+                    ExpenseORM.amount,
+                    ExpenseORM.category,
+                    ExpenseORM.recurrence,
+                )
             )
             .all()
         )
@@ -172,6 +182,12 @@ class SpendService:
         # Default anchor: the next projected paycheck; fall back to
         # end-of-month when there's no recurring income to anchor on.
         horizon_source = horizon_mode
+        # True only when the horizon end IS the anchoring paycheck date. In that
+        # case the paycheck landing exactly on ``horizon_end`` must NOT count as
+        # income for *this* horizon: ``project_cashflows`` uses an inclusive upper
+        # bound (``occ <= horizon_end`` in ``project_occurrences``), so without
+        # this guard the anchor paycheck inflates spendable by a full pay period.
+        anchored_on_paycheck = False
         if horizon_mode == "week":
             horizon_end = as_of + timedelta(days=7)
         elif horizon_mode == "month":
@@ -180,6 +196,7 @@ class SpendService:
             next_pay = recurring.next_paycheck_date(user.id, as_of)
             if next_pay is not None:
                 horizon_end = next_pay
+                anchored_on_paycheck = True
             else:
                 horizon_end = _end_of_month(as_of)
                 horizon_source = "month_fallback"
@@ -196,11 +213,18 @@ class SpendService:
         # ── Scheduled cashflows to the horizon (Layer A read) ─────────────
         upcoming_bills_cents = 0
         projected_income_cents = 0
+        horizon_end_iso = horizon_end.isoformat()
         for item in recurring.project_cashflows(user.id, as_of, horizon_end):
             cents = dollars_to_cents(item["amount"])
             if item["type"] == "expense":
                 upcoming_bills_cents += cents
             elif include_income:
+                # Exclude the anchoring paycheck that lands exactly on the
+                # horizon boundary (inclusive upper bound) — counting it would
+                # add a pay period of income that hasn't landed within *this*
+                # horizon. Only applies when the horizon IS that paycheck.
+                if anchored_on_paycheck and item["date"] == horizon_end_iso:
+                    continue
                 projected_income_cents += cents
 
         # ── Goals: earmarks + remaining contributions ─────────────────────

@@ -12,11 +12,11 @@ Money is stored as integer cents in the DB. This service takes dollar floats in
 the boundary with ``dollars_to_cents`` and ``cents_to_dollars``.
 """
 
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Literal, Type, Union
 
 from fastapi import HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.orm import Session
 
 from server.src.db.models import (
@@ -42,6 +42,32 @@ class TransactionService:
         self.db = db
 
     # ── Helpers ───────────────────────────────────────────────────────────
+
+    def _adjust_balance(self, account_id: int, delta_cents: int) -> None:
+        """Apply *delta_cents* to an account's balance with an issued SQL UPDATE.
+
+        This is a server-side ``balance = balance + delta`` (not a stale
+        read-modify-write on a loaded ORM object), so two concurrent adjustments
+        against the same account can't lose each other's update. The expired
+        attribute is refreshed lazily by the ORM the next time it is read.
+        """
+        if delta_cents == 0:
+            # Still bump last_updated so the row reflects the touch, but skip the
+            # arithmetic no-op.
+            self.db.execute(
+                update(AccountORM)
+                .where(AccountORM.id == account_id)
+                .values(last_updated=func.current_timestamp())
+            )
+            return
+        self.db.execute(
+            update(AccountORM)
+            .where(AccountORM.id == account_id)
+            .values(
+                balance=AccountORM.balance + delta_cents,
+                last_updated=func.current_timestamp(),
+            )
+        )
 
     def _own_account(self, account_id: int, user_id: int) -> AccountORM:
         """Return the account if it belongs to *user_id*, else 404."""
@@ -180,8 +206,12 @@ class TransactionService:
 
         self.db.add(row)
 
-        account.balance += balance_sign * amount_cents
-        account.last_updated = datetime.now()
+        # Issued atomic UPDATE (not account.balance += …) so concurrent
+        # adjustments to the same account can't lose each other's write.
+        self._adjust_balance(account_id, balance_sign * amount_cents)
+        # The in-memory ORM copy is now stale; drop it so any later read of this
+        # account reflects the server-side value.
+        self.db.expire(account)
         self.db.flush()  # row now has an id — the rules engine needs it
 
         # v1 Layer B hook: the single creation path runs the rules engine.
@@ -235,18 +265,20 @@ class TransactionService:
             new_account = self._own_account(account_id, user_id)
             old_account = self._own_account(old_account_id, user_id)
 
-            # Reverse the old transaction's effect on the old account.
-            old_account.balance -= balance_sign * old_amount_cents
-            old_account.last_updated = datetime.now()
-
-            # Apply the new amount to the new account.
-            new_account.balance += balance_sign * new_amount_cents
-            new_account.last_updated = datetime.now()
+            # Reverse the old transaction's effect on the old account, then apply
+            # the new amount to the new account — each via an issued atomic
+            # UPDATE so the legs can't lose a concurrent write.
+            self._adjust_balance(old_account_id, -balance_sign * old_amount_cents)
+            self._adjust_balance(account_id, balance_sign * new_amount_cents)
+            self.db.expire(old_account)
+            self.db.expire(new_account)
         else:
             # Same account, so just adjust by the difference.
             account = self._own_account(account_id, user_id)
-            account.balance += balance_sign * (new_amount_cents - old_amount_cents)
-            account.last_updated = datetime.now()
+            self._adjust_balance(
+                account_id, balance_sign * (new_amount_cents - old_amount_cents)
+            )
+            self.db.expire(account)
 
         # Update the transaction row itself.
         row.title = title
@@ -280,10 +312,13 @@ class TransactionService:
         """Delete a transaction and reverse its balance effect."""
         row = self._own_transaction(tx_id, user_id, model)
         account = self._own_account(row.account_id, user_id)
+        account_id = row.account_id
+        row_amount = row.amount
 
         # Reverse: income was +, so delete is -.  Expense was -, so delete is +.
-        account.balance -= balance_sign * row.amount
-        account.last_updated = datetime.now()
+        # Issued atomic UPDATE rather than a stale read-modify-write.
+        self._adjust_balance(account_id, -balance_sign * row_amount)
+        self.db.expire(account)
 
         self.db.delete(row)
         self.db.flush()

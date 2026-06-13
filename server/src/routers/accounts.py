@@ -6,11 +6,11 @@ and rollback in ``get_db`` to stay atomic, so there's no manual
 ``BEGIN TRANSACTION`` or ``COMMIT`` anywhere.
 """
 
-from datetime import datetime
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 from typing import Annotated
 
@@ -205,6 +205,14 @@ async def transfer_between_accounts(
         ).scalar_one_or_none()
         if row is None:
             raise HTTPException(status_code=404, detail=f"Account ({label}) not found")
+        # ── Plaid guard (Step 06; name-keyed) ────────────────────────────────
+        # Plaid-synced accounts are refused: the next sync would overwrite the
+        # local balance and silently undo the transfer. This guard is name-keyed
+        # TODAY (Token.name == Account.name). ⚠ Step 08 de-name-keys Plaid onto
+        # Account.plaid_account_id and MUST update _is_plaid_managed (and this
+        # call) accordingly, or a *renamed* Plaid account is misclassified as
+        # manual and a transfer into it double-counts on the next sync. 06 and 08
+        # are run back-to-back precisely to keep this window from shipping.
         if _is_plaid_managed(db, current_user.id, row.name):
             raise HTTPException(
                 status_code=422,
@@ -216,20 +224,81 @@ async def transfer_between_accounts(
         accounts[label] = row
 
     amount_cents = dollars_to_cents(payload.amount)
-    if accounts["from"].balance < amount_cents:
+    from_id = payload.from_account_id
+    to_id = payload.to_account_id
+
+    # ── Debit leg: guarded conditional UPDATE (no TOCTOU) ────────────────────
+    # The insufficient-funds check and the decrement are a single statement: the
+    # WHERE clause carries the ``balance >= amount`` guard, so two concurrent
+    # transfers can't both pass a stale check and overdraw. rowcount == 0 means
+    # the guard failed (insufficient funds); nothing moved.
+    debit = db.execute(
+        update(AccountORM)
+        .where(
+            AccountORM.id == from_id,
+            AccountORM.user_id == current_user.id,
+            AccountORM.balance >= amount_cents,
+        )
+        .values(
+            balance=AccountORM.balance - amount_cents,
+            last_updated=func.current_timestamp(),
+        )
+    )
+    if debit.rowcount == 0:
         raise HTTPException(status_code=422, detail="Insufficient balance")
 
-    now = datetime.now()
-    accounts["from"].balance -= amount_cents
-    accounts["to"].balance += amount_cents
-    accounts["from"].last_updated = now
-    accounts["to"].last_updated = now
+    # ── Credit leg: issued atomic UPDATE ─────────────────────────────────────
+    db.execute(
+        update(AccountORM)
+        .where(AccountORM.id == to_id, AccountORM.user_id == current_user.id)
+        .values(
+            balance=AccountORM.balance + amount_cents,
+            last_updated=func.current_timestamp(),
+        )
+    )
+
+    # ── Ledger record + note ─────────────────────────────────────────────────
+    # Two linked rows under category "Transfer": an Expense on the source and an
+    # Income on the destination, both carrying the user's note. Chosen over a
+    # dedicated transfer table because it keeps every existing ledger view (the
+    # transactions list, per-account history) correct with no schema change, and
+    # the two rows net to zero across the user's accounts. "Transfer" is not a
+    # budget category, so per-category budget summaries are unaffected. The note
+    # the user typed is now persisted (it was validated then dropped before).
+    today = date.today().isoformat()
+    note = payload.note or ""
+    db.add(
+        ExpenseORM(
+            title=note or "Transfer out",
+            amount=amount_cents,
+            date=today,
+            category="Transfer",
+            recurrence=None,
+            account_id=from_id,
+        )
+    )
+    db.add(
+        IncomeORM(
+            title=note or "Transfer in",
+            amount=amount_cents,
+            date=today,
+            category="Transfer",
+            account_id=to_id,
+        )
+    )
+
     db.flush()
+
+    # Reload the two accounts so the response reflects the server-side balances
+    # produced by the issued UPDATEs (the loaded ORM copies are now stale).
+    db.expire(accounts["from"])
+    db.expire(accounts["to"])
 
     return {
         "message": "Transfer completed",
         "from": _account_to_dict(accounts["from"]),
         "to": _account_to_dict(accounts["to"]),
+        "note": note,
     }
 
 

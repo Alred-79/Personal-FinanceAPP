@@ -165,6 +165,37 @@ class TestComponents:
         assert out["days_remaining"] == 5
         assert out["daily_plan"] == out["available"] / 5
 
+    def test_safe_to_spend_excludes_anchor_paycheck(self, db_session, s2s_user):
+        """Step 06: with the default (paycheck) horizon, the paycheck that lands
+        EXACTLY on the horizon boundary (``next_pay``) must NOT be counted as
+        income for this horizon. ``project_cashflows`` has an inclusive upper
+        bound, so without the fix the anchor paycheck inflated spendable by a full
+        pay period."""
+        user, account = s2s_user  # balance = $1,000, include_income default on
+        _seed_paycheck(db_session, account)  # bi-weekly from 3/1 → 3/15 is next_pay
+        out = SpendService(db_session).safe_to_spend(_as_user_in_db(user), AS_OF)
+
+        # Horizon anchors on the 3/15 paycheck.
+        assert out["horizon_end"] == "2026-03-15"
+        assert out["horizon_source"] == "paycheck"
+        # The boundary paycheck is excluded → no projected income within horizon.
+        assert out["breakdown"]["projected_income"] == 0.0
+        # Available is the plain balance (no phantom pay-period of income).
+        assert out["available"] == 1000.0
+
+    def test_paycheck_strictly_inside_horizon_still_counts(self, db_session, s2s_user):
+        """Sanity: a paycheck landing strictly BEFORE the horizon end is still
+        income — only the boundary one is excluded. Use a fixed 'month' horizon so
+        both 3/15 and 3/29 paychecks fall strictly inside 3/31."""
+        user, account = s2s_user
+        user.s2s_horizon = "month"  # horizon end 3/31 (not a paycheck date)
+        db_session.flush()
+        _seed_paycheck(db_session, account)  # 3/15 and 3/29, both < 3/31
+        out = SpendService(db_session).safe_to_spend(_as_user_in_db(user), AS_OF)
+        assert out["horizon_end"] == "2026-03-31"
+        # Both paychecks counted ($2,000 each).
+        assert out["breakdown"]["projected_income"] == 4000.0
+
 
 class TestEndpointAndSettings:
     def test_endpoint_and_gear_roundtrip(self, client):

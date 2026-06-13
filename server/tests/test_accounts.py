@@ -253,3 +253,197 @@ class TestAccountCRUD:
         amounts = {t["title"]: t["amount"] for t in txns}
         assert amounts["Groceries"] == 50.25
         assert amounts["Freelance"] == 1000.00
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Step 06: money correctness — atomic balances + guarded, recorded transfers
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _make_account(client, headers, name, balance):
+    resp = client.post(
+        "/api/accounts/",
+        json={"name": name, "type": "checking", "balance": balance},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    return client.get("/api/accounts/", headers=headers).json()[-1]["id"]
+
+
+class TestAtomicBalanceUpdates:
+    def test_balance_update_is_atomic(self, client, db_session):
+        """Two sequential transaction creates against the same account net to the
+        correct sum — proving an issued ``balance = balance + delta`` UPDATE, not
+        a stale read-modify-write."""
+        headers = _auth_header(client)
+        acct = _make_account(client, headers, "Checking", 100.00)
+
+        # +$25 income then -$10 expense ⇒ 100 + 25 - 10 = 115.
+        client.post(
+            "/api/income/",
+            json={
+                "title": "Gig", "amount": 25.00, "date": "2026-03-01",
+                "category": "Work", "account_id": acct,
+            },
+            headers=headers,
+        )
+        client.post(
+            "/api/expenses/",
+            json={
+                "title": "Lunch", "amount": 10.00, "date": "2026-03-02",
+                "category": "Food", "account_id": acct,
+            },
+            headers=headers,
+        )
+
+        row = db_session.execute(
+            select(AccountORM).where(AccountORM.id == acct)
+        ).scalar_one()
+        db_session.refresh(row)
+        assert row.balance == 11500  # $115.00 in cents
+
+    def test_create_then_delete_restores_balance(self, client, db_session):
+        headers = _auth_header(client, "atomic2", "atomic2@example.com")
+        acct = _make_account(client, headers, "Checking", 100.00)
+        client.post(
+            "/api/expenses/",
+            json={
+                "title": "Lunch", "amount": 30.00, "date": "2026-03-02",
+                "category": "Food", "account_id": acct,
+            },
+            headers=headers,
+        )
+        # Balance dropped to $70.
+        row = db_session.execute(
+            select(AccountORM).where(AccountORM.id == acct)
+        ).scalar_one()
+        db_session.refresh(row)
+        assert row.balance == 7000
+
+        exp = db_session.execute(select(ExpenseORM)).scalar_one()
+        resp = client.delete(f"/api/expenses/{exp.id}/", headers=headers)
+        assert resp.status_code == 200, resp.text
+        db_session.refresh(row)
+        assert row.balance == 10000  # reversed back to $100
+
+
+class TestTransfers:
+    def test_transfer_rejects_overdraft(self, client, db_session):
+        """Transfer more than the source holds → 422 and NO balance change on
+        either account (the guard + decrement are one atomic statement)."""
+        headers = _auth_header(client, "ovr", "ovr@example.com")
+        a = _make_account(client, headers, "Checking", 50.00)
+        b = _make_account(client, headers, "Savings", 0.00)
+
+        resp = client.post(
+            "/api/accounts/transfer/",
+            json={"from_account_id": a, "to_account_id": b, "amount": 120.00},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        assert "insufficient" in resp.json()["detail"].lower()
+
+        rows = {
+            r.id: r.balance
+            for r in db_session.execute(select(AccountORM)).scalars().all()
+        }
+        assert rows[a] == 5000  # unchanged
+        assert rows[b] == 0  # unchanged
+
+    def test_transfer_writes_ledger_and_note(self, client, db_session):
+        """A transfer produces ledger record(s) carrying the note; the visible
+        transactions reconcile with the new balances."""
+        headers = _auth_header(client, "led", "led@example.com")
+        a = _make_account(client, headers, "Checking", 300.00)
+        b = _make_account(client, headers, "Savings", 50.00)
+
+        resp = client.post(
+            "/api/accounts/transfer/",
+            json={
+                "from_account_id": a,
+                "to_account_id": b,
+                "amount": 120.00,
+                "note": "rent split",
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["from"]["balance"] == 180.00
+        assert body["to"]["balance"] == 170.00
+        assert body["note"] == "rent split"
+
+        # An Expense on the source and an Income on the destination, both carrying
+        # the note and tagged category "Transfer".
+        exp = db_session.execute(
+            select(ExpenseORM).where(ExpenseORM.account_id == a)
+        ).scalar_one()
+        inc = db_session.execute(
+            select(IncomeORM).where(IncomeORM.account_id == b)
+        ).scalar_one()
+        assert exp.title == "rent split"
+        assert inc.title == "rent split"
+        assert exp.category == "Transfer"
+        assert inc.category == "Transfer"
+        assert exp.amount == 12000
+        assert inc.amount == 12000
+
+        # Reconciliation: source starting balance − ledger expense == new balance;
+        # destination starting balance + ledger income == new balance.
+        a_row = db_session.execute(
+            select(AccountORM).where(AccountORM.id == a)
+        ).scalar_one()
+        b_row = db_session.execute(
+            select(AccountORM).where(AccountORM.id == b)
+        ).scalar_one()
+        db_session.refresh(a_row)
+        db_session.refresh(b_row)
+        assert 30000 - exp.amount == a_row.balance
+        assert 5000 + inc.amount == b_row.balance
+
+    def test_transfer_exact_balance_allowed(self, client, db_session):
+        headers = _auth_header(client, "exact", "exact@example.com")
+        a = _make_account(client, headers, "Checking", 100.00)
+        b = _make_account(client, headers, "Savings", 0.00)
+        resp = client.post(
+            "/api/accounts/transfer/",
+            json={"from_account_id": a, "to_account_id": b, "amount": 100.00},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["from"]["balance"] == 0.00
+        assert resp.json()["to"]["balance"] == 100.00
+
+    def test_transfer_same_account_422(self, client):
+        headers = _auth_header(client, "same", "same@example.com")
+        a = _make_account(client, headers, "Checking", 100.00)
+        resp = client.post(
+            "/api/accounts/transfer/",
+            json={"from_account_id": a, "to_account_id": a, "amount": 5.00},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    def test_transfer_plaid_account_422(self, client, db_session):
+        """The name-keyed Plaid guard still refuses a Plaid-synced source.
+
+        ⚠ This guard is name-keyed in Step 06; Step 08 de-name-keys Plaid and
+        must update it (see _is_plaid_managed) so a *renamed* Plaid account is
+        still detected."""
+        headers = _auth_header(client, "plaidx", "plaidx@example.com")
+        a = _make_account(client, headers, "Plaid Checking", 100.00)
+        b = _make_account(client, headers, "Cash", 0.00)
+
+        from server.src.db.models import Token, User
+
+        user = db_session.query(User).filter_by(username="plaidx").one()
+        db_session.add(Token(user_id=user.id, name="Plaid Checking", key="tok"))
+        db_session.commit()
+
+        resp = client.post(
+            "/api/accounts/transfer/",
+            json={"from_account_id": a, "to_account_id": b, "amount": 5.00},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        assert "synced" in resp.json()["detail"]
