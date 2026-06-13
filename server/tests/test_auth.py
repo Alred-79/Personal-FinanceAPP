@@ -179,3 +179,150 @@ class TestSingleUserGuard:
 
         count = db_session.execute(select(func.count(UserORM.id))).scalar_one()
         assert count == 2
+
+
+def _refresh_cookie_set(resp) -> bool:
+    """True if *resp* sets the httpOnly refresh cookie via a Set-Cookie header."""
+    return any(
+        h.lower().startswith("refresh_token=")
+        for h in resp.headers.get_list("set-cookie")
+    )
+
+
+class TestRefreshTokenNotInBody:
+    """Step 07 — the refresh secret must travel ONLY in the httpOnly cookie.
+
+    Echoing it in the JSON body would let any XSS payload read it from a fetch
+    response and mint sessions, defeating the whole httpOnly design.
+    """
+
+    def test_login_body_has_no_refresh_token(self, client):
+        _signup(client)
+        client.cookies.clear()
+        resp = _login(client)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "refresh_token" not in body
+        # ...but the refresh cookie IS still set.
+        assert _refresh_cookie_set(resp)
+
+    def test_signup_body_has_no_refresh_token(self, client):
+        resp = _signup(client)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "refresh_token" not in body
+        assert _refresh_cookie_set(resp)
+
+    def test_refresh_body_has_no_refresh_token(self, client):
+        signup = _signup(client)
+        assert signup.status_code == 200, signup.text
+        resp = client.post("/api/refresh/")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "refresh_token" not in body
+        # The rotated refresh cookie is still set on /refresh/.
+        assert _refresh_cookie_set(resp)
+
+
+def _change_password(client, current, new):
+    return client.put(
+        "/api/users/me/change-password/",
+        json={"current_password": current, "new_password": new},
+    )
+
+
+class TestPasswordChangeHardening:
+    """Step 07 — strength enforcement + revoke-other-sessions on password change."""
+
+    def test_password_change_requires_correct_current(self, client):
+        _signup(client)
+        resp = _change_password(client, current="wrong-password", new="Brand-new1!")
+        assert resp.status_code in (400, 401, 403), resp.text
+        # The original password still works.
+        client.cookies.clear()
+        login = _login(client)
+        assert login.status_code == 200, login.text
+
+    def test_password_change_rejects_weak(self, client):
+        _signup(client)
+        resp = _change_password(client, current="Test-password1", new="weak")
+        assert resp.status_code == 422, resp.text
+        # The 422 lists the actual rules so the user can fix it in one try.
+        detail = resp.json()["detail"]
+        assert isinstance(detail, str)
+        assert "characters" in detail.lower()
+        # The old password still works — nothing changed.
+        client.cookies.clear()
+        login = _login(client)
+        assert login.status_code == 200, login.text
+
+    def test_password_change_succeeds_and_keeps_current_session(self, client):
+        _signup(client)
+        resp = _change_password(client, current="Test-password1", new="Brand-new1!")
+        assert resp.status_code == 200, resp.text
+        # A fresh cookie pair is issued for the current tab.
+        assert _refresh_cookie_set(resp)
+        # The current session can still refresh (it was NOT logged out).
+        again = client.post("/api/refresh/")
+        assert again.status_code == 200, again.text
+        # The new password authenticates; the old one no longer does.
+        client.cookies.clear()
+        assert _login(client, password="Brand-new1!").status_code == 200
+        assert _login(client, password="Test-password1").status_code == 401
+
+    def test_password_change_revokes_other_sessions(self, client):
+        _signup(client)
+        # Log in twice -> two independent refresh tokens (two devices/tabs).
+        client.cookies.clear()
+        assert _login(client).status_code == 200
+        session_a_refresh = client.cookies.get("refresh_token")
+        assert session_a_refresh
+
+        assert _login(client).status_code == 200
+        session_b_refresh = client.cookies.get("refresh_token")
+        assert session_b_refresh and session_b_refresh != session_a_refresh
+
+        # Change the password FROM session A (re-seat its refresh cookie as the
+        # current jar value — the access-token cookie still in the jar authes as
+        # the same user). The change response sets a fresh cookie pair.
+        client.cookies.set("refresh_token", session_a_refresh, path="/api")
+        changed = _change_password(client, current="Test-password1", new="Brand-new1!")
+        assert changed.status_code == 200, changed.text
+        # Session A got a fresh refresh cookie; capture it from the response.
+        new_a_refresh = None
+        for h in changed.headers.get_list("set-cookie"):
+            if h.lower().startswith("refresh_token="):
+                new_a_refresh = h.split("=", 1)[1].split(";", 1)[0]
+        assert new_a_refresh and new_a_refresh != session_a_refresh
+        # The fresh session A cookie can still refresh (not bounced to login).
+        client.cookies.clear()
+        client.cookies.set("refresh_token", new_a_refresh, path="/api")
+        assert client.post("/api/refresh/").status_code == 200
+
+        # Session B's old refresh token is now revoked.
+        client.cookies.clear()
+        client.cookies.set("refresh_token", session_b_refresh, path="/api")
+        b_refresh = client.post("/api/refresh/")
+        assert b_refresh.status_code == 401, b_refresh.text
+
+
+class TestUsersMeGameMode:
+    """Step 07 — /users/me/ must report the real stored game_mode, not 'off'."""
+
+    def test_users_me_reports_game_mode(self, client, db_session):
+        resp = _signup(client)
+        token = resp.json()["access_token"]
+
+        # Flip the ORM game_mode directly (same engine as the client).
+        row = db_session.execute(
+            select(UserORM).where(UserORM.username == "authuser")
+        ).scalar_one()
+        row.game_mode = "full"
+        db_session.commit()
+
+        client.cookies.clear()
+        me = client.get(
+            "/api/users/me/", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert me.status_code == 200, me.text
+        assert me.json()["game_mode"] == "full"

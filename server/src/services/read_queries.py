@@ -378,6 +378,10 @@ def query_user(db: Session, user_id: int) -> UserInDB | None:
         hashed_password=row.hashed_password,
         spend_warning=row.spend_warning,
         savings_percent=row.savings_percent,
+        # Carry the real game_mode through so callers relying on this loader see
+        # the stored value, not UserInDB's "off" default (mirrors the fix in
+        # auth_service._to_user_in_db).
+        game_mode=getattr(row, "game_mode", "off"),
     )
 
 

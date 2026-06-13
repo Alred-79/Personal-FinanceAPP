@@ -59,6 +59,10 @@ def _to_user_in_db(user: Any) -> UserInDB:
         spend_warning=cast(int, user.spend_warning),
         savings_percent=cast(int, user.savings_percent),
         hashed_password=cast(str, user.hashed_password),
+        # Copy the real game_mode off the row. Omitting it let UserInDB fall back
+        # to its "off" default, so /users/me/ always reported "off" regardless of
+        # the stored value.
+        game_mode=cast(str, getattr(user, "game_mode", "off")),
     )
 
 
@@ -319,9 +323,17 @@ class AuthService:
 
     @staticmethod
     def clear_auth_cookies(response: Response) -> None:
-        """Delete both auth cookies."""
-        response.delete_cookie(key=ACCESS_COOKIE, path="/api")
-        response.delete_cookie(key=REFRESH_COOKIE, path="/api")
+        """Delete both auth cookies.
+
+        Pass the SAME ``domain`` that ``set_auth_cookies`` used: when
+        ``cookie_domain`` is configured, a delete_cookie without the matching
+        domain targets a different cookie and logout silently fails to clear the
+        real one. Mirroring the domain keeps logout effective in both
+        cookie_domain-set and cookie_domain-unset deployments.
+        """
+        domain = settings.cookie_domain
+        response.delete_cookie(key=ACCESS_COOKIE, path="/api", domain=domain)
+        response.delete_cookie(key=REFRESH_COOKIE, path="/api", domain=domain)
 
     # -- Current user dependency --------------------------------------------
 

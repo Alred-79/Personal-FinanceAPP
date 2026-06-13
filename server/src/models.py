@@ -40,9 +40,13 @@ class Income(Transaction):
 
 
 class Token(BaseModel):
+    # The refresh token is intentionally NOT a field here: it travels ONLY in the
+    # httpOnly refresh cookie (set via AuthService.set_auth_cookies). Echoing it in
+    # the body would make it readable by JavaScript/XSS and defeat the cookie's
+    # protection. The access token stays in the body for the SPA Bearer header /
+    # Swagger /docs.
     access_token: str
     token_type: str
-    refresh_token: str | None = None  # filled in while we move auth over to cookies
 
 
 class TokenData(BaseModel):

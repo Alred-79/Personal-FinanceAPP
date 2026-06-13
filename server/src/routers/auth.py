@@ -58,10 +58,14 @@ async def login_for_access_token(
 
     auth_service.set_auth_cookies(response, access_token, refresh_token)
 
+    # The refresh token is delivered ONLY via the httpOnly cookie (set above).
+    # Never echo it in the JSON body: a body field is readable by JavaScript and
+    # therefore by any XSS payload, which would defeat the httpOnly design. The
+    # access token stays in the body so the SPA can use a Bearer header / Swagger
+    # /docs keeps working.
     return Token(
         access_token=access_token,
         token_type="bearer",
-        refresh_token=refresh_token,
     )
 
 
@@ -105,10 +109,10 @@ async def signup(
 
     auth_service.set_auth_cookies(response, access_token, refresh_token)
 
+    # Refresh token stays in the httpOnly cookie only — never in the JSON body.
     return Token(
         access_token=access_token,
         token_type="bearer",
-        refresh_token=refresh_token,
     )
 
 
@@ -136,10 +140,10 @@ async def refresh_tokens(
 
     auth_service.set_auth_cookies(response, new_access, new_raw_refresh)
 
+    # Rotated refresh token stays in the httpOnly cookie only — never echoed.
     return Token(
         access_token=new_access,
         token_type="bearer",
-        refresh_token=new_raw_refresh,
     )
 
 
