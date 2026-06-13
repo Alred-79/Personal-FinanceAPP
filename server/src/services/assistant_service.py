@@ -44,6 +44,7 @@ from ..services.read_queries import (
 from ..services.transaction_service import TransactionService
 from ..services.categorization_service import CategorizationService
 from ..settings import settings
+from ..services import llm_budget
 from ..db.session import SessionLocal
 from ..db.models import (
     Account as AccountORM,
@@ -1044,19 +1045,42 @@ class AssistantService:
                 ]
             )
             agent = create_tool_calling_agent(self.llm, tools, prompt)
+            # Caps (Step 03 — C4): bound runaway agent loops and hung tools so a
+            # single chat turn can't rack up unbounded paid Groq/Tavily calls or
+            # spin forever. ``max_iterations`` caps the tool-call loop;
+            # ``max_execution_time`` bounds wall-clock (protects against a Tavily
+            # / open_website fetch hanging — the user gets a bounded "couldn't
+            # finish" instead of an endless spinner). ``handle_parsing_errors``
+            # turns a malformed tool call into a graceful message, not a 500.
+            # NOTE: executors are cached per-user in ``self.agents`` (TTL 1800s),
+            # so these caps apply to NEWLY-built executors only; a long-lived
+            # process keeps any pre-existing capless executor until its TTL
+            # expires (rebuild on deploy if that matters operationally).
             self.agents[user.id] = AgentExecutor(
                 agent=agent,
                 tools=tools,
                 memory=memory,
                 verbose=True,
+                max_iterations=settings.assistant_max_iterations,
+                max_execution_time=settings.assistant_max_execution_seconds,
+                handle_parsing_errors=True,
             )
 
         executor = self.agents[user.id]
+        # Track whether the model was actually invoked, so a stream that errors
+        # BEFORE any model call can release its pre-flight-reserved request (no
+        # paid work happened). ``tokens_used`` stays None on the streaming path —
+        # astream_events v2 surfaces no usage metadata in the installed version —
+        # so token reconciliation is a no-op and the REQUEST cap is the real one.
+        model_called = False
+        tokens_used: int | None = None
         try:
             async for event in executor.astream_events(
                 {"input": message}, version="v2"
             ):
                 kind = event["event"]
+                if kind in ("on_chat_model_start", "on_chat_model_stream"):
+                    model_called = True
                 if kind == "on_tool_start":
                     tool_name = event.get("name", "")
                     template = self.actions.get(tool_name, "")
@@ -1091,6 +1115,29 @@ class AssistantService:
                 yield _sse("done", {})
             else:
                 raise e
+        finally:
+            # Reconcile the pre-flight reservation in the generator's OWN
+            # short-lived session — the endpoint's request ``db`` was for the
+            # pre-flight reserve only and FastAPI has already closed it by the
+            # time this generator runs (it backs a StreamingResponse). This is
+            # the same fresh-session pattern the Plaid background task uses.
+            db2 = SessionLocal()
+            try:
+                if not model_called:
+                    # The stream errored (or yielded nothing) before any model
+                    # call — no paid work happened, so give the reserved request
+                    # back. record_actual(.., 0) alone would NOT undo the count.
+                    llm_budget.release_request(db2, user.id)
+                else:
+                    # A real count isn't available on the streaming path
+                    # (tokens_used stays None → no-op). Kept so a real usage
+                    # source can reconcile the advisory token figure later.
+                    llm_budget.record_actual(db2, user.id, tokens_used or 0)
+                db2.commit()
+            except Exception:
+                db2.rollback()
+            finally:
+                db2.close()
 
     def get_chat_history(self, user: UserInDB) -> List[Dict[str, str]]:
         """

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from typing import Dict, List, Annotated
 from sqlalchemy.orm import Session
@@ -12,21 +12,65 @@ from server.src.models import (
     AssistantActionConfirm,
 )
 from server.src.services.auth_service import AuthService
+from server.src.services import llm_budget
+from server.src.limiter import limiter
+from server.src.settings import settings
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 assistant_service = AssistantService()
 
 
+# NOTE (Step 02 gotcha): slowapi captures a plain limit STRING at decoration
+# time and never re-reads it. We pass a CALLABLE instead, which slowapi
+# evaluates per-request, so the limit honors ``settings.assistant_rate_limit``
+# live (and a test can tighten it). The limiter's ``enabled`` flag is STILL
+# frozen at construction — tests flip ``limiter.enabled`` (the instance), never
+# ``settings.rate_limit_enabled``.
 @router.post("/chat/")
+@limiter.limit(lambda: settings.assistant_rate_limit)
 async def chat(
+    request: Request,
     message: str,
     current_user: Annotated[
         UserInDB, Depends(AuthService.get_current_active_user)
     ],
+    db: Session = Depends(get_db),
 ):
+    """Chat endpoint that streams the response (C4 denial-of-wallet caps).
+
+    Two ceilings guard the single most expensive surface in the app:
+
+    * **Rate limit** (``@limiter.limit``): trips at the endpoint, *before* the
+      stream starts, so a looping tab or buggy retry can't open many SSE
+      streams. A 429 here means "too many requests, try again in a minute".
+    * **Daily request budget** (pre-flight ``check_and_reserve``): reserves one
+      request — the genuinely-enforced hard cap (the streaming path exposes no
+      token count to meter; see ``llm_budget``). Reserving here, on the request
+      ``db`` while it is still open, means an over-budget user gets a clean 429
+      *before* any Groq/Tavily call — never a half-open stream that errors
+      mid-flight. A 429 here means "daily AI limit reached, try tomorrow".
+
+    The reservation is reconciled inside the generator's OWN session: this
+    endpoint's ``db`` is closed by FastAPI once it returns the StreamingResponse,
+    so the generator can't borrow it (see ``AssistantService.chat``). If the
+    stream fails before any model call, the reserved request is released so a
+    failure doesn't permanently burn a daily slot.
     """
-    Chat endpoint that streams the response
-    """
+    try:
+        llm_budget.check_and_reserve(
+            db,
+            current_user.id,
+            requests=1,
+            # Advisory only (not a cap): a rough pre-flight token estimate so the
+            # observability figure isn't permanently 0. ~4 chars/token heuristic.
+            est_tokens=max(1, len(message) // 4),
+        )
+    except llm_budget.BudgetExceeded:
+        raise HTTPException(
+            status_code=429,
+            detail="Daily AI limit reached. Please try again tomorrow.",
+        )
+
     return StreamingResponse(
         assistant_service.chat(current_user, message), media_type="text/event-stream"
     )

@@ -38,9 +38,23 @@ router = APIRouter(prefix="/plaid", tags=["plaid"])
 
 
 @router.get("/link-token/")
-async def get_link_token(user_id: str):
+async def get_link_token(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+):
+    """Mint a Plaid Link token for the authenticated user (C3).
+
+    Previously this took a caller-supplied ``user_id`` query param with NO auth
+    dependency, so anyone on the network could mint Link tokens against the real
+    Plaid app for an arbitrary id — burning quota and attaching a Link session
+    to a chosen id. The ``client_user_id`` is now derived from the session
+    (``str(current_user.id)``, which is stable per user); the ``user_id`` param
+    is gone, and FastAPI rejects an unauthenticated request with 401 before any
+    Plaid call is made.
+    """
     databridge = PlaidClient()
-    link_token = databridge.create_link_token(user_id)
+    link_token = databridge.create_link_token(str(current_user.id))
     return {"link_token": link_token}
 
 

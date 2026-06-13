@@ -104,6 +104,29 @@ def check_and_reserve(
         )
 
 
+def release_request(db: Session, user_id: int, requests: int = 1) -> None:
+    """Give back ``requests`` reserved today when a call did no paid work.
+
+    The chat endpoint reserves one request **pre-flight** (the real hard cap).
+    If the stream then errors *before any model call*, no paid Groq/Tavily work
+    happened, so permanently consuming the user's daily slot would be unfair —
+    a buggy client retry could exhaust the cap on errors alone. This decrements
+    the day's request counter (clamped at 0 so it can never go negative), which
+    ``record_actual(.., 0)`` deliberately does NOT do (that only reconciles the
+    advisory token figure). Call it only on the "no model call happened" path.
+    """
+    if requests <= 0:
+        return
+    day = today_key()
+    db.execute(
+        text(
+            "UPDATE llm_usage SET requests = MAX(0, requests - :req) "
+            "WHERE user_id = :uid AND day = :day"
+        ),
+        {"req": requests, "uid": user_id, "day": day},
+    )
+
+
 def record_actual(db: Session, user_id: int, tokens: int) -> None:
     """Reconcile the TOKEN estimate after a run, iff a real count is available.
 
