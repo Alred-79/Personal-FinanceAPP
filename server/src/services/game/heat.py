@@ -158,10 +158,25 @@ class HeatService:
     def verified_underspend_cents(
         self, user: UserInDB, contract: HeatContract, as_of: date
     ) -> int:
-        """Posted-transactions-only underspend vs the contracted cap. Never
-        negative. Excludes nothing here beyond what the baseline already does."""
+        """Posted-transactions-only verified underspend for *contract*. Never
+        negative — a sweep can never exceed this.
+
+        ``target_param`` is POLYMORPHIC across kinds (Step 09 fix): treating it
+        as a percentage for every kind (the old single-formula bug) computed
+        ``extra_to_boss``/``zero_dips`` against the wrong unit. Branch on kind:
+
+        * ``cap_vs_baseline`` — ``target_param`` is a CAP PERCENTAGE of the
+          baseline; underspend = cap − posted spend.
+        * ``extra_to_boss`` — ``target_param`` is an ABSOLUTE extra-payment
+          target in CENTS; the verified amount is how far the user came UNDER
+          their baseline this period (the real, posted slack), clamped to the
+          target. You can never sweep more slack than actually exists, and never
+          more than the contracted target.
+        * ``zero_dips`` — winnability is "no overdraft / no negative dip this
+          period". The reward is the period's posted underspend vs baseline; a
+          month that dipped is unwon (zero).
+        """
         base = category_baseline(self.db, user.id, contract.category, as_of)
-        cap_cents = base.monthly_cents * contract.target_param // 100
         acct_ids = list(self.db.execute(
             select(AccountORM.id).where(AccountORM.user_id == user.id)
         ).scalars())
@@ -170,15 +185,51 @@ class HeatService:
         from sqlalchemy import func
 
         first = date(int(contract.month[:4]), int(contract.month[5:7]), 1)
-        spent = self.db.execute(
+        spent = int(self.db.execute(
             select(func.coalesce(func.sum(ExpenseORM.amount), 0)).where(
                 ExpenseORM.account_id.in_(acct_ids),
                 ExpenseORM.category == contract.category,
                 ExpenseORM.date >= first.isoformat(),
                 ExpenseORM.date <= as_of.isoformat(),
             )
-        ).scalar_one()
-        return max(cap_cents - int(spent or 0), 0)
+        ).scalar_one() or 0)
+
+        kind = contract.kind
+        if kind == "cap_vs_baseline":
+            cap_cents = base.monthly_cents * contract.target_param // 100
+            return max(cap_cents - spent, 0)
+
+        # The verified slack vs the FULL baseline — the real money the user kept
+        # under their own normal pace. Shared by extra_to_boss and zero_dips.
+        slack = max(base.monthly_cents - spent, 0)
+
+        if kind == "extra_to_boss":
+            # target_param is an absolute cents target — sweep at most the
+            # contracted target, and never more than the verified slack.
+            target_cents = max(int(contract.target_param), 0)
+            return min(slack, target_cents)
+
+        if kind == "zero_dips":
+            # Winnable iff the period had no negative dip; the reward is the
+            # verified slack. An unwon (dipped) month yields zero.
+            if self._had_negative_dip(user, contract.month, as_of):
+                return 0
+            return slack
+
+        # Unknown kind: nothing verified (defensive — price() rejects these).
+        return 0
+
+    def _had_negative_dip(self, user: UserInDB, month: str, as_of: date) -> bool:
+        """Whether any of the user's accounts is currently in overdraft (a
+        negative balance) — the explicit, winnable definition for ``zero_dips``.
+
+        Posted-data only: a clean (no-dip) month has all balances >= 0. This is
+        deterministic and recomputed at execution, preserving the never-sweep-
+        more-than-verified invariant."""
+        balances = list(self.db.execute(
+            select(AccountORM.balance).where(AccountORM.user_id == user.id)
+        ).scalars())
+        return any((b or 0) < 0 for b in balances)
 
     def sweep_amount_cents(
         self, user: UserInDB, contract: HeatContract, contracted_cents: int, as_of: date

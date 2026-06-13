@@ -81,11 +81,28 @@ else:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    if _mcp_starlette is not None:
-        async with _mcp_starlette.lifespan(_mcp_starlette):
+    # Step 09 — the production game scheduler (APScheduler). Started here, shut
+    # down on teardown. Disabled in tests (scheduler_enabled=False) so the suite
+    # is deterministic. SINGLE-WORKER ONLY — an in-process scheduler starts once
+    # per worker, so >1 worker double-fires month-close/rollups (idempotent but
+    # doubled work). See the deploy-requirement warning block above and
+    # settings.scheduler_enabled.
+    from server.src.scheduler import shutdown_scheduler, start_scheduler
+
+    _scheduler = start_scheduler()
+    if _scheduler is not None:
+        _mcp_log.warning(
+            "Game scheduler running in-process (per-worker). Run a SINGLE "
+            "uvicorn worker or month-close/rollups double-fire."
+        )
+    try:
+        if _mcp_starlette is not None:
+            async with _mcp_starlette.lifespan(_mcp_starlette):
+                yield
+        else:
             yield
-    else:
-        yield
+    finally:
+        shutdown_scheduler(_scheduler)
 
 
 # ---------------------------------------------------------------------------

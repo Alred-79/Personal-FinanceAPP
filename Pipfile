@@ -25,6 +25,7 @@ limits = "*"
 email-validator = "*"
 tavily-python = "*"
 fastmcp = "*"
+apscheduler = "*"
 
 [dev-packages]
 black = "*"

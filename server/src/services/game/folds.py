@@ -75,6 +75,12 @@ def apply_folds(session: Session, payload: dict, meta: EventMeta) -> None:
     must never break the finance request path (guardrail, package 01). The event
     row itself is already committed by the caller; a failed fold just leaves that
     projection slightly behind until the next rebuild.
+
+    Step 09 — fold-failure VISIBILITY. The watermark still advances exactly as
+    before (events.py owns that, and the determinism contract requires it). What
+    was missing was any signal that a projection silently desynced. So on a raise
+    we ALSO record a per-projection ``_health`` marker (best-effort, never raises
+    into the finance path) so ``/game/health/`` and a rebuild trigger can see it.
     """
     for projection_name, handler in folds_for(meta.type):
         try:
@@ -86,6 +92,69 @@ def apply_folds(session: Session, payload: dict, meta: EventMeta) -> None:
                 meta.type,
                 meta.id,
             )
+            _mark_behind(session, projection_name, meta.id)
+
+
+# ---------------------------------------------------------------------------
+# Fold-failure health markers (Step 09)
+#
+# A failed fold does NOT hold the watermark back (that would break the
+# determinism contract — see events.py). Instead it records a marker in its own
+# ``_HEALTH`` KV namespace so the desync is detectable and a rebuild can be
+# triggered. The marker is keyed by projection name and clears on a successful
+# rebuild. The marker write is itself best-effort: it must NEVER raise into the
+# finance request path (guardrail, package 01).
+# ---------------------------------------------------------------------------
+
+_HEALTH = "_health"
+
+
+def _mark_behind(session: Session, projection: str, event_id: int) -> None:
+    """Record/extend a projection's failure marker. Best-effort, never raises."""
+    try:
+        existing = kv_get(session, _HEALTH, projection) or {}
+        marker = {
+            "projection": projection,
+            "behind_since_event": existing.get("behind_since_event", event_id),
+            "last_error_event": event_id,
+            "count": int(existing.get("count", 0)) + 1,
+        }
+        kv_put(session, _HEALTH, projection, marker)
+    except Exception:  # noqa: BLE001 — health bookkeeping must never break finance
+        logger.exception(
+            "failed to record fold-failure marker: projection=%s event_id=%s",
+            projection,
+            event_id,
+        )
+
+
+def health_markers(session: Session) -> list[dict]:
+    """Every open fold-failure marker (one per behind projection). Empty when
+    all projections are healthy. Read-only; safe to call anytime."""
+    try:
+        ensure_kv(session)
+        rows = session.execute(
+            text(
+                "SELECT value FROM game_projection_kv WHERE projection = :p "
+                "ORDER BY key"
+            ),
+            {"p": _HEALTH},
+        ).scalars().all()
+        return [json.loads(r) for r in rows]
+    except Exception:  # noqa: BLE001 — diagnostics must never raise
+        logger.exception("failed to read fold-failure markers")
+        return []
+
+
+def clear_behind(session: Session, projection: str) -> None:
+    """Clear a projection's failure marker (called after a successful rebuild)."""
+    ensure_kv(session)
+    session.execute(
+        text(
+            "DELETE FROM game_projection_kv WHERE projection = :h AND key = :k"
+        ),
+        {"h": _HEALTH, "k": projection},
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,267 @@
+"""Step 09 — the production game scheduler (APScheduler).
+
+The dormant game jobs (month-close, weekly rollups, fade, graduation) had NO
+production entry point — only tests called them — so months never sealed,
+``/game/outcomes/`` stayed empty, and expeditions were drafted but never scored.
+This module gives them an unattended, idempotent, kill-switch-respecting cron
+home.
+
+Design (the spec's "keep scheduling thin"):
+
+* ``build_scheduler()`` returns an ``AsyncIOScheduler`` with declarative cron
+  triggers. ``start_scheduler``/``shutdown_scheduler`` are driven from the
+  FastAPI lifespan. Guarded by ``settings.scheduler_enabled`` (FALSE in tests).
+* Each trigger calls a PURE, directly-testable job function. A scheduled job
+  runs OUTSIDE any request, so there is no ``Depends(get_db)`` session — every
+  job opens its OWN ``SessionLocal()`` (the same own-session rule as Step 03's
+  reconciliation), runs the idempotent work, commits, and closes.
+* Every job skips ``settings.killed_features`` (via ``experiments.is_killed``)
+  and is safe to re-run, so a restart or an overlapping fire can't double-seal.
+
+⚠ SINGLE-WORKER INVARIANT (shared with Steps 02/05): an ``AsyncIOScheduler``
+starts once PER worker process. Two uvicorn workers fire every job twice at the
+boundary — idempotency keeps that harmless in OUTCOME, but it doubles work and
+is fragile. Run ONE worker until a leader-elected / external trigger exists
+(production backlog). Enforced/announced at startup in ``main.py``.
+"""
+
+from __future__ import annotations
+
+import logging
+from calendar import monthrange
+from datetime import date, datetime, timedelta
+from typing import Optional
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from .settings import settings
+
+logger = logging.getLogger("game.scheduler")
+
+
+# ---------------------------------------------------------------------------
+# Date helpers
+# ---------------------------------------------------------------------------
+
+def _prev_month_str(today: date) -> str:
+    """The ``YYYY-MM`` of the month immediately BEFORE *today*'s month — the
+    month a month-boundary run seals."""
+    first_of_this = today.replace(day=1)
+    last_of_prev = first_of_this - timedelta(days=1)
+    return f"{last_of_prev.year}-{last_of_prev.month:02d}"
+
+
+def _month_end(month: str) -> date:
+    year, mon = (int(x) for x in month.split("-"))
+    return date(year, mon, monthrange(year, mon)[1])
+
+
+def _users(db: Session):
+    from .db.models import User as UserORM
+
+    return db.execute(select(UserORM)).scalars().all()
+
+
+def _to_user(user_row):
+    from .services.auth_service import _to_user_in_db
+
+    return _to_user_in_db(user_row)
+
+
+def _tracked_metrics(db: Session, user_id: int) -> list[str]:
+    """Metrics worth fading/graduating: the user's confirmed, non-essential
+    categories (the ones a baseline can be priced against)."""
+    from .db.models import CategorySettings as CategorySettingsORM
+
+    rows = db.execute(
+        select(CategorySettingsORM.name).where(
+            CategorySettingsORM.user_confirmed == 1,
+            CategorySettingsORM.essential == 0,
+        )
+    ).scalars().all()
+    return list(rows)
+
+
+# ---------------------------------------------------------------------------
+# The pure, testable jobs. Each takes an explicit ``db`` + ``now`` and is
+# idempotent. They DO NOT commit — ``run_due_game_jobs`` (or the scheduled
+# wrapper) owns the transaction boundary.
+# ---------------------------------------------------------------------------
+
+def job_close_month(db: Session, now: date) -> dict:
+    """Seal the month that just ended, for every user. Idempotent (``close_month``
+    is keyed on ``seal:{user}:{month}``)."""
+    from .services.game.month_close import close_month
+
+    month = _prev_month_str(now)
+    sealed: dict[int, dict] = {}
+    for user_row in _users(db):
+        user = _to_user(user_row)
+        try:
+            sealed[user.id] = close_month(db, user, month)
+        except Exception:  # noqa: BLE001 — one user's failure can't abort the rest
+            logger.exception("close_month failed: user=%s month=%s", user.id, month)
+    return {"month": month, "sealed": sealed}
+
+
+def job_weekly_rollups(db: Session, now: date) -> int:
+    """Write the week's MetricRollup rows (feeds ``/game/outcomes/``). Idempotent
+    per (user, week, metric)."""
+    from .services.game.metrics import run_weekly_rollups
+
+    return run_weekly_rollups(db, now)
+
+
+def job_fade_and_graduation(db: Session, now: date) -> dict:
+    """Advance each user's metric-fade state machine for the week, and detect
+    graduation candidates. Skipped while the ``bestiary`` (fade surface) feature
+    is killed. Idempotent — fade events are keyed per (user, metric, week)."""
+    from .services.game import experiments
+    from .services.game.fade import FadeService
+    from .services.game.graduation import detect_graduation_candidates
+
+    if experiments.is_killed("bestiary"):
+        return {"skipped": "bestiary_killed"}
+
+    faded: dict[int, dict[str, str]] = {}
+    grad: dict[int, int] = {}
+    fade = FadeService(db)
+    for user_row in _users(db):
+        user = _to_user(user_row)
+        states: dict[str, str] = {}
+        for metric in _tracked_metrics(db, user.id):
+            try:
+                states[metric] = fade.evaluate_week(user, metric, now)
+            except Exception:  # noqa: BLE001 — best-effort per metric
+                logger.exception(
+                    "fade evaluate_week failed: user=%s metric=%s", user.id, metric
+                )
+        faded[user.id] = states
+        try:
+            grad[user.id] = len(detect_graduation_candidates(db, user.id, as_of=now))
+        except Exception:  # noqa: BLE001
+            logger.exception("graduation detect failed: user=%s", user.id)
+    return {"faded": faded, "graduation_candidates": grad}
+
+
+def run_due_game_jobs(db: Session, now: Optional[datetime | date] = None) -> dict:
+    """Run every game job that is due as of *now*, idempotently, in one
+    transaction.
+
+    This is the SINGLE pure entry point both the monthly and weekly cron
+    triggers (and the tests) call — the cron wrappers just open a session and
+    invoke this. Re-running it is a no-op (every underlying job is idempotent),
+    so an overlapping fire or a scheduler restart can't double-seal.
+
+    Month-close runs only at a month boundary (when ``now`` is on the 1st), so a
+    daily/weekly fire doesn't re-seal mid-month. Weekly rollups + fade run every
+    invocation (idempotent per week).
+    """
+    now = now or datetime.now()
+    today = now.date() if isinstance(now, datetime) else now
+
+    result: dict = {"weekly_rollups": job_weekly_rollups(db, today)}
+    result["fade"] = job_fade_and_graduation(db, today)
+    # Month-close only at the boundary — a job firing on the 1st seals the month
+    # that just ended.
+    if today.day == 1:
+        result["month_close"] = job_close_month(db, today)
+    db.flush()
+    return result
+
+
+# ---------------------------------------------------------------------------
+# The scheduled wrappers — own-session, commit, close (no request context).
+# ---------------------------------------------------------------------------
+
+def _run_in_own_session(fn) -> None:
+    """Run a job in its OWN ``SessionLocal()`` — there is no request ``get_db``
+    session under the scheduler. Commit on success, roll back + log on failure;
+    a job failure must never crash the scheduler thread."""
+    from .db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        fn(db)
+        db.commit()
+    except Exception:  # noqa: BLE001 — never let a job kill the scheduler loop
+        db.rollback()
+        logger.exception("scheduled game job failed")
+    finally:
+        db.close()
+
+
+async def _monthly_tick() -> None:
+    """Monthly cron: month-close + fade/graduation + that week's rollups."""
+    _run_in_own_session(lambda db: run_due_game_jobs(db, datetime.now()))
+
+
+async def _weekly_tick() -> None:
+    """Weekly cron: rollups + fade (no month seal unless it's also the 1st)."""
+    _run_in_own_session(lambda db: run_due_game_jobs(db, datetime.now()))
+
+
+# ---------------------------------------------------------------------------
+# APScheduler wiring
+# ---------------------------------------------------------------------------
+
+def build_scheduler():
+    """Build the ``AsyncIOScheduler`` with declarative cron triggers. Importing
+    apscheduler lazily so the module imports cleanly even where the optional
+    dependency is absent (the scheduler simply won't be built)."""
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.triggers.cron import CronTrigger
+
+    scheduler = AsyncIOScheduler()
+    # Month-close + fade + graduation: just after midnight on the 1st.
+    scheduler.add_job(
+        _monthly_tick,
+        CronTrigger(day=1, hour=0, minute=5),
+        id="game_monthly",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+    # Weekly rollups (the unattended path; ``weekly_reveal`` is the request
+    # path): early Monday.
+    scheduler.add_job(
+        _weekly_tick,
+        CronTrigger(day_of_week="mon", hour=0, minute=10),
+        id="game_weekly",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+    return scheduler
+
+
+def start_scheduler():
+    """Start the scheduler IFF enabled. Returns the live scheduler, or None when
+    disabled (tests) or apscheduler is unavailable. ``main.py``'s lifespan keeps
+    the handle so it can shut it down on teardown."""
+    if not settings.scheduler_enabled:
+        logger.info("game scheduler disabled (scheduler_enabled=false)")
+        return None
+    try:
+        scheduler = build_scheduler()
+        scheduler.start()
+    except Exception:  # noqa: BLE001 — a missing optional dep must not block boot
+        logger.exception("failed to start game scheduler; continuing without it")
+        return None
+    logger.warning(
+        "game scheduler started (in-process, per-worker). SINGLE-WORKER ONLY: "
+        ">1 worker double-fires month-close/rollups (idempotent but doubled work)."
+    )
+    return scheduler
+
+
+def shutdown_scheduler(scheduler) -> None:
+    """Stop the scheduler on lifespan teardown. ``wait=False`` so shutdown
+    doesn't block on an in-flight job."""
+    if scheduler is None:
+        return
+    try:
+        scheduler.shutdown(wait=False)
+    except Exception:  # noqa: BLE001
+        logger.exception("error shutting down game scheduler")

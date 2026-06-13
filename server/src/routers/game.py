@@ -364,3 +364,60 @@ async def get_outcomes(
     from server.src.services.game.metrics import outcomes_summary
 
     return outcomes_summary(db)
+
+
+@router.get("/health/")
+async def get_game_health(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """Projection health (Step 09). Surfaces which projections have an OPEN
+    fold-failure marker — i.e. a fold raised and that projection is now stale
+    relative to the event log (the watermark advanced regardless, by the
+    determinism contract; the marker is the separate 'behind' signal). When the
+    list is non-empty the projection needs a rebuild (``POST /game/health/rebuild/``).
+    Reading writes nothing."""
+    from server.src.services.game import folds as folds_mod
+
+    markers = folds_mod.health_markers(db)
+    return {
+        "healthy": not markers,
+        "behind": markers,
+    }
+
+
+class _RebuildRequest(BaseModel):
+    projection: str | None = None  # None → rebuild every registered projection
+
+
+@router.post("/health/rebuild/")
+async def rebuild_projections(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    body: _RebuildRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    """Trigger a projection rebuild to recover from a fold-failure desync,
+    reusing ``rebuild.py``. With no projection name, rebuilds every registered
+    projection. A successful rebuild clears the projection's failure marker."""
+    from server.src.services.game import folds as folds_mod
+    from server.src.services.game.rebuild import (
+        rebuild_all,
+        rebuild_projection,
+    )
+
+    projection = body.projection if body else None
+    if projection:
+        if projection not in folds_mod.projections():
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="unknown projection")
+        watermark = rebuild_projection(db, projection)
+        result = {projection: watermark}
+    else:
+        result = rebuild_all(db)
+    db.commit()
+    return {"rebuilt": result, "behind": folds_mod.health_markers(db)}

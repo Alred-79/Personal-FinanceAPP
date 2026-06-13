@@ -46,6 +46,19 @@ class Settings(BaseSettings):
     # and folds/rebuilds stay intact (events keep their meaning).
     killed_features: str = ""
 
+    # Step 09 — the production game scheduler (APScheduler). Started in the
+    # FastAPI lifespan; runs month-close/rollups/fade/graduation on cron
+    # triggers so the game features that have live UI aren't permanently empty.
+    # ⚠ FALSE in the test suite (conftest) so no background fire is non-
+    # deterministic — tests drive ``scheduler.run_due_game_jobs`` directly.
+    # ⚠ SINGLE-WORKER INVARIANT (shared with Steps 02/05): an AsyncIOScheduler
+    # starts once PER worker process. >1 uvicorn worker double-fires every job
+    # at the boundary. Idempotency keeps a double-fire harmless in OUTCOME but
+    # it doubles work and is fragile — run ONE worker until a leader-elected /
+    # external trigger exists (production backlog). Enforced at startup in
+    # main.py and documented in docs/v5 execution.
+    scheduler_enabled: bool = True
+
     # Rate limiting via slowapi. We turn it off in the test suite so repeated
     # login and refresh calls don't trip the limiter.
     #

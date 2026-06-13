@@ -464,3 +464,33 @@ def test_creeper_fires_on_rising_subscription_price(db_session, user_acct):
     monsters = detect_monsters(db_session, _u(user), date(2026, 5, 20))
     creepers = [m for m in monsters if m["kind"] == "creeper"]
     assert any(m["reason"] == "rising_price" for m in creepers), monsters
+
+
+# ── Step 09: BossService ownership scoping ─────────────────────────────────
+
+
+def test_boss_rejects_foreign_liability(db_session, user_acct):
+    """A liability id NOT owned by the user is rejected when register_payment is
+    called with the user's id (ownership-scoped _liab, matching
+    liability_service). The owner's own payment still works."""
+    user, _ = user_acct
+    folds_mod.register_builtin_folds()
+    liab = _liab(db_session, user)  # owned by `user`
+
+    # A second, different user.
+    other = UserORM(username="boss2", full_name="Boss Two", email="boss2@x.com",
+                    hashed_password="x", savings_percent=0)
+    db_session.add(other)
+    db_session.flush()
+
+    svc = BossService(db_session)
+    # The foreign user cannot damage someone else's boss.
+    with pytest.raises(ValueError):
+        svc.register_payment(liab.id, 50000, txn_id="x", user_id=other.id)
+    # accrue_monthly_interest is scoped too.
+    with pytest.raises(ValueError):
+        svc.accrue_monthly_interest(liab.id, "2026-06", user_id=other.id)
+
+    # The real owner's scoped payment succeeds.
+    svc.register_payment(liab.id, 50000, txn_id="ok", user_id=user.id)
+    assert boss_view(db_session, liab.id)["hp"] == 450000

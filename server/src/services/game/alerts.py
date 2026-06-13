@@ -79,6 +79,29 @@ ALERT_TERMS = {
 BANNED_PATTERNS = ("buy", "spend", "deal", "offer", "discount", "sale")
 
 
+def idem_key(*, kind: str, entity: str) -> str:
+    """The single alert idempotency-key shape: ``alert:<kind>:<entity>``.
+
+    The *period* (if any) is encoded IN ``entity`` by the caller — bills/goals
+    already carry their period in entity ("Rent:2026-06-05", "goal:5"), and the
+    balance alert now carries it too ("balance:2026-W24"). This builder never
+    appends ``fires_at``: doing so would make EVERY key (bills included) change
+    daily and re-fire every evening. Keeping the period in ``entity`` is exactly
+    how the periodless-balance bug is fixed without regressing the bill key.
+    """
+    return f"alert:{kind}:{entity}"
+
+
+def _period_key(as_of: date) -> str:
+    """The evaluation period stamped into a periodless alert's entity. ISO
+    year-week (e.g. ``2026-W24``): a negative-ahead warning de-dupes within the
+    week it was raised but re-fires in the next week if the dip is still ahead —
+    matching how a bill's due-date period works, without the every-evening
+    re-fire a daily stamp would cause."""
+    iso = as_of.isocalendar()
+    return f"{iso[0]}-W{iso[1]:02d}"
+
+
 @dataclass
 class Fix:
     """The one-tap action attached to an alert. ``kind`` ∈ {create_allocation,
@@ -105,7 +128,15 @@ class Alert:
         # same bill re-fires every evening. The entity already carries the
         # distinguishing detail (e.g. "Rent:2026-06-05" — the due date), so a
         # genuinely new occurrence (next month's rent) still gets a fresh key.
-        return f"alert:{self.type}:{self.entity}"
+        #
+        # Step 09: the FIX for the periodless-balance bug lives in the *entity*,
+        # not here — the balance alert now sets entity="balance:<period>" so its
+        # key changes across periods. This function is unchanged so the BILL key
+        # (entity already = "title:date") is byte-identical before and after the
+        # step (regression-guarded by test_bill_alert_key_unchanged). Appending
+        # fires_at HERE would make the bill key change daily — the every-evening
+        # re-fire the :105 comment warns against. Don't.
+        return idem_key(kind=self.type, entity=self.entity)
 
 
 class AlertEngine:
@@ -208,7 +239,12 @@ class AlertEngine:
                         type="NEGATIVE_AHEAD",
                         fires_at=as_of.isoformat(),
                         expires_at=item["date"],
-                        entity="balance",
+                        # Step 09 fix: the balance entity was periodless
+                        # ("balance"), so its idempotency key never changed and
+                        # the negative-ahead alert fired ONCE per DB lifetime.
+                        # Carry the evaluation period in the entity (matching how
+                        # bills/goals already do it) so it re-fires next period.
+                        entity=f"balance:{_period_key(as_of)}",
                         severity=_SEVERITY["NEGATIVE_AHEAD"],
                         fix=Fix(
                             kind="checklist",

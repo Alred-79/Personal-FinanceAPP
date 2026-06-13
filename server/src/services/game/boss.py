@@ -297,20 +297,34 @@ class BossService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def _liab(self, liability_id):
+    def _liab(self, liability_id, *, user_id: Optional[int] = None):
+        """Load a liability. When ``user_id`` is given, the lookup is OWNERSHIP-
+        SCOPED (``WHERE id == AND user_id ==``), matching liability_service's
+        pattern — a foreign liability id resolves to None and the caller rejects
+        it. ``user_id=None`` keeps the legacy unscoped lookup for internal
+        engine callers that already hold a verified handle."""
         from ...db.models import Liability
 
-        return self.db.get(Liability, liability_id)
+        if user_id is None:
+            return self.db.get(Liability, liability_id)
+        from sqlalchemy import select
+
+        return self.db.execute(
+            select(Liability).where(
+                Liability.id == liability_id, Liability.user_id == user_id
+            )
+        ).scalar_one_or_none()
 
     def register_payment(
-        self, liability_id: int, amount_cents: int, *, txn_id: str
+        self, liability_id: int, amount_cents: int, *, txn_id: str,
+        user_id: Optional[int] = None,
     ) -> dict:
         """A real posted payment → BossDamaged (idempotent on txn id). Crit when
         the payment exceeds minimum × 1.25. Emits BossPhaseBroken (idempotent per
         index) and BossDefeated when HP hits 0."""
         from .events import GameEventDraft, record_events
 
-        liab = self._liab(liability_id)
+        liab = self._liab(liability_id, user_id=user_id)
         if liab is None:
             raise ValueError("liability not found")
         crit = amount_cents > liab.minimum_payment_cents * CRIT_MULTIPLE
@@ -348,12 +362,15 @@ class BossService:
         self.db.flush()
         return boss_view(self.db, liability_id)
 
-    def accrue_monthly_interest(self, liability_id: int, period: str) -> int:
+    def accrue_monthly_interest(
+        self, liability_id: int, period: str, *, user_id: Optional[int] = None
+    ) -> int:
         """Month close → BossHealed equal to the real APR interest (idempotent
-        per period). Returns the interest cents."""
+        per period). Returns the interest cents. ``user_id`` (when given) scopes
+        the liability lookup to the owner."""
         from .events import GameEventDraft, record_events
 
-        liab = self._liab(liability_id)
+        liab = self._liab(liability_id, user_id=user_id)
         if liab is None:
             raise ValueError("liability not found")
         state = _boss(self.db, liability_id)
@@ -394,7 +411,8 @@ class BossService:
         Returns {date, copy_key}. Under Grace the date moves OUT and the copy key
         switches to the 'retreat' variant — never a 'you fell behind' message.
         """
-        liab = self._liab(liability_id)
+        owner_id = getattr(user, "id", None)
+        liab = self._liab(liability_id, user_id=owner_id)
         state = _boss(self.db, liability_id)
         hp = state["hp"] if state["hp"] is not None else (liab.principal_cents if liab else 0)
         pay = max(liab.minimum_payment_cents if liab else 0, 1)

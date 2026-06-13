@@ -153,6 +153,88 @@ def test_negative_ahead_window(db_session, user_acct):
     assert not any(a.type == "NEGATIVE_AHEAD" for a in far)
 
 
+# ── Step 09: periodless-alert fix (balance re-fires; bill key unchanged) ──
+
+
+def _alert_keys(db_session) -> list[str]:
+    return list(db_session.execute(
+        text("SELECT idempotency_key FROM game_events WHERE type='AlertFired'")
+    ).scalars().all())
+
+
+def test_balance_alert_refires_next_period(db_session, user_acct):
+    """The balance NEGATIVE_AHEAD alert was periodless (entity='balance'), so it
+    fired ONCE per DB lifetime. Step 09 puts the evaluation period in the entity,
+    so it re-fires in P+1 — while still de-duping WITHIN a period."""
+    user, acct = user_acct
+    # A WEEKLY bill big enough to drive the projected balance negative within the
+    # 5-day window in BOTH evaluation weeks (anchor 2026-05-28 → occurrences land
+    # 06-04, 06-11, ... — one inside each week's window). This is the recurring
+    # negative-ahead condition that used to fire ONCE per DB lifetime.
+    _bill(db_session, acct, title="Big", amount_cents=500_00, anchor="2026-05-28",
+          recurrence="weekly")
+    engine = AlertEngine(db_session)
+
+    p1 = date(2026, 6, 1)   # ISO 2026-W23; window → 06-06 covers the 06-04 dip
+    p2 = date(2026, 6, 8)   # ISO 2026-W24; window → 06-13 covers the 06-11 dip
+
+    # Period P: fires once.
+    a1 = engine.evaluate(_u(user), p1)
+    neg1 = [a for a in a1 if a.type == "NEGATIVE_AHEAD"]
+    assert neg1, "expected a NEGATIVE_AHEAD alert in period P"
+    key_p1 = neg1[0].idempotency_key()
+
+    # Same period, re-evaluated a day later → SAME key → dedup (no re-fire).
+    a1b = engine.evaluate(_u(user), date(2026, 6, 3))
+    neg1b = [a for a in a1b if a.type == "NEGATIVE_AHEAD"]
+    assert neg1b and neg1b[0].idempotency_key() == key_p1  # same week → same key
+
+    # Next period P+1 → DISTINCT key → re-fires.
+    a2 = engine.evaluate(_u(user), p2)
+    neg2 = [a for a in a2 if a.type == "NEGATIVE_AHEAD"]
+    assert neg2, "expected the balance alert to re-fire in period P+1"
+    key_p2 = neg2[0].idempotency_key()
+    assert key_p2 != key_p1, "periodless bug: balance key did not change across periods"
+
+
+def test_bill_alert_key_unchanged(db_session, user_acct):
+    """Regression guard: the BILL alert idempotency key must be byte-identical
+    before/after Step 09's change — proving we did NOT reintroduce the every-
+    evening re-fire by stamping fires_at globally. A later due date still yields
+    a distinct key."""
+    from server.src.services.game.alerts import Alert, idem_key
+
+    # The exact bill-alert shape the engine constructs (entity = "title:date").
+    bill = Alert(
+        type="BILL_DIP", fires_at="2026-06-01", expires_at="2026-06-04",
+        entity="Rent:2026-06-04", severity=3,
+    )
+    # The pre-Step-09 key shape was f"alert:{type}:{entity}". It must still hold.
+    assert bill.idempotency_key() == "alert:BILL_DIP:Rent:2026-06-04"
+    assert idem_key(kind="BILL_DIP", entity="Rent:2026-06-04") \
+        == "alert:BILL_DIP:Rent:2026-06-04"
+
+    # A bill on a LATER due date gets a distinct key (next month's rent fires).
+    later = Alert(
+        type="BILL_DIP", fires_at="2026-07-01", expires_at="2026-07-04",
+        entity="Rent:2026-07-04", severity=3,
+    )
+    assert later.idempotency_key() != bill.idempotency_key()
+
+    # And re-evaluating the SAME bill on a later evening keeps the SAME key
+    # (no every-evening re-fire) — the engine path proves it end-to-end.
+    user, acct = user_acct
+    _bill(db_session, acct, title="Rent", amount_cents=200_00, anchor="2026-05-04")
+    engine = AlertEngine(db_session)
+    engine.deliver(_u(user), AS_OF)
+    db_session.flush()
+    before = _alert_keys(db_session)
+    engine.deliver(_u(user), AS_OF + timedelta(days=1))
+    db_session.flush()
+    after = _alert_keys(db_session)
+    assert after == before  # same bill, later evening → no duplicate AlertFired
+
+
 # ── 5-8: caps & hygiene ──────────────────────────────────────────────────
 
 

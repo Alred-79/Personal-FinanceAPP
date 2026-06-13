@@ -137,6 +137,68 @@ def test_sweep_never_exceeds_verified_underspend(db_session, user_acct):
     assert swept == 42_00
 
 
+# ── Step 09: per-kind target_param semantics ───────────────────────────────
+
+
+def test_heat_extra_to_boss_bounded(db_session, user_acct):
+    """An ``extra_to_boss`` contract's ``target_param`` is an ABSOLUTE cents
+    target, NOT a percentage. The old single formula treated it as a % of the
+    baseline (target_param * monthly // 100), wildly understating/mis-scaling
+    the sweep. The fix: verified amount = min(real slack, target cents), and it
+    NEVER exceeds the verified underspend."""
+    user, acct = user_acct
+    folds_mod.register_builtin_folds()
+    _confirmed_category(db_session, "Dining")
+    _dining_history(db_session, acct, 200_00)  # baseline 200/mo
+    # Posted June dining = 108 → real slack vs the 200 baseline = 92.
+    db_session.add(ExpenseORM(title="Dining", amount=108_00, date="2026-06-05",
+                              category="Dining", account_id=acct.id))
+    db_session.flush()
+    svc = HeatService(db_session)
+    price = svc.price(_u(user), "Dining", "extra_to_boss", 50_00, AS_OF)  # 50 cents target
+    contract = svc.create(_u(user), MONTH, price, arm="sweep")
+
+    verified = svc.verified_underspend_cents(_u(user), contract, AS_OF)
+    # Cents semantics: min(slack=92_00, target=50_00) = 50_00 — NOT a % value.
+    assert verified == 50_00
+    # The old %-formula would have been 200_00 * 50_00 // 100 = a nonsense huge
+    # number; assert we are nowhere near that, and never above the real slack.
+    assert verified <= 92_00
+    # The sweep never exceeds the verified underspend.
+    swept = svc.sweep_amount_cents(_u(user), contract, 80_00, AS_OF)
+    assert swept == 50_00
+    assert swept <= verified
+
+
+def test_heat_zero_dips_winnable(db_session, user_acct):
+    """A clean (no-dip) month satisfies a ``zero_dips`` contract — it is winnable,
+    not the structurally-unwinnable %-formula. A month that dipped (overdraft)
+    yields zero."""
+    user, acct = user_acct
+    folds_mod.register_builtin_folds()
+    _confirmed_category(db_session, "Dining")
+    _dining_history(db_session, acct, 200_00)
+    db_session.add(ExpenseORM(title="Dining", amount=108_00, date="2026-06-05",
+                              category="Dining", account_id=acct.id))
+    db_session.flush()
+    svc = HeatService(db_session)
+    contract = svc.create(
+        _u(user), MONTH, svc.price(_u(user), "Dining", "zero_dips", 0, AS_OF),
+        arm="sweep")
+
+    # Clean month: account balance is positive → winnable, returns the slack.
+    assert acct.balance >= 0
+    verified_clean = svc.verified_underspend_cents(_u(user), contract, AS_OF)
+    assert verified_clean == 92_00  # slack vs baseline; > 0 → won
+
+    # A dip (overdraft) makes the month unwon → zero verified, zero sweep.
+    acct.balance = -10_00
+    db_session.flush()
+    verified_dip = svc.verified_underspend_cents(_u(user), contract, AS_OF)
+    assert verified_dip == 0
+    assert svc.sweep_amount_cents(_u(user), contract, 80_00, AS_OF) == 0
+
+
 def test_abandon_is_penalty_free(db_session, user_acct):
     user, acct = user_acct
     folds_mod.register_builtin_folds()

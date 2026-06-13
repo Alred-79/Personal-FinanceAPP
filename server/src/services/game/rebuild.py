@@ -92,6 +92,9 @@ def rebuild_projection(session: Session, projection: str) -> int:
     meta.last_event_id = last_id
     meta.rebuilt_at = _utcnow_iso()
     meta.status = "live"
+    # A clean rebuild re-derives the projection from the log, so any prior
+    # fold-failure marker (Step 09) is now resolved — clear it.
+    folds_mod.clear_behind(session, projection)
     session.flush()
     return last_id
 

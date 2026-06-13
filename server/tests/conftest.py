@@ -20,6 +20,12 @@ os.environ.setdefault("plaid_environment", "sandbox")
 # and keyed on key_id (which restarts at 1 per in-memory DB), so it would bleed
 # across tests.  The dedicated 429 test enables it explicitly.
 os.environ.setdefault("mcp_rate_limit_enabled", "false")
+# Step 09: keep the in-process game scheduler (APScheduler) OFF for the whole
+# suite so no background month-close/rollup fires non-deterministically during a
+# test. Tests drive ``scheduler.run_due_game_jobs`` directly. ``start_scheduler``
+# reads this fresh at runtime, and the autouse fixture below also pins the live
+# singleton off in case a test mutates settings.
+os.environ.setdefault("scheduler_enabled", "false")
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.pool import StaticPool
@@ -75,6 +81,23 @@ def _limiter_off_by_default():
     finally:
         limiter.enabled = previous
         limiter.reset()
+
+
+@pytest.fixture(autouse=True)
+def _scheduler_off_by_default():
+    """Pin the game scheduler OFF for every test (Step 09).
+
+    ``start_scheduler`` reads ``settings.scheduler_enabled`` fresh at runtime, so
+    keeping the singleton False here guarantees the TestClient lifespan never
+    starts a background APScheduler that could fire month-close/rollups mid-suite.
+    The dedicated ``test_scheduler_disabled_in_tests`` asserts this default.
+    """
+    previous = settings.scheduler_enabled
+    settings.scheduler_enabled = False
+    try:
+        yield
+    finally:
+        settings.scheduler_enabled = previous
 
 
 @pytest.fixture
