@@ -22,9 +22,11 @@ import { TransactionDialogProps, Frequency, ReceiptDraft } from "@/types";
 import { useStore } from "@/store/store";
 import { CATEGORIES } from "@/lib/colors";
 import { normalizeDraftCategory } from "@/lib/receipt";
+import { todayLocalISO } from "@/lib/dates";
+import { useToast } from "@/hooks/useToast";
 import { ReceiptDropzone } from "./ReceiptDropzone";
 
-const today = () => new Date().toISOString().split("T")[0];
+const today = () => todayLocalISO();
 
 export function TransactionDialog({
   onSubmit,
@@ -49,8 +51,10 @@ export function TransactionDialog({
   const [recurrence, setRecurrence] = useState<string>();
   const [selectedAccount, setSelectedAccount] = useState<string>();
   const [scanning, setScanning] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const { accounts, fetchAccounts } = useStore();
+  const { toast } = useToast();
 
   // Prefill the form from a scanned receipt (whether the draft arrives via the
   // in-dialog dropzone or is passed in by an external quick-action). Account is
@@ -87,7 +91,7 @@ export function TransactionDialog({
     }
   }, [open]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Validate required fields
@@ -95,24 +99,42 @@ export function TransactionDialog({
       return;
     }
 
-    onSubmit({
-      title,
-      amount: parseFloat(amount),
-      date,
-      category,
-      isIncome,
-      account_id: parseInt(selectedAccount),
-      recurrence: recurrence as Frequency | undefined,
-    });
-    setOpen(false);
-    // Reset form
-    setTitle("");
-    setAmount("");
-    setDate(today());
-    setCategory("");
-    setIsIncome(false);
-    setRecurrence(undefined);
-    setSelectedAccount(undefined);
+    // Double-submit guard: ignore a second submit while one is in flight.
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      // Await the save and only treat it as done on success. A fire-and-forget
+      // close-and-clear here would make a *failed* save look like it worked —
+      // the user would believe the transaction posted when it didn't.
+      await onSubmit({
+        title,
+        amount: parseFloat(amount),
+        date,
+        category,
+        isIncome,
+        account_id: parseInt(selectedAccount),
+        recurrence: recurrence as Frequency | undefined,
+      });
+      // Success: close + reset the form.
+      setOpen(false);
+      setTitle("");
+      setAmount("");
+      setDate(today());
+      setCategory("");
+      setIsIncome(false);
+      setRecurrence(undefined);
+      setSelectedAccount(undefined);
+    } catch {
+      // Failure: keep the dialog open and the form populated so the user can
+      // retry without re-keying the entry, and surface the error.
+      toast({
+        variant: "destructive",
+        title: "Could not save transaction",
+        description: "Something went wrong. Please try again.",
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -262,13 +284,14 @@ export function TransactionDialog({
             className={styles.submitButton}
             disabled={
               scanning ||
+              submitting ||
               !title.trim() ||
               !amount ||
               !category ||
               !selectedAccount
             }
           >
-            Add Transaction
+            {submitting ? "Saving…" : "Add Transaction"}
           </Button>
         </form>
       </DialogContent>

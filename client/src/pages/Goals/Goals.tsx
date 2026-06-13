@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { useStore } from "@/store/store";
+import { useToast } from "@/hooks/useToast";
 import { formatCurrency } from "@/lib/format";
 import { Certificate } from "@/components/engraving/Certificate";
 import { Seal } from "@/components/engraving/Seal";
@@ -51,6 +52,17 @@ const Goals: React.FC = () => {
     deleteGoal,
     updateGoalProgress,
   } = useStore();
+  const { toast } = useToast();
+
+  // These store actions rethrow on failure; without a catch the awaiting
+  // handlers below would leak an unhandled rejection AND still close/clear the
+  // dialog as if the save succeeded. Wrap them so a failure is surfaced.
+  const notifyFailure = (title: string) =>
+    toast({
+      variant: "destructive",
+      title,
+      description: "Please try again.",
+    });
 
   useEffect(() => {
     fetchGoals();
@@ -76,7 +88,12 @@ const Goals: React.FC = () => {
   }, [goals]);
 
   const handleCreateGoal = async () => {
-    await addGoal(newGoal);
+    try {
+      await addGoal(newGoal);
+    } catch {
+      notifyFailure("Could not create goal");
+      return; // keep the dialog open + data intact for a retry
+    }
     setNewGoal({
       name: "",
       description: "",
@@ -90,7 +107,12 @@ const Goals: React.FC = () => {
 
   const handleUpdateGoal = async () => {
     if (!selectedGoal?.id) return;
-    await updateGoal(selectedGoal);
+    try {
+      await updateGoal(selectedGoal);
+    } catch {
+      notifyFailure("Could not update goal");
+      return;
+    }
     setSelectedGoal(null);
     setEditGoalDialogOpen(false);
   };
@@ -98,7 +120,15 @@ const Goals: React.FC = () => {
   const handleProgressUpdate = async () => {
     if (!progressUpdateGoal?.id || progressUpdateGoal.progress === undefined)
       return;
-    await updateGoalProgress(progressUpdateGoal.id, progressUpdateGoal.progress);
+    try {
+      await updateGoalProgress(
+        progressUpdateGoal.id,
+        progressUpdateGoal.progress
+      );
+    } catch {
+      notifyFailure("Could not update progress");
+      return;
+    }
     setProgressUpdateGoal(null);
   };
 
@@ -230,7 +260,11 @@ const Goals: React.FC = () => {
                       onClick={async (e) => {
                         e.stopPropagation();
                         if (!goal.id) return;
-                        await deleteGoal(goal.id);
+                        try {
+                          await deleteGoal(goal.id);
+                        } catch {
+                          notifyFailure("Could not delete goal");
+                        }
                       }}
                     >
                       <Trash2 size={17} />
@@ -382,7 +416,12 @@ const Goals: React.FC = () => {
                       onClick={async (e) => {
                         e.stopPropagation();
                         if (!selectedGoal?.id) return;
-                        await deleteGoal(selectedGoal.id);
+                        try {
+                          await deleteGoal(selectedGoal.id);
+                        } catch {
+                          notifyFailure("Could not delete goal");
+                          return;
+                        }
                         setEditGoalDialogOpen(false);
                       }}
                       className="order-2 w-full sm:w-auto"

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useToast } from "@/hooks/useToast";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Trash2, Landmark } from "lucide-react";
@@ -22,6 +23,7 @@ import CustomTooltip from "@/components/custom/Tooltip/Tooltip";
 export default function Accounts() {
   const { accounts, isLoading, fetchAccounts, addAccount, deleteAccount } =
     useStore();
+  const { toast } = useToast();
 
   useEffect(() => {
     fetchAccounts();
@@ -33,6 +35,20 @@ export default function Accounts() {
     balance: number;
   }) => {
     await addAccount(account);
+  };
+
+  // deleteAccount rethrows on failure; without a catch this is an unhandled
+  // rejection and the user gets no feedback that the delete failed.
+  const handleDeleteAccount = async (accountId: number) => {
+    try {
+      await deleteAccount(accountId);
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Could not delete account",
+        description: "Please try again.",
+      });
+    }
   };
 
   const total = accounts.reduce((sum, a) => sum + a.balance, 0);
@@ -75,7 +91,7 @@ export default function Accounts() {
               <button
                 aria-label="Delete account"
                 className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center text-muted-foreground opacity-0 transition-opacity hover:text-debit group-hover:opacity-100"
-                onClick={() => deleteAccount(account.id)}
+                onClick={() => handleDeleteAccount(account.id)}
               >
                 <Trash2 size={17} />
               </button>
@@ -112,8 +128,8 @@ export default function Accounts() {
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart
                       data={
-                        account.transactions
-                          ?.sort(
+                        [...(account.transactions ?? [])]
+                          .sort(
                             (a, b) =>
                               new Date(a.date).getTime() -
                               new Date(b.date).getTime()

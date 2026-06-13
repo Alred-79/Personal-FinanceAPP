@@ -9,7 +9,9 @@ import {
   ReceiptDraft,
 } from "../types";
 import api from "../lib/api";
-import { currentWeekRange } from "../lib/dates";
+import { currentWeekRange, toLocalISODate, parseLocalISODate } from "../lib/dates";
+import { toast } from "../hooks/useToast";
+import { resetGameMode } from "./gameMode";
 
 export type { Account };
 
@@ -124,6 +126,25 @@ export interface S2SPrefs {
 }
 
 import { categoryColor } from "../lib/format";
+
+/**
+ * Per-fetcher AbortControllers. A new call aborts the in-flight previous one so
+ * a slow, stale response can't overwrite a fresh one (e.g. rapid search typing,
+ * fast pagination, flipping the forecast horizon). Module-level because they're
+ * shared singletons across the single store instance.
+ */
+const inflight: Record<string, AbortController | undefined> = {};
+
+/** True for an axios/fetch cancellation we should swallow silently. */
+function isAbort(error: unknown): boolean {
+  if (error == null || typeof error !== "object") return false;
+  const e = error as { name?: string; code?: string };
+  return (
+    e.name === "CanceledError" ||
+    e.name === "AbortError" ||
+    e.code === "ERR_CANCELED"
+  );
+}
 
 interface StoreState {
   transactions: Transaction[];
@@ -264,63 +285,86 @@ interface StoreState {
   fetchSubscriptions: () => Promise<void>;
 }
 
-export const useStore = create<StoreState>((set, get) => ({
-  transactions: [],
-  recentTransactions: [],
-  expenses: [],
+/**
+ * Every non-action field's initial value, in one place. The store seeds itself
+ * from this AND logout() resets to it — so a new slice can't be silently
+ * forgotten on logout (which is how financial state — Safe-to-Spend, the
+ * budget, the selected account — used to leak across a re-login).
+ */
+const initialState = {
+  transactions: [] as Transaction[],
+  recentTransactions: [] as Transaction[],
+  expenses: [] as Expense[],
   budgetAllotment: 1,
-  safeToSpend: null,
+  safeToSpend: null as SafeToSpend | null,
   s2sPrefs: {
     s2s_horizon: "paycheck",
     s2s_include_income: true,
     s2s_include_goals: true,
     s2s_buffer: 0,
-  },
+  } as S2SPrefs,
   spendOverTime: 1,
   fixedPerMonth: 0,
   warningPosition: 25,
   savingsPercent: 20,
   isLoading: false,
   hasLoaded: false,
-  accounts: [],
+  accounts: [] as Account[],
   accountsLoaded: false,
   selectedAccountId: "all",
   transactionsLoaded: false,
   transactionTotal: 0,
   transactionRefreshKey: 0,
-  goals: [],
+  goals: [] as Goal[],
   goalsLoaded: false,
-  user: null,
+  user: null as User | null,
   userLoaded: false,
-  linkToken: null,
+  linkToken: null as string | null,
   isLoggedIn: false,
   settingsLoaded: false,
-  budgets: [],
+  budgets: [] as Budget[],
   budgetsLoaded: false,
-  netWorth: [],
+  netWorth: [] as NetWorthPoint[],
   netWorthLoaded: false,
-  projectedTransactions: [],
+  projectedTransactions: [] as ProjectedTransaction[],
   projectedLoaded: false,
-  forecast: null,
+  forecast: null as Forecast | null,
   forecastLoaded: false,
   forecastHorizon: 30,
-  notifications: [],
+  notifications: [] as Notification[],
   unreadCount: 0,
   notificationsLoaded: false,
-  subscriptions: [],
+  subscriptions: [] as Subscription[],
   subscriptionsLoaded: false,
+};
+
+/**
+ * Fields cleared on logout. The user-identity fields (user, isLoggedIn,
+ * userLoaded) are spread from initialState too, but logout overrides
+ * userLoaded back to false explicitly via the spread (it's already false here).
+ */
+export const useStore = create<StoreState>((set, get) => ({
+  ...initialState,
 
   setSelectedAccountId: (accountId: string) => {
     set({ selectedAccountId: accountId });
   },
 
   fetchAccountTransactions: async (accountId: string, params = {}) => {
+    // Cancel any in-flight transactions fetch so a slow stale response (e.g.
+    // the previous keystroke's search) can't clobber the latest one.
+    inflight.transactions?.abort();
+    const controller = new AbortController();
+    inflight.transactions = controller;
     try {
       const queryParams: Record<string, unknown> = { ...params };
       if (accountId !== "all") {
         queryParams.account_id = accountId;
       }
-      const response = await api.get("/transactions", { params: queryParams });
+      const response = await api.get("/transactions", {
+        params: queryParams,
+        signal: controller.signal,
+      });
       const { items, total } = response.data;
       const transactionsWithColors = items.map((t: Transaction) => ({
         ...t,
@@ -328,7 +372,15 @@ export const useStore = create<StoreState>((set, get) => ({
       }));
       set({ transactions: transactionsWithColors, transactionTotal: total, transactionsLoaded: true });
     } catch (error) {
+      if (isAbort(error)) return; // superseded by a newer request — ignore
       console.error("Error fetching transactions:", error);
+      toast({
+        variant: "destructive",
+        title: "Could not load transactions",
+        description: "Please check your connection and try again.",
+      });
+    } finally {
+      if (inflight.transactions === controller) inflight.transactions = undefined;
     }
   },
 
@@ -359,6 +411,13 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ spendOverTime: spendData, hasLoaded: true });
     } catch (error) {
       console.error("Error fetching initial data:", error);
+      // Surface a load failure instead of silently showing empty/zeroed cards
+      // (which read as "nothing here" rather than "couldn't load").
+      toast({
+        variant: "destructive",
+        title: "Could not load your dashboard",
+        description: "Some figures may be missing. Please refresh.",
+      });
     }
   },
 
@@ -441,6 +500,11 @@ export const useStore = create<StoreState>((set, get) => ({
       });
     } catch (error) {
       console.error("Error fetching accounts:", error);
+      toast({
+        variant: "destructive",
+        title: "Could not load accounts",
+        description: "Please check your connection and try again.",
+      });
     }
   },
 
@@ -558,7 +622,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
       const goalsWithDates = response.data.map((goal: BackendGoal) => ({
         ...goal,
-        deadline: new Date(goal.date),
+        deadline: parseLocalISODate(goal.date),
       }));
       set({ goals: goalsWithDates, goalsLoaded: true });
     } catch (error) {
@@ -571,7 +635,7 @@ export const useStore = create<StoreState>((set, get) => ({
     try {
       const formattedGoal = {
         ...goal,
-        date: goal.deadline.toISOString().split("T")[0],
+        date: toLocalISODate(goal.deadline),
         deadline: undefined,
       };
 
@@ -591,7 +655,7 @@ export const useStore = create<StoreState>((set, get) => ({
     try {
       const formattedGoal = {
         ...goal,
-        date: goal.deadline.toISOString().split("T")[0],
+        date: toLocalISODate(goal.deadline),
         deadline: undefined,
       };
 
@@ -629,7 +693,7 @@ export const useStore = create<StoreState>((set, get) => ({
       const formattedGoal = {
         ...goal,
         progress,
-        date: goal.deadline.toISOString().split("T")[0],
+        date: toLocalISODate(goal.deadline),
         deadline: undefined,
       };
 
@@ -658,35 +722,15 @@ export const useStore = create<StoreState>((set, get) => ({
 
   logout: () => {
     api.post("/logout/").catch(() => {});
-    set({
-      isLoggedIn: false,
-      user: null,
-      userLoaded: false,
-      linkToken: null,
-      hasLoaded: false,
-      accountsLoaded: false,
-      transactionsLoaded: false,
-      goalsLoaded: false,
-      settingsLoaded: false,
-      budgetsLoaded: false,
-      netWorthLoaded: false,
-      projectedLoaded: false,
-      forecastLoaded: false,
-      forecast: null,
-      transactions: [],
-      recentTransactions: [],
-      expenses: [],
-      accounts: [],
-      goals: [],
-      budgets: [],
-      netWorth: [],
-      projectedTransactions: [],
-      notifications: [],
-      unreadCount: 0,
-      notificationsLoaded: false,
-      subscriptions: [],
-      subscriptionsLoaded: false,
-    });
+    // Reset EVERY non-action slice back to its initial value. Spreading
+    // initialState (rather than hand-listing fields) guarantees financial
+    // state — safeToSpend, s2sPrefs, budgetAllotment, selectedAccountId — is
+    // cleared too, so a re-login on the same machine starts from a clean slate
+    // instead of flashing the prior session's numbers.
+    set({ ...initialState });
+    // Reset the game-mode provider to its off default (it fetches once on mount
+    // and otherwise never resets) so game chrome doesn't survive logout.
+    resetGameMode();
   },
 
   fetchLinkToken: async () => {
@@ -694,7 +738,10 @@ export const useStore = create<StoreState>((set, get) => ({
       const user = get().user;
       if (!user) return;
 
-      const response = await api.get(`/plaid/link-token/?user_id=${user.id}`);
+      // Step 03 made this endpoint authed and removed the user_id param — the
+      // server now derives the Plaid client_user_id from the session. Passing
+      // ?user_id= would be ignored (or rejected); use the no-param authed form.
+      const response = await api.get("/plaid/link-token/");
       set({ linkToken: response.data.link_token });
     } catch (error) {
       console.error("Error fetching link token:", error);
@@ -839,20 +886,43 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ projectedTransactions: response.data, projectedLoaded: true });
     } catch (error) {
       console.error("Error fetching projected transactions:", error);
+      // Without this, a backend failure renders as the innocent "Nothing to
+      // project yet" empty state — the user can't tell a real outage apart.
+      toast({
+        variant: "destructive",
+        title: "Could not load projections",
+        description: "Recurring projections may be incomplete. Please refresh.",
+      });
     }
   },
 
   fetchForecast: async (days = 30) => {
+    // Switching horizons fast (30 → 90 → 365) can land responses out of order;
+    // abort the previous so the displayed horizon always matches the last click.
+    inflight.forecast?.abort();
+    const controller = new AbortController();
+    inflight.forecast = controller;
     try {
-      const response = await api.get("/forecast", { params: { days } });
+      const response = await api.get("/forecast", {
+        params: { days },
+        signal: controller.signal,
+      });
       set({
         forecast: response.data,
         forecastLoaded: true,
         forecastHorizon: days,
       });
     } catch (error) {
+      if (isAbort(error)) return; // superseded by a newer horizon — ignore
       console.error("Error fetching forecast:", error);
       set({ forecastLoaded: true });
+      toast({
+        variant: "destructive",
+        title: "Could not load the forecast",
+        description: "Please try again in a moment.",
+      });
+    } finally {
+      if (inflight.forecast === controller) inflight.forecast = undefined;
     }
   },
 

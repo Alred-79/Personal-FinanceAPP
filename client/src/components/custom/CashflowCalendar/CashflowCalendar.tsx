@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/format";
+import { parseLocalISODate, todayLocalISO } from "@/lib/dates";
 import type { Forecast } from "@/store/store";
 
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -18,13 +19,13 @@ export default function CashflowCalendar({ forecast }: { forecast: Forecast }) {
   });
 
   // Build the grid for the month containing horizon_start.
-  const start = new Date(`${forecast.horizon_start}T00:00:00`);
+  const start = parseLocalISODate(forecast.horizon_start);
   const year = start.getFullYear();
   const month = start.getMonth();
   const firstDay = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const leadingBlanks = firstDay.getDay();
-  const todayIso = new Date().toISOString().split("T")[0];
+  const todayIso = todayLocalISO();
 
   const cells: Array<{ iso: string; day: number } | null> = [
     ...Array.from({ length: leadingBlanks }, () => null),

@@ -60,6 +60,18 @@ interface GameModeContextValue {
 
 const GameModeContext = createContext<GameModeContextValue | null>(null);
 
+/**
+ * Logout reset bridge. The provider holds game mode in React state, so the
+ * non-React store (store.ts logout) can't reset it directly. The mounted
+ * provider registers a setter here; resetGameMode() drives every live provider
+ * back to the off default so game chrome never survives a logout. Module-level
+ * (not per-user) — this is a single-user app and the mode is global state.
+ */
+const resetters = new Set<() => void>();
+export function resetGameMode() {
+  resetters.forEach((fn) => fn());
+}
+
 const VALID: readonly GameMode[] = ["off", "ambient", "full"];
 
 function isMode(value: unknown): value is GameMode {
@@ -92,6 +104,16 @@ export function GameModeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.dataset.mode = mode;
   }, [mode]);
+
+  // Register a logout reset hook so store.logout() can drive this provider back
+  // to off (the safe pure-finance default) when the user signs out.
+  useEffect(() => {
+    const reset = () => setModeState("off");
+    resetters.add(reset);
+    return () => {
+      resetters.delete(reset);
+    };
+  }, []);
 
   const setMode = useCallback((next: GameMode) => {
     // Optimistic local switch (synchronous, no reload) + persist to the server.

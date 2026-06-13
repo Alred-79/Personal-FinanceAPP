@@ -1,27 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useStore } from "@/store/store";
 import { useToast } from "@/hooks/useToast";
+import { usePlaidReady, type PlaidHandler } from "@/lib/plaid";
 import { AssistantInterface } from "@/components/custom/AssistantInterface/AssistantInterface";
 import { ChroniclerDrawer } from "@/components/custom/ChroniclerDrawer/ChroniclerDrawer";
 import Header from "./Header";
 import { titleForPath } from "./nav";
-
-declare global {
-  interface Window {
-    Plaid: {
-      create: (config: {
-        token: string;
-        onSuccess: (
-          publicToken: string,
-          metadata: { institution: { name: string } }
-        ) => void;
-        onExit: (err: Error | null) => void;
-        onEvent: (eventName: string, metadata: unknown) => void;
-      }) => { open: () => void };
-    };
-  }
-}
 
 /**
  * Layout for signed in users: a fixed left sidebar on desktop (a drawer on
@@ -33,9 +18,8 @@ export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
-  const [plaidHandler, setPlaidHandler] = useState<{ open: () => void } | null>(
-    null
-  );
+  const [plaidHandler, setPlaidHandler] = useState<PlaidHandler | null>(null);
+  const plaidReady = usePlaidReady();
 
   const {
     user,
@@ -45,29 +29,52 @@ export default function AppShell() {
     exchangePublicToken,
   } = useStore();
 
+  // Keep the latest exchange handler in a ref so the create() effect depends
+  // only on the token + script readiness — not on closures that change each
+  // render (which would re-create and leak Link handlers).
+  const onSuccessRef = useRef<
+    (publicToken: string, name: string) => Promise<void>
+  >(async () => {});
+  onSuccessRef.current = async (publicToken, name) => {
+    try {
+      await exchangePublicToken(publicToken, name);
+      toast({
+        title: "Account Connected",
+        description: `Successfully connected ${name}`,
+      });
+      navigate("/?new-account=true");
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Could not connect your bank",
+        description: "The connection couldn't be completed. Please try again.",
+      });
+    }
+  };
+
   useEffect(() => {
     if (user && !linkToken) fetchLinkToken();
   }, [user, linkToken, fetchLinkToken]);
 
   useEffect(() => {
-    if (!linkToken || !window.Plaid) return;
+    if (!linkToken || !plaidReady || !window.Plaid) return;
     const handler = window.Plaid.create({
       token: linkToken,
-      onSuccess: async (publicToken, metadata) => {
-        await exchangePublicToken(publicToken, metadata.institution.name);
-        toast({
-          title: "Account Connected",
-          description: `Successfully connected ${metadata.institution.name}`,
-        });
-        navigate("/?new-account=true");
-      },
+      onSuccess: (publicToken, metadata) =>
+        onSuccessRef.current(publicToken, metadata.institution.name),
       onExit: (err) => {
         if (err != null) console.error("Error during Link flow:", err);
       },
       onEvent: (eventName, metadata) => console.log("Event:", eventName, metadata),
     });
     setPlaidHandler(handler);
-  }, [linkToken, navigate, toast, exchangePublicToken]);
+    // Destroy the handler on cleanup so re-creating it (new token, unmount)
+    // doesn't leak the prior Link iframe/listeners.
+    return () => {
+      handler.destroy?.();
+      setPlaidHandler(null);
+    };
+  }, [linkToken, plaidReady]);
 
   const handleLogout = () => {
     logout();

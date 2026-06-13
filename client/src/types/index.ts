@@ -79,7 +79,8 @@ export interface TransactionDialogProps {
     isIncome: boolean;
     account_id: number;
     recurrence?: Frequency;
-  }) => void;
+    // May be async: the dialog awaits it and only closes/clears on success.
+  }) => void | Promise<void>;
   /** Controlled open state. When omitted the dialog manages its own state. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;

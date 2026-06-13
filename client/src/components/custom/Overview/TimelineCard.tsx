@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useStore } from "@/store/store";
 import { formatCurrency } from "@/lib/format";
+import { todayLocalISO } from "@/lib/dates";
 import {
   ComposedChart,
   Area,
@@ -35,7 +36,7 @@ export default function TimelineCard() {
     if (!forecastLoaded) fetchForecast(30);
   }, [forecastLoaded, fetchForecast]);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayLocalISO();
 
   const byDate: Record<string, CashflowPoint> = {};
   recentTransactions.forEach((t) => {

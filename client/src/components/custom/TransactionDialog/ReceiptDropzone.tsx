@@ -100,11 +100,14 @@ export function ReceiptDropzone({ onScanned, onScanning }: ReceiptDropzoneProps)
           Scan a receipt to auto-fill
         </>
       )}
+      {/* No `capture` attr: forcing capture="environment" blocked picking an
+          existing receipt photo from the gallery on mobile. Omitting it lets the
+          OS offer BOTH the camera and the gallery; `accept` still scopes to
+          allowed image types. */}
       <input
         ref={inputRef}
         type="file"
         accept={ALLOWED_RECEIPT_TYPES.join(",")}
-        capture="environment"
         className="hidden"
         onChange={(e) => handleFile(e.target.files?.[0])}
       />

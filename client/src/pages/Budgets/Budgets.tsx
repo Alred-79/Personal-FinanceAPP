@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Plus, Trash2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { useStore } from "@/store/store";
+import { useToast } from "@/hooks/useToast";
 import { chartColors } from "@/lib/colors";
 import { formatCurrency, categoryColor } from "@/lib/format";
 import { categoryIcon } from "@/lib/categoryIcon";
@@ -41,29 +42,51 @@ const Budgets: React.FC = () => {
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [newBudget, setNewBudget] = useState<BudgetForm>(emptyForm);
   const [editBudget, setEditBudget] = useState<Budget | null>(null);
+  const { toast } = useToast();
+
+  // The budget store actions rethrow on failure; catch so the failure is
+  // surfaced (and the dialog stays open on the data) instead of an unhandled
+  // rejection that silently closes the form as if the save worked.
+  const notifyFailure = (title: string) =>
+    toast({ variant: "destructive", title, description: "Please try again." });
 
   useEffect(() => {
     fetchBudgets();
   }, [fetchBudgets]);
 
   const handleCreate = async () => {
-    await addBudget(newBudget);
+    try {
+      await addBudget(newBudget);
+    } catch {
+      notifyFailure("Could not create budget");
+      return;
+    }
     setNewBudget(emptyForm);
     setNewDialogOpen(false);
   };
 
   const handleUpdate = async () => {
     if (!editBudget) return;
-    await updateBudget(editBudget.id, {
-      category: editBudget.category,
-      monthly_limit: editBudget.monthly_limit,
-      rollover: editBudget.rollover,
-    });
+    try {
+      await updateBudget(editBudget.id, {
+        category: editBudget.category,
+        monthly_limit: editBudget.monthly_limit,
+        rollover: editBudget.rollover,
+      });
+    } catch {
+      notifyFailure("Could not update budget");
+      return;
+    }
     setEditBudget(null);
   };
 
   const handleDelete = async (id: number) => {
-    await deleteBudget(id);
+    try {
+      await deleteBudget(id);
+    } catch {
+      notifyFailure("Could not delete budget");
+      return;
+    }
     setEditBudget(null);
   };
 

@@ -67,11 +67,13 @@ export function ScanReceiptButton({ onScanned }: ScanReceiptButtonProps) {
         )}
         {scanning ? "Scanning…" : "Scan Receipt"}
       </Button>
+      {/* No `capture` attr: capture="environment" blocked gallery uploads on
+          mobile (camera-only). Omitting it lets the OS offer camera + gallery;
+          `accept` still scopes to allowed image types. */}
       <input
         ref={inputRef}
         type="file"
         accept={ALLOWED_RECEIPT_TYPES.join(",")}
-        capture="environment"
         className="hidden"
         onChange={(e) => handleFile(e.target.files?.[0])}
       />

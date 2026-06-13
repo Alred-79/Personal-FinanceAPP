@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "vitest",
+    "test:dates:zones": "TZ=America/Los_Angeles vitest run lib/dates && TZ=Asia/Tokyo vitest run lib/dates && TZ=Pacific/Kiritimati vitest run lib/dates"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

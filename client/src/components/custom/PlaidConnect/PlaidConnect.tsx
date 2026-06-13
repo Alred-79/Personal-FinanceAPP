@@ -1,52 +1,65 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/useToast";
 import { useStore } from "@/store/store";
+import { usePlaidReady, type PlaidHandler } from "@/lib/plaid";
 import styles from "./PlaidConnect.module.css";
-
-declare global {
-  interface Window {
-    Plaid: {
-      create: (config: {
-        token: string;
-        onSuccess: (publicToken: string, metadata: { institution: { name: string } }) => void;
-        onExit: (err: Error | null) => void;
-        onEvent: (eventName: string, metadata: unknown) => void;
-      }) => { open: () => void };
-    };
-  }
-}
 
 export function PlaidConnect() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { linkToken, fetchLinkToken, exchangePublicToken } = useStore();
-  const [plaidHandler, setPlaidHandler] = useState<{ open: () => void } | null>(null);
+  const [plaidHandler, setPlaidHandler] = useState<PlaidHandler | null>(null);
+  const plaidReady = usePlaidReady();
+  // Keep the latest exchange handler in a ref so the create() effect doesn't
+  // re-run (and re-create/leak handlers) on every render that changes a closure.
+  const onSuccessRef = useRef<
+    (publicToken: string, name: string) => Promise<void>
+  >(async () => {});
+
+  onSuccessRef.current = async (publicToken, name) => {
+    try {
+      await exchangePublicToken(publicToken, name);
+      toast({
+        title: "Account Connected",
+        description: `Successfully connected ${name}`,
+      });
+      navigate("/?new-account=true");
+    } catch {
+      // An unhandled exchange failure would leave the user stuck with no signal;
+      // surface it so they can retry.
+      toast({
+        variant: "destructive",
+        title: "Could not connect your bank",
+        description: "The connection couldn't be completed. Please try again.",
+      });
+    }
+  };
 
   useEffect(() => {
     if (!linkToken) fetchLinkToken();
   }, [linkToken, fetchLinkToken]);
 
   useEffect(() => {
-    if (!linkToken || !window.Plaid) return;
+    if (!linkToken || !plaidReady || !window.Plaid) return;
     const handler = window.Plaid.create({
       token: linkToken,
-      onSuccess: async (publicToken, metadata) => {
-        await exchangePublicToken(publicToken, metadata.institution.name);
-        toast({
-          title: "Account Connected",
-          description: `Successfully connected ${metadata.institution.name}`,
-        });
-        navigate("/?new-account=true");
-      },
+      onSuccess: (publicToken, metadata) =>
+        onSuccessRef.current(publicToken, metadata.institution.name),
       onExit: (err) => {
         if (err != null) console.error("Error during Link flow:", err);
       },
       onEvent: (eventName, metadata) => console.log("Event:", eventName, metadata),
     });
     setPlaidHandler(handler);
-  }, [linkToken, navigate, toast, exchangePublicToken]);
+    // Tear the handler down on cleanup so re-creating it (new token, unmount)
+    // doesn't leak the previous Plaid Link iframe/listeners.
+    return () => {
+      handler.destroy?.();
+      setPlaidHandler(null);
+    };
+  }, [linkToken, plaidReady]);
 
   return (
     <div className={styles.container}>
@@ -60,7 +73,7 @@ export function PlaidConnect() {
           className={styles.button}
           disabled={!plaidHandler}
         >
-          Connect a Bank Account
+          {plaidHandler ? "Connect a Bank Account" : "Preparing secure link…"}
         </Button>
       </div>
     </div>

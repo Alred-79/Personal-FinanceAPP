@@ -33,6 +33,25 @@ class IntersectionObserverStub {
 }
 vi.stubGlobal("IntersectionObserver", IntersectionObserverStub);
 
+// Radix UI primitives (Select, etc.) call these DOM methods that jsdom doesn't
+// implement. Stub them so component tests that open a Select don't crash.
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = function scrollIntoView() {};
+} else {
+  Element.prototype.scrollIntoView = function scrollIntoView() {};
+}
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = function hasPointerCapture() {
+    return false;
+  };
+}
+if (!Element.prototype.releasePointerCapture) {
+  Element.prototype.releasePointerCapture = function releasePointerCapture() {};
+}
+if (!Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = function setPointerCapture() {};
+}
+
 // Recharts' ResponsiveContainer measures its parent with ResizeObserver, which
 // reports 0×0 in jsdom — so charts never render an <svg>. Force a fixed size so
 // chart assertions work in tests. (Real layout is unaffected in the browser.)
