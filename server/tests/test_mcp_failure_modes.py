@@ -35,7 +35,6 @@ import anyio.to_thread  # noqa: F401 — ensure submodule is loaded for run_sync
 import pytest
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from server.src.db.models import (
     Account as AccountORM,
@@ -397,13 +396,26 @@ class TestFinancialMisrepresentation:
 # ===========================================================================
 
 @pytest.fixture
-def threaded_engine(monkeypatch):
-    """A shared in-memory SQLite (StaticPool) that vault.read opens per call,
-    so concurrent vault reads exercise real session open/close churn."""
+def threaded_engine(monkeypatch, tmp_path):
+    """A FILE-based SQLite engine that mirrors production: each thread's
+    ``vault.read`` opens its OWN ``SessionLocal()`` and gets its OWN connection
+    from the pool (``check_same_thread=False`` + a real file, NOT a single shared
+    in-memory connection). This is what tests the cross-user isolation property.
+
+    Earlier this fixture used an in-memory ``StaticPool`` — one connection shared
+    by every thread — which made concurrent reads raise ``sqlite3.InterfaceError``
+    (a SQLite single-connection-per-thread rule), masking the actual isolation
+    check behind a harness artifact. The file DB gives each thread its own
+    connection, so the test exercises real concurrency.
+
+    NOTE — the production single-worker invariant still holds: SQLite is a
+    single-writer store and the app runs one uvicorn worker (see
+    ``server/src/mcp/vault.py`` and ``settings.py``). This fixture proves the
+    READ isolation, not horizontal scalability."""
+    db_file = tmp_path / "vault_threads.db"
     engine = create_engine(
-        "sqlite://",
+        f"sqlite:///{db_file}",
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
         future=True,
     )
 

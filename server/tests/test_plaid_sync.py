@@ -279,6 +279,54 @@ class TestSyncModified:
         assert expenses[0].title == "Coffee Shop Revised"
         assert expenses[0].amount == dollars_to_cents(5.75)
 
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_sync_modified_preserves_user_category(
+        self, MockPDB, db_session, seed_user, seed_account
+    ):
+        """A user's learned category must survive a Plaid modify (assessment P1).
+
+        Previously ``_process_modified`` overwrote the category with Plaid's
+        re-guess, silently reverting a manual recategorization. Now it routes
+        through the categorizer, so a learned rename wins; the bank still owns
+        amount/date/title.
+        """
+        from server.src.services.categorization_service import CategorizationService
+
+        account_id, token = seed_account
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+
+        # First sync adds the row with Plaid's category.
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=[_make_plaid_txn("txn_cat", "Joe Coffee", 4.00,
+                                   category=["Food and Drink"])],
+            modified=[], removed=[], next_cursor="c1",
+        )
+        PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        # The user recategorizes this merchant to "Coffee" (a learned rename).
+        CategorizationService(db_session).learn(
+            seed_user.id, "Joe Coffee", "Coffee", source="user"
+        )
+        db_session.flush()
+
+        # Plaid later "corrects" the category back to something else on a modify.
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=[],
+            modified=[_make_plaid_txn("txn_cat", "Joe Coffee", 4.50,
+                                      category=["Restaurants"])],
+            removed=[], next_cursor="c2",
+        )
+        PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        expenses = db_session.execute(select(ExpenseORM)).scalars().all()
+        assert len(expenses) == 1
+        # Bank owns amount; user owns category.
+        assert expenses[0].amount == dollars_to_cents(4.50)
+        assert expenses[0].category == "Coffee"
+
 
 class TestSyncRemoved:
     """sync_transactions removing rows."""

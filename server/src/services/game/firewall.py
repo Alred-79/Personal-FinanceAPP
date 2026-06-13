@@ -56,8 +56,13 @@ _ADVICE_PATTERNS = [
     r"\btax\s+(advice|deduction|write[- ]off|strategy)\b",
     r"\bclaim\s+.*\bon\s+your\s+taxes\b",
     # generic directive advice about money
-    r"\byou\s+should\s+(save|spend|pay|move|put|allocate|cut)\b",
+    r"\byou\s+should\s+(save|spend|pay|move|put|allocate|cut|get|open|choose|pick)\b",
     r"\bi\s+(recommend|advise|suggest)\s+(you|that)\b",
+    # "put your $X / money / savings into <product>" — directive allocation
+    r"\bput\s+your\s+(\$?\d|money|savings|cash|funds?)[^.!?]*\binto\b",
+    # "you should get/open the <card/account/fund/loan>" already covered above by
+    # the get|open verbs; this catches the bare product directive too.
+    r"\b(get|open|choose|pick)\s+(the|a|an|this|that)\s+\w*\s*(card|account|fund|loan|mortgage)\b",
 ]
 
 _NEEDINESS_PATTERNS = [

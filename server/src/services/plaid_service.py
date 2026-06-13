@@ -267,7 +267,9 @@ class PlaidService:
         added = self._process_added(
             result.added, resolve, token.user_id, drafts
         )
-        modified = self._process_modified(result.modified, resolve, drafts)
+        modified = self._process_modified(
+            result.modified, resolve, token.user_id, drafts
+        )
         removed = self._process_removed(result.removed, resolve, drafts)
 
         # Refresh each mapped account's balance from Plaid so forecasts and
@@ -630,15 +632,25 @@ class PlaidService:
         self,
         transactions: list[dict],
         resolve,
+        user_id: int | None = None,
         drafts: list[GameEventDraft] | None = None,
     ) -> int:
         """Update existing transactions by ``plaid_transaction_id``.
 
         *resolve* maps a txn dict to its local ``accounts.id`` (Step 08 routing).
 
+        When *user_id* is given, the category is resolved through the same
+        categorizer the *added* path uses, so a user's learned rename WINS over
+        Plaid's re-guess on a modify (preserving the manual edit). Without it,
+        the canonicalized Plaid category is used. Amount/date/title remain
+        bank-authoritative (the bank is the source of truth for those).
+
         When *drafts* is given, a ``TxnCorrected`` event is appended for each
         posted txn that actually changed against its original ``TxnPosted``.
         """
+        categorizer = (
+            CategorizationService(self.db) if user_id is not None else None
+        )
         count = 0
         for txn in transactions:
             if not _is_usd(txn):
@@ -658,6 +670,13 @@ class PlaidService:
                 continue
             plaid_txn_id = txn["transaction_id"]
             category = _extract_category(txn)
+            # Respect a user's learned rename on modify (don't clobber a manual
+            # category with Plaid's re-guess); falls back to Plaid's category.
+            if categorizer is not None:
+                assert user_id is not None
+                category = categorizer.categorize(
+                    user_id, txn["name"], default=category, use_llm=False
+                )[0]
             amount = txn["amount"]
             # New signed amount in cents: expense (amount>=0) positive, income
             # negative — matches how _process_added stored amount_cents.

@@ -107,6 +107,21 @@ class Settings(BaseSettings):
     groq_chat_model: str = "llama-3.3-70b-versatile"
     assistant_temperature: float = 0.0
     assistant_memory_window: int = 4
+    # --- Privacy: data minimization before the third-party LLM (Groq) ---
+    # High-risk tokens (SSN/email/card/account/phone) are ALWAYS scrubbed from
+    # tool outputs before they reach Groq (see server/src/services/pii.py) — this
+    # is not configurable. ``assistant_minimize_merchants`` is the stricter,
+    # opt-in setting: when True, merchant/account *labels* are replaced with a
+    # category placeholder so no merchant name leaves the instance. Default False
+    # keeps the assistant's merchant-aware answers; privacy-first deployments set
+    # it True.
+    assistant_minimize_merchants: bool = False
+    # --- Safety: advice/crisis firewall on the in-app assistant ---
+    # Screens the assistant's OWN output for unlicensed investment/tax advice,
+    # shame, and neediness (server/src/services/game/firewall.py), and routes a
+    # crisis-language user message to a static 988 resource instead of the LLM.
+    # On by default; the same firewall already guards the Chronicler surface.
+    assistant_firewall_enabled: bool = True
     # Models a user may pick from in the UI. The /settings endpoint exposes this
     # list; switching the active model still happens via groq_chat_model for now.
     assistant_available_models: list[str] = [

@@ -109,6 +109,45 @@ class TestMe:
         assert "email" in body
 
 
+class TestTokenTypeIsolationOnAccessPath:
+    """Assessment P2: the access path must reject a non-access ``typ`` token even
+    if it's signed with the real secret and carries a ``sub`` — so an
+    assistant-action or MCP-capability token can never be replayed as a session
+    credential."""
+
+    def _signed(self, payload):
+        import jwt
+        from datetime import datetime, timezone, timedelta
+
+        return jwt.encode(
+            {"exp": datetime.now(timezone.utc) + timedelta(hours=1), **payload},
+            settings.jwt_secret_key,
+            algorithm=settings.jwt_algorithm,
+        )
+
+    def test_action_typed_token_rejected_as_access(self, client):
+        _signup(client)
+        client.cookies.clear()
+        tok = self._signed({"sub": "authuser", "typ": "assistant_action"})
+        resp = client.get("/api/users/me/", headers={"Authorization": f"Bearer {tok}"})
+        assert resp.status_code == 401
+
+    def test_capability_typed_token_rejected_as_access(self, client):
+        _signup(client)
+        client.cookies.clear()
+        tok = self._signed({"sub": "authuser", "typ": "mcp_capability"})
+        resp = client.get("/api/users/me/", headers={"Authorization": f"Bearer {tok}"})
+        assert resp.status_code == 401
+
+    def test_plain_access_token_without_typ_still_works(self, client):
+        # A normal access token carries no ``typ`` and must keep working.
+        resp = _signup(client)
+        token = resp.json()["access_token"]
+        client.cookies.clear()
+        ok = client.get("/api/users/me/", headers={"Authorization": f"Bearer {token}"})
+        assert ok.status_code == 200
+
+
 class TestSingleUserGuard:
     """Step 01 — registration closes after the first account when single_user=True.
 

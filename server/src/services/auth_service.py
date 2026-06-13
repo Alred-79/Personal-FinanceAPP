@@ -367,6 +367,15 @@ class AuthService:
             payload = jwt.decode(
                 access, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
             )
+            # Defense-in-depth (assessment P2): the access path is identified by
+            # ``sub`` and historically ignored ``typ``. Reject any token carrying
+            # a NON-access ``typ`` (an assistant-action or MCP-capability token)
+            # so a confirm/capability token signed with the same secret can never
+            # be replayed as a session credential, even if it gained a ``sub``.
+            # Access tokens carry no ``typ`` (or, in future, "access").
+            token_type = payload.get("typ")
+            if token_type not in (None, "access"):
+                raise credentials_exception
             username: str | None = payload.get("sub")
             if username is None:
                 raise credentials_exception

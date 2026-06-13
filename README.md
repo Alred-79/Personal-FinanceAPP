@@ -22,9 +22,9 @@ Typed React frontend · FastAPI backend · a security model built so that *read 
 
 ## ✦ Highlights
 
-- 🏦 **Bank sync** through Plaid — transactions categorized automatically, money learned per merchant.
+- 🏦 **Bank sync** through Plaid — transactions categorized automatically, with a per-merchant rule + learned-rename map so your corrections stick across syncs.
 - 📊 **Budgets, goals, recurring bills, net worth, forecasting** — each its own service, each its own tests.
-- 🤖 **A built-in AI assistant** you can *talk to* — streamed token by token — that can also **make changes, but only after you confirm them**.
+- 🤖 **A built-in AI assistant** you can *talk to* — streamed token by token — that can **make changes, but only after you confirm them**, screens its own output for unlicensed advice, and scrubs high-risk PII before anything reaches the model provider.
 - 🔐 **A scoped, audited door for external AI agents** over MCP — so a tool like Claude reads your finances through a capability it can't widen, not a database connection.
 
 The interesting engineering is in that last line. Here's how the whole thing fits together.
@@ -74,6 +74,8 @@ Every guarantee on that path is enforced in code, not by convention:
 A few decisions that show how the codebase thinks. Each started as a real problem, not a checklist item.
 
 **Confirm-then-write is replay-proof across machines.** The assistant *proposes*; the LLM never writes. A change applies only when you return a one-time token to the confirm endpoint. The single-use guarantee is a `UNIQUE` constraint on the token id in the database — not an in-process set — so it holds even behind a load balancer, even on a double-click.
+
+**The assistant minimizes what reaches the model, and screens what comes back.** Before a tool result is handed to the third-party LLM, a deterministic (not LLM-based) scrubber strips high-risk tokens — SSNs, emails, card/account numbers — and an opt-in setting can replace merchant names with category placeholders. On the way out, the same advice firewall that guards the in-game narrator screens the chat's own streamed output for unlicensed investment/tax advice and shame, and a crisis message is routed to a static 988 resource instead of the model. Tool results and fetched web pages are framed to the model as untrusted *data*, never instructions.
 
 **Money is integer cents, end to end.** Every amount is stored as whole cents and converted at the API seam with `Decimal`-based banker's rounding, so `10.99` never drifts. A dedicated migration moved the whole schema off floats without losing data.
 

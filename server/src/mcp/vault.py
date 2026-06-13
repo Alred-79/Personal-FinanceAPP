@@ -5,6 +5,20 @@ Capability token → scope check → read-only session → data layer → redact
 This is the only ``mcp/`` module that imports ``SessionLocal`` directly.  All
 other MCP modules must stay DB-free; the import guard in the test suite enforces
 this.
+
+SINGLE-WORKER INVARIANT (read before scaling out)
+-------------------------------------------------
+``read()`` opens a session from the module-level ``SessionLocal`` per call. With
+the default SQLite backend this is safe for concurrent READS *within one worker*
+(each call gets its own pooled connection), and the session always rolls back so
+nothing is ever written. But the app is a single-uvicorn-worker deployment by
+design — the game scheduler and the in-memory rate limiters share the same
+invariant (see ``settings.py``). SQLite is a single-writer store; running >1
+worker (or moving to a connection setup that shares one connection across
+threads) is NOT supported here without first moving to a real RDBMS. The
+concurrency isolation is covered by
+``test_mcp_failure_modes.py::TestConcurrencyIsolation`` against a file-backed
+engine (the production shape), not an in-memory shared connection.
 """
 
 import time
