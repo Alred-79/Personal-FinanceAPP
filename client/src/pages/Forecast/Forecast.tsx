@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useStore } from "@/store/store";
 import PageHeader from "@/components/layout/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +38,7 @@ const HORIZONS = [
  */
 export default function Forecast() {
   const { forecast, forecastLoaded, forecastHorizon, fetchForecast } = useStore();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     fetchForecast(forecastHorizon || 30);
@@ -45,6 +47,20 @@ export default function Forecast() {
 
   const timeline = forecast?.timeline ?? [];
   const dips = timeline.filter((p) => p.change < 0);
+
+  // A "what-if" deep link from the Homestead reveal (e.g. ?commit=25): show the
+  // projected lift from setting aside $N more each month over this horizon.
+  const commitParam = parseInt(searchParams.get("commit") || "", 10);
+  const commit = Number.isFinite(commitParam) && commitParam > 0 ? commitParam : null;
+  const months =
+    forecast && forecast.timeline.length > 1
+      ? Math.max(1, Math.round((forecastHorizon || 30) / 30))
+      : 0;
+  const dismissCommit = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("commit");
+    setSearchParams(next, { replace: true });
+  };
 
   return (
     <>
@@ -85,6 +101,36 @@ export default function Forecast() {
         </Card>
       ) : (
         <div className="space-y-6">
+          {/* What-if banner from a Homestead deep link (?commit=N). */}
+          {commit && months > 0 && (
+            <Card className="relative overflow-hidden border-gold/50 animate-rise-in">
+              <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
+                <div>
+                  <p className="dept-label text-gold">What if you committed more?</p>
+                  <p className="mt-1 font-sans text-sm text-muted-foreground">
+                    Setting aside{" "}
+                    <span className="font-mono font-semibold text-foreground">
+                      {formatCurrency(commit)}/mo
+                    </span>{" "}
+                    would add about{" "}
+                    <span className="ledger-figures font-semibold text-credit">
+                      {formatCurrency(commit * months)}
+                    </span>{" "}
+                    over this {months === 12 ? "year" : `${months}-month`} window —
+                    lifting your projected balance to{" "}
+                    <span className="ledger-figures font-semibold text-foreground">
+                      {formatCurrency(forecast!.ending_balance + commit * months)}
+                    </span>
+                    .
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" onClick={dismissCommit}>
+                  Dismiss
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           {/* The promissory plate */}
           <Card className="relative overflow-hidden animate-ink-in">
             <div className="text-gold/40">

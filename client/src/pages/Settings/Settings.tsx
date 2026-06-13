@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/useToast";
 import { useStore } from "@/store/store";
 import { IntensitySelector } from "@/components/custom/IntensitySelector/IntensitySelector";
+import { AgentKeys } from "@/components/custom/AgentKeys/AgentKeys";
+import { StandingOrders } from "@/components/custom/StandingOrders/StandingOrders";
 import api from "@/lib/api";
 
 /**
@@ -183,7 +185,9 @@ export default function Settings() {
       <Tabs defaultValue="preferences">
         <TabsList>
           <TabsTrigger value="preferences">Preferences</TabsTrigger>
+          <TabsTrigger value="automation">Automation</TabsTrigger>
           <TabsTrigger value="accounts">Accounts</TabsTrigger>
+          <TabsTrigger value="agent-keys">Agent Keys</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
         </TabsList>
 
@@ -264,6 +268,16 @@ export default function Settings() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Automation — standing-order rules (categorize / notify) */}
+        <TabsContent value="automation">
+          <StandingOrders />
+        </TabsContent>
+
+        {/* Agent Keys — MCP capability key management */}
+        <TabsContent value="agent-keys">
+          <AgentKeys />
         </TabsContent>
 
         {/* Security */}

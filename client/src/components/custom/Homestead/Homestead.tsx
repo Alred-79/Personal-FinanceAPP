@@ -7,6 +7,7 @@
  * suppressed entirely under strain. All numbers are the engine's.
  */
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { useFlags } from "@/store/gameMode";
 import api from "@/lib/api";
@@ -25,6 +26,7 @@ function dollars(cents: number): string {
 
 export function Homestead() {
   const { gameLayer } = useFlags();
+  const navigate = useNavigate();
   const [reveal, setReveal] = useState<Reveal | null>(null);
 
   useEffect(() => {
@@ -33,6 +35,14 @@ export function Homestead() {
   }, [gameLayer]);
 
   if (!gameLayer || !reveal || reveal.suppressed) return null;
+
+  // The commit action's deep_link is an in-app route (e.g. "/forecast?commit=25").
+  // Navigate there via the router so the button actually takes the user
+  // somewhere instead of doing nothing.
+  const runAction = () => {
+    const link = reveal.action?.deep_link;
+    if (link) navigate(link);
+  };
 
   return (
     <Card data-testid="homestead">
@@ -53,7 +63,8 @@ export function Homestead() {
         {reveal.action ? (
           <button
             data-testid="homestead-action"
-            className="press mt-4 border border-gold/60 bg-gold/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-gold shadow-plate"
+            onClick={runAction}
+            className="press mt-4 border border-gold/60 bg-gold/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-gold shadow-plate transition-colors hover:bg-gold/20"
           >
             {reveal.action.label}
           </button>
