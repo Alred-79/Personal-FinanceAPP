@@ -485,3 +485,162 @@ def test_sync_apply_is_atomic_crash_leaves_no_orphans(db_session, user_acct):
     events = db_session.execute(text(
         "SELECT COUNT(*) FROM game_events WHERE type = 'TxnPosted'")).scalar_one()
     assert expenses == 1 and events == 1  # both, or neither — never one
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Step 02 (v5) — rate-limit & LLM-cost infrastructure
+# ════════════════════════════════════════════════════════════════════════════
+
+from starlette.requests import Request as StarletteRequest
+
+from server.src.limiter import _client_key
+from server.src.services import llm_budget
+from server.src.settings import settings as app_settings
+
+
+def _fake_request(headers: dict, client_host: str = "203.0.113.9") -> StarletteRequest:
+    """A minimal Starlette Request with a direct-peer host and given headers."""
+    raw_headers = [
+        (k.lower().encode("latin-1"), v.encode("latin-1")) for k, v in headers.items()
+    ]
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "headers": raw_headers,
+        "client": (client_host, 5555),
+        "server": ("testserver", 80),
+    }
+    return StarletteRequest(scope)
+
+
+# ── proxy-aware limiter key ──────────────────────────────────────────────────
+
+
+def test_limiter_key_uses_forwarded_when_trusted(monkeypatch):
+    monkeypatch.setattr(app_settings, "trust_proxy", True)
+    req = _fake_request({"x-forwarded-for": "1.2.3.4, 10.0.0.1"})
+    # Left-most hop = the original client, not an intermediate proxy.
+    assert _client_key(req) == "1.2.3.4"
+
+
+def test_limiter_key_uses_real_ip_when_trusted_and_no_xff(monkeypatch):
+    monkeypatch.setattr(app_settings, "trust_proxy", True)
+    req = _fake_request({"x-real-ip": "5.6.7.8"})
+    assert _client_key(req) == "5.6.7.8"
+
+
+def test_limiter_key_ignores_forwarded_when_untrusted(monkeypatch):
+    monkeypatch.setattr(app_settings, "trust_proxy", False)
+    req = _fake_request(
+        {"x-forwarded-for": "1.2.3.4", "x-real-ip": "5.6.7.8"},
+        client_host="203.0.113.9",
+    )
+    key = _client_key(req)
+    # Falls back to the real peer; never honors a spoofable header untrusted.
+    assert key == "203.0.113.9"
+    assert key not in ("1.2.3.4", "5.6.7.8")
+
+
+def test_limiter_key_empty_forwarded_falls_back_no_500(monkeypatch):
+    """Empty/malformed forwarded header → graceful fallback, never a crash."""
+    monkeypatch.setattr(app_settings, "trust_proxy", True)
+    req = _fake_request({"x-forwarded-for": "   "}, client_host="198.51.100.7")
+    assert _client_key(req) == "198.51.100.7"
+
+
+# ── LLM budget primitive ─────────────────────────────────────────────────────
+
+
+def test_budget_blocks_over_cap(db_session, monkeypatch):
+    monkeypatch.setattr(app_settings, "llm_daily_request_budget", 1)
+    llm_budget.check_and_reserve(db_session, user_id=1, requests=1)
+    with pytest.raises(llm_budget.BudgetExceeded):
+        llm_budget.check_and_reserve(db_session, user_id=1, requests=1)
+    # The over-cap reservation must NOT have persisted.
+    used = db_session.execute(text(
+        "SELECT requests FROM llm_usage WHERE user_id = 1")).scalar_one()
+    assert used == 1
+
+
+def test_budget_resets_next_day(db_session, monkeypatch):
+    monkeypatch.setattr(app_settings, "llm_daily_request_budget", 1)
+    monkeypatch.setattr(llm_budget, "today_key", lambda: "2026-06-13")
+    llm_budget.check_and_reserve(db_session, user_id=7, requests=1)
+    with pytest.raises(llm_budget.BudgetExceeded):
+        llm_budget.check_and_reserve(db_session, user_id=7, requests=1)
+    # Next day → fresh row, reservation succeeds.
+    monkeypatch.setattr(llm_budget, "today_key", lambda: "2026-06-14")
+    llm_budget.check_and_reserve(db_session, user_id=7, requests=1)
+    rows = db_session.execute(text(
+        "SELECT day, requests FROM llm_usage WHERE user_id = 7 ORDER BY day")).all()
+    assert [(r.day, r.requests) for r in rows] == [
+        ("2026-06-13", 1), ("2026-06-14", 1)]
+
+
+def test_budget_atomic_increment_no_lost_update(db_session, monkeypatch):
+    """N sequential reservations leave requests=N and tokens=N*K — proves the
+    increment is an issued SQL UPDATE, not a read-modify-write on a stale Python
+    value. (Sequential calls can't surface a real lost update; the concurrency
+    guarantee is the conditional UPDATE's cap-carrying WHERE clause + SQLite's
+    single-writer serialization, asserted structurally below.)"""
+    monkeypatch.setattr(app_settings, "llm_daily_request_budget", 1000)
+    N, K = 12, 37
+    for _ in range(N):
+        llm_budget.check_and_reserve(db_session, user_id=3, est_tokens=K, requests=1)
+    row = db_session.execute(text(
+        "SELECT requests, tokens FROM llm_usage WHERE user_id = 3")).one()
+    assert row.requests == N
+    assert row.tokens == N * K
+
+    # Structural assertion: the cap and the increment live in ONE statement, so
+    # there is no read-then-write window (the real TOCTOU guarantee).
+    import inspect
+    src = inspect.getsource(llm_budget.check_and_reserve)
+    assert "requests + :req <= :budget" in src
+
+
+def test_record_actual_noop_on_zero_keeps_request_count(db_session):
+    llm_budget.check_and_reserve(db_session, user_id=9, requests=1)
+    llm_budget.record_actual(db_session, user_id=9, tokens=0)  # no-op by design
+    row = db_session.execute(text(
+        "SELECT requests, tokens FROM llm_usage WHERE user_id = 9")).one()
+    assert row.requests == 1 and row.tokens == 0
+    # A real token count reconciles the advisory figure; never goes negative.
+    llm_budget.record_actual(db_session, user_id=9, tokens=500)
+    tokens = db_session.execute(text(
+        "SELECT tokens FROM llm_usage WHERE user_id = 9")).scalar_one()
+    assert tokens == 500
+
+
+def test_remaining_tracks_request_budget(db_session, monkeypatch):
+    monkeypatch.setattr(app_settings, "llm_daily_request_budget", 3)
+    assert llm_budget.remaining(db_session, user_id=4) == 3  # no row yet
+    llm_budget.check_and_reserve(db_session, user_id=4, requests=1)
+    assert llm_budget.remaining(db_session, user_id=4) == 2
+    llm_budget.check_and_reserve(db_session, user_id=4, requests=2)
+    assert llm_budget.remaining(db_session, user_id=4) == 0  # clamped, not negative
+
+
+# ── signup rate limit (uses the real opt-in fixture, not a setting flip) ──────
+
+
+def test_signup_rate_limited(client, rate_limited):
+    """With the limiter ON (instance flip via ``rate_limited``), repeated signups
+    from the same key eventually 429. The live decorator captured the default
+    ``signup_rate_limit`` ("5/hour") at import, so the 6th attempt trips it.
+
+    Single-user is OFF for the suite, so each unique signup would otherwise 200;
+    assert the tripping attempt is 429 (never a silent 200) and earlier ones
+    succeed (never a 500)."""
+    statuses = []
+    for i in range(6):
+        resp = client.post("/api/signup/", json={
+            "username": f"rl_user_{i}", "email": f"rl_{i}@x.com",
+            "full_name": "RL U", "password": "Test-password1",
+        })
+        statuses.append(resp.status_code)
+    # First five within the 5/hour window succeed; the sixth is throttled.
+    assert statuses[-1] == 429, statuses
+    assert all(s in (200, 429) for s in statuses), statuses
+    assert 200 in statuses  # the limiter didn't block everything spuriously

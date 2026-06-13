@@ -40,11 +40,41 @@ class Settings(BaseSettings):
 
     # Rate limiting via slowapi. We turn it off in the test suite so repeated
     # login and refresh calls don't trip the limiter.
+    #
+    # NOTE on toggling (Step 02): slowapi captures ``enabled`` at ``Limiter(...)``
+    # construction time and checks the *instance* attribute per request — it never
+    # re-reads this setting. So flipping ``rate_limit_enabled`` at runtime (e.g.
+    # via monkeypatch) does NOT reach the live limiter. Tests must flip
+    # ``limiter.enabled`` on the instance instead (see the ``rate_limited``
+    # fixture in conftest). Contrast ``mcp_rate_limit_enabled``, which the MCP
+    # throttle DOES read fresh per request.
     rate_limit_enabled: bool = True
     login_rate_limit: str = "5/minute"
     refresh_rate_limit: str = "10/minute"
     # Receipt scanning calls the paid Groq vision API, so it gets a limit too.
     receipt_scan_rate_limit: str = "20/minute"
+    # Proxy awareness for the limiter key. ONLY safe when a trusted reverse proxy
+    # overwrites X-Forwarded-For / X-Real-IP on every request; if the app is
+    # directly reachable, a client could spoof those headers to evade limits, so
+    # the default ignores them. See ``server/src/limiter.py::_client_key``.
+    trust_proxy: bool = False
+    # /signup/ is rate-limited too (denial-of-wallet / enumeration defense).
+    signup_rate_limit: str = "5/hour"
+    # General assistant surface limit (chat/propose), wired in Steps 03-04.
+    assistant_rate_limit: str = "20/hour"
+
+    # --- LLM cost ceiling (denial-of-wallet, OWASP LLM10) ---
+    # The HARD cap is REQUESTS/day: it needs no post-stream token count, so it
+    # actually enforces on the streaming chat path (astream_events surfaces no
+    # usage metadata). Every chat/propose call costs 1 request.
+    llm_daily_request_budget: int = 100
+    # Token budget is ADVISORY / observability only until a real streaming token
+    # source is wired (see Step 03). Do NOT present it to the user as a hard cap
+    # while it meters 0 on the streaming path.
+    llm_daily_token_budget: int = 200_000
+    # Agent loop guards (denial-of-wallet on a runaway tool loop), used in Step 03.
+    assistant_max_iterations: int = 8
+    assistant_max_execution_seconds: int = 60
 
     # --- Receipts and forecasting ---
     # Groq multimodal model we use for reading receipts. Override it in env if needed.

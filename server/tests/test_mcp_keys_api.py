@@ -202,18 +202,20 @@ class TestUserIsolation:
 # ---------------------------------------------------------------------------
 
 class TestRateLimit:
-    def test_excessive_creates_return_429(self, client, monkeypatch):
-        """Hitting the key creation endpoint more than the rate limit → 429."""
-        from server.src.settings import settings
-        # Temporarily tighten the limit so the test is fast
-        monkeypatch.setattr(settings, "mcp_key_rate_limit", "3/minute")
-        # Re-enable rate limiting for this test
-        monkeypatch.setattr(settings, "rate_limit_enabled", True)
+    def test_excessive_creates_return_429(self, client, rate_limited):
+        """Hitting the key creation endpoint more than the rate limit → 429.
 
+        The limiter must be turned on via the ``rate_limited`` fixture (it flips
+        the live ``limiter.enabled`` instance attr). ``settings.rate_limit_enabled``
+        cannot re-enable it at runtime: slowapi freezes ``enabled`` at Limiter
+        construction (Step 02 gotcha). Likewise the limit STRING is captured at
+        decoration time, so monkeypatching ``mcp_key_rate_limit`` wouldn't reach
+        the decorator — instead we simply exhaust the live ``20/minute`` window.
+        """
         headers = _signup_and_auth(client, "ratelimituser", "rl@example.com")
 
         responses = []
-        for i in range(10):
+        for i in range(25):  # past the live 20/minute create limit
             r = _create_key(client, headers, name=f"key-{i}")
             responses.append(r.status_code)
 

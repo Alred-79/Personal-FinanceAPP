@@ -66,6 +66,7 @@ async def login_for_access_token(
 
 
 @router.post("/signup/")
+@limiter.limit(settings.signup_rate_limit)
 async def signup(
     request: Request,
     response: Response,

@@ -453,6 +453,30 @@ class MCPKey(Base):
     user = relationship("User", back_populates="mcp_keys")
 
 
+class LlmUsage(Base):
+    """Per-user, per-day LLM cost meter (Step 02 — denial-of-wallet).
+
+    One row per ``(user_id, day)``. ``requests`` is the HARD-cap unit: every
+    chat/propose call reserves 1 request via a conditional UPDATE, so the cap is
+    enforced even on the streaming path (which surfaces no token count).
+    ``tokens`` is ADVISORY/observability only — a best-effort estimate until a
+    real streaming usage source is wired (see Step 03); it must NOT be presented
+    to the user as a working hard cap while it can record 0.
+
+    ``day`` is a server-local date string produced by a single canonical helper
+    (``llm_budget.today_key``) so chat and actions agree on the day boundary.
+    No FK to users on purpose: this is a cost ledger, not financial truth, and a
+    deleted user's meter rows are harmless and pruneable.
+    """
+
+    __tablename__ = "llm_usage"
+
+    user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    day: Mapped[str] = mapped_column(String, primary_key=True)  # server-local YYYY-MM-DD
+    tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # advisory
+    requests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # hard-cap unit
+
+
 # ---------------------------------------------------------------------------
 # v4 game domain (package 01) — the event substrate.
 #

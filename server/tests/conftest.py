@@ -9,9 +9,13 @@ os.environ.setdefault("tavily_api_key", "test_key")
 os.environ.setdefault("plaid_client_id", "test_id")
 os.environ.setdefault("plaid_client_secret", "test_secret")
 os.environ.setdefault("plaid_environment", "sandbox")
-# Disable slowapi rate limiting so repeated login/refresh calls in tests
-# don't trip the limiter.
-os.environ.setdefault("limiter_enabled", "false")
+# NOTE (Step 02): the slowapi limiter is NOT disabled via an env var. The field
+# is ``rate_limit_enabled`` (not ``limiter_enabled``, which was a no-op typo),
+# and more importantly slowapi captures ``enabled`` at Limiter CONSTRUCTION and
+# never re-reads the setting. So the only reliable way to keep the limiter off
+# for the suite is to flip the live instance attribute — done below in
+# ``_limiter_off_by_default``. Tests that assert a 429 opt back IN via the
+# ``rate_limited`` fixture.
 # Disable the per-key MCP rate limit by default — its counter is process-global
 # and keyed on key_id (which restarts at 1 per in-memory DB), so it would bleed
 # across tests.  The dedicated 429 test enables it explicitly.
@@ -46,6 +50,48 @@ def _suite_single_user_off():
         yield
     finally:
         settings.single_user = previous
+
+
+@pytest.fixture(autouse=True)
+def _limiter_off_by_default():
+    """Keep the shared slowapi limiter OFF for every test by default (Step 02).
+
+    The old ``limiter_enabled=false`` env line was a no-op typo (the field is
+    ``rate_limit_enabled``), so the limiter was accidentally ON for the whole
+    suite. We can't fix it via the setting either: slowapi freezes ``enabled``
+    at construction and checks the *instance* attribute per request — it never
+    re-reads the setting. So flip the instance here and also clear any window
+    counts a prior test left behind. Tests that need a real 429 opt back in via
+    the ``rate_limited`` fixture (whose teardown runs first, LIFO, restoring the
+    monkeypatch before this fixture restores the original).
+    """
+    from server.src.limiter import limiter
+
+    previous = limiter.enabled
+    limiter.enabled = False
+    limiter.reset()
+    try:
+        yield
+    finally:
+        limiter.enabled = previous
+        limiter.reset()
+
+
+@pytest.fixture
+def rate_limited(monkeypatch):
+    """Turn the shared slowapi limiter ON for a test and reset its window.
+
+    Flips the INSTANCE attribute (not ``settings.rate_limit_enabled``, which the
+    live limiter never re-reads). ``monkeypatch`` restores it on teardown, which
+    runs before the autouse ``_limiter_off_by_default`` teardown (LIFO), so the
+    default-off state is correctly re-established after the test.
+    """
+    from server.src.limiter import limiter
+
+    monkeypatch.setattr(limiter, "enabled", True)
+    limiter.reset()  # clear any prior counts so the window starts fresh
+    yield limiter
+    limiter.reset()
 
 
 @pytest.fixture
