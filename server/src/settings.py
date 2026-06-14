@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     refresh_rate_limit: str = "10/minute"
     # Receipt scanning calls the paid Groq vision API, so it gets a limit too.
     receipt_scan_rate_limit: str = "20/minute"
+    # Statement / document import (Reconciliation Desk) also calls the paid Groq
+    # vision/chat API — a statement is heavier than a receipt, so the limit is
+    # tighter. The eventual commit goes through the assistant action budget.
+    import_extract_rate_limit: str = "10/minute"
+    # Max bytes for an uploaded statement document (PDF/image). Larger than a
+    # receipt because statements run multiple pages.
+    import_max_bytes: int = 15 * 1024 * 1024  # 15 MB
     # Proxy awareness for the limiter key. ONLY safe when a trusted reverse proxy
     # overwrites X-Forwarded-For / X-Real-IP on every request; if the app is
     # directly reachable, a client could spoof those headers to evade limits, so

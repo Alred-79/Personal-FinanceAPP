@@ -534,6 +534,7 @@ SUPPORTED_ACTIONS = (
     "add_goal",
     "recategorize_transaction",
     "scenario_commit",
+    "commit_import_session",
 )
 
 # Anti-drift single source of truth (C5). ``_HANDLED`` is the explicit set of
@@ -554,6 +555,7 @@ _HANDLED = {
     "add_goal",
     "recategorize_transaction",
     "scenario_commit",
+    "commit_import_session",
 }
 
 _ACTION_TOKEN_TYPE = "assistant_action"
@@ -771,6 +773,18 @@ class ActionService:
                 f"Commit scenario #{norm['scenario_id']} as the standing plan "
                 f"'{norm['name']}'"
             )
+            return norm, summary
+
+        if action == "commit_import_session":
+            # Reconciliation Desk: commit a reviewed import batch as real
+            # transactions. DB-free here — ``execute`` loads the rows fresh (so
+            # the token can't carry tampered row data) and only the session id
+            # rides in the token. The richer "23 txns, balance reconciles" summary
+            # is built by the router from the persisted session before proposing.
+            norm = {
+                "session_id": _coerce_int(params.get("session_id"), "session_id"),
+            }
+            summary = f"Import the reviewed transactions from session #{norm['session_id']}"
             return norm, summary
 
         if action == "create_allocation":
@@ -1025,6 +1039,27 @@ class ActionService:
                 "message": "Scenario committed",
                 "plan_id": plan.id,
                 "rule_ids": rule_ids,
+            }
+
+        if action == "commit_import_session":
+            # Reconciliation Desk: commit a reviewed import batch. The actual
+            # row→transaction work lives in ReconciliationService.commit_session
+            # (which sets each transaction's import_row_id, whose unique index
+            # makes a replayed confirm a no-op). Runs in this same transaction, so
+            # a mid-batch failure rolls the whole import back and frees the token.
+            from server.src.services.reconciliation_service import (
+                ReconciliationService,
+            )
+
+            try:
+                result = ReconciliationService(db).commit_session(
+                    user_id, params["session_id"]
+                )
+            except ValueError as exc:
+                raise ActionError(str(exc))
+            return {
+                "message": f"Imported {result['committed']} transactions",
+                **result,
             }
 
         if action == "create_allocation":

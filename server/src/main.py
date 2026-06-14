@@ -33,6 +33,7 @@ from server.src.routers.networth import router as networth_router
 from server.src.routers.notifications import router as notifications_router
 from server.src.routers.subscriptions import router as subscriptions_router
 from server.src.routers.receipts import router as receipts_router
+from server.src.routers.imports import router as imports_router
 from server.src.routers.forecast import router as forecast_router
 from server.src.routers.settings import router as settings_router
 from server.src.routers.mcp_keys import router as mcp_keys_router
@@ -167,6 +168,7 @@ primary.include_router(networth_router)
 primary.include_router(notifications_router)
 primary.include_router(subscriptions_router)
 primary.include_router(receipts_router)
+primary.include_router(imports_router)
 primary.include_router(forecast_router)
 primary.include_router(settings_router)
 primary.include_router(mcp_keys_router)
