@@ -97,6 +97,24 @@ def test_crit_threshold_boundary(db_session, user_acct):
     assert crits[12500] is False and crits[12600] is True
 
 
+def test_zero_minimum_never_crits(db_session, user_acct):
+    """``minimum_payment_cents == 0`` means "unknown"; without the guard every
+    payment (amount > 0*1.25) would crit. Crits must be suppressed until a real
+    minimum is set."""
+    user, _ = user_acct
+    folds_mod.register_builtin_folds()
+    liab = _liab(db_session, user, minimum_payment_cents=0)
+    svc = BossService(db_session)
+    svc.register_payment(liab.id, 50000, txn_id="big")  # would-be huge payment
+    import json
+    from server.src.db.models import GameEvent
+    ev = json.loads(
+        db_session.query(GameEvent)
+        .filter(GameEvent.type == "BossDamaged").one().payload
+    )
+    assert ev["crit"] is False
+
+
 def test_correction_raises_hp_no_negative_celebration(db_session, user_acct):
     user, _ = user_acct
     folds_mod.register_builtin_folds()

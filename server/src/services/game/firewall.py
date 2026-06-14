@@ -175,3 +175,48 @@ def is_crisis(user_text: str) -> bool:
     """True if user input trips the crisis lexicon → static resource, no LLM."""
     probe = normalize_for_matching(user_text)
     return any(pat.search(probe) for pat in _CRISIS)
+
+
+# ── dispute / complaint routing — a screen on USER INPUT ────────────────────
+# CFPB's June-2023 chatbot Issue Spotlight flags chatbots that fail to recognize
+# a consumer invoking a federal right (a charge dispute, billing error, or a
+# debt-collection / regulatory complaint) and don't route to a human. This app
+# is not the consumer's bank of record — it reads data via Plaid and can't file a
+# Reg E / FCBA dispute on their behalf — so the LLM must NOT improvise a "how to
+# dispute" answer. A hit short-circuits to a static resource pointing the user to
+# their bank and the CFPB, bypassing the model entirely.
+#
+# Precision over recall: these patterns target explicit dispute/complaint/fraud
+# INTENT, not ordinary "what is this charge?" / "why did I spend here?" questions,
+# which must still reach the assistant. The word-boundaried verbs ("dispute",
+# "report"+fraud, "file a complaint", "unauthorized/fraudulent charge") are
+# deliberately narrow.
+_DISPUTE_PATTERNS = [
+    r"\bdispute\b",
+    r"\bchargeback\b",
+    r"\b(unauthorized|fraudulent)\s+(charge|transaction|payment|purchase)\b",
+    r"\bi\s+did\s*n'?t\s+(make|authorize|recognize)\s+(this|that|a)\b",
+    r"\breport\s+(this|that|a|an)?\s*(charge|transaction|payment|fraud|scam)\b",
+    r"\bfile\s+(a\s+)?(complaint|dispute|claim)\b",
+    r"\b(billing|statement)\s+error\b",
+    r"\bstolen\s+(card|account)\b",
+    r"\b(card|account)\s+(was\s+)?stolen\b",
+]
+_DISPUTE = [re.compile(p, re.IGNORECASE) for p in _DISPUTE_PATTERNS]
+
+DISPUTE_RESOURCE = {
+    "type": "dispute_resource",
+    "title": "Disputing a charge",
+    "body": (
+        "To dispute a charge or report fraud, contact your bank or card issuer "
+        "directly — they can freeze the card and open a formal dispute. You can "
+        "also file a complaint with the CFPB at consumerfinance.gov/complaint. "
+        "I can show you your transactions, but I can't open a dispute for you."
+    ),
+}
+
+
+def is_dispute(user_text: str) -> bool:
+    """True if user input signals dispute/complaint intent → static resource, no LLM."""
+    probe = normalize_for_matching(user_text)
+    return any(pat.search(probe) for pat in _DISPUTE)

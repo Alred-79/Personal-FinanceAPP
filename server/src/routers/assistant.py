@@ -30,7 +30,7 @@ from server.src.models import (
     AssistantActionConfirm,
 )
 from server.src.services.auth_service import AuthService
-from server.src.services import llm_budget
+from server.src.services import llm_budget, token_meter
 from server.src.limiter import limiter
 from server.src.settings import settings
 
@@ -74,14 +74,17 @@ async def chat(
     stream fails before any model call, the reserved request is released so a
     failure doesn't permanently burn a daily slot.
     """
+    # Pre-flight: reserve 1 request AND a conservative cost estimate. Both are
+    # hard caps; the generator reconciles the cost to the actual figure (Groq
+    # usage or tiktoken) and refunds/tops-up the difference once the stream ends.
+    est_cost = token_meter.estimate_cost_cents(message)
     try:
         llm_budget.check_and_reserve(
             db,
             current_user.id,
             requests=1,
-            # Advisory only (not a cap): a rough pre-flight token estimate so the
-            # observability figure isn't permanently 0. ~4 chars/token heuristic.
             est_tokens=max(1, len(message) // 4),
+            est_cost_cents=est_cost,
         )
     except llm_budget.BudgetExceeded:
         raise HTTPException(
@@ -90,7 +93,8 @@ async def chat(
         )
 
     return StreamingResponse(
-        assistant_service.chat(current_user, message), media_type="text/event-stream"
+        assistant_service.chat(current_user, message, reserved_cost_cents=est_cost),
+        media_type="text/event-stream",
     )
 
 
@@ -258,5 +262,11 @@ def confirm_action(
         raise HTTPException(status_code=422, detail=str(exc))
     except ActionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    # A confirmed action may have taught the assistant something new about the
+    # user (Pillar 1A — e.g. a recategorize writes a category preference). The
+    # learned memory is baked into the cached executor's system prompt, so evict
+    # it; the next chat turn rebuilds with the updated memory.
+    assistant_service.invalidate_agent(current_user.id)
 
     return {"status": "confirmed", "action": claims["action"], "result": result}

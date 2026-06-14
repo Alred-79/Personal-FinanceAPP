@@ -361,7 +361,7 @@ def test_groq_down_everything_serves_template_fallbacks(db_session, user_acct):
 def test_drawer_survives_assistant_outage(client, db_session, monkeypatch):
     h = _signup(client, "drawerdown", "drawerdown@x.com")
 
-    async def _broken_chat(user, message):
+    async def _broken_chat(user, message, **kwargs):
         raise ConnectionError("assistant down")
         yield  # pragma: no cover — makes this an async generator
 
@@ -372,6 +372,40 @@ def test_drawer_survives_assistant_outage(client, db_session, monkeypatch):
                        json={"message": "how went the week?"}, headers=h)
     assert resp.status_code == 200  # degraded, never an error page
     assert resp.json()["kind"] == "error"
+
+
+def test_drawer_enforces_cost_budget_preflight(client, db_session, monkeypatch):
+    """The drawer reserves the dollar budget BEFORE invoking the assistant: when
+    the day's cost cap is already spent, it returns the friendly daily refusal
+    and never calls chat() — the same pre-flight gate as the streaming endpoint,
+    not a post-hoc 'next call is blocked'."""
+    from server.src.settings import settings as app_settings
+    from server.src.services import llm_budget
+    import server.src.routers.assistant as assistant_router
+
+    monkeypatch.setattr(app_settings, "llm_daily_cost_budget_cents", 5)
+    monkeypatch.setattr(app_settings, "llm_daily_request_budget", 100)
+    h = _signup(client, "drawercost", "drawercost@x.com")
+    from server.src.db.models import User as UserORM
+    from sqlalchemy import select
+    uid = int(db_session.execute(
+        select(UserORM).where(UserORM.username == "drawercost")
+    ).scalar_one().id)
+
+    # Spend the cost budget for today (no request budget pressure).
+    llm_budget.check_and_reserve(db_session, uid, requests=1, est_cost_cents=5)
+    db_session.commit()
+
+    async def _must_not_run(user, message, **kwargs):
+        raise AssertionError("chat() must not run when over the cost budget")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(assistant_router.assistant_service, "chat", _must_not_run)
+
+    resp = client.post("/api/game/chronicler/ask/",
+                       json={"message": "how went the week?"}, headers=h)
+    assert resp.status_code == 200
+    assert resp.json()["kind"] == "refusal"  # friendly daily limit, not an error
 
 
 # ── 25: the Plaid-stale drill (fog everywhere) ──────────────────────────────
@@ -593,11 +627,13 @@ def test_budget_atomic_increment_no_lost_update(db_session, monkeypatch):
     assert row.requests == N
     assert row.tokens == N * K
 
-    # Structural assertion: the cap and the increment live in ONE statement, so
-    # there is no read-then-write window (the real TOCTOU guarantee).
+    # Structural assertion: the caps and the increment live in ONE statement, so
+    # there is no read-then-write window (the real TOCTOU guarantee). Both the
+    # request cap and the A3 dollar cap ride the same conditional UPDATE.
     import inspect
     src = inspect.getsource(llm_budget.check_and_reserve)
-    assert "requests + :req <= :budget" in src
+    assert "requests + :req <= :req_budget" in src
+    assert "cost_cents + :est_cost <= :cost_budget" in src
 
 
 def test_record_actual_noop_on_zero_keeps_request_count(db_session):

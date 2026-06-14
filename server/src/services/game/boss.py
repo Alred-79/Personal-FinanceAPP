@@ -327,7 +327,14 @@ class BossService:
         liab = self._liab(liability_id, user_id=user_id)
         if liab is None:
             raise ValueError("liability not found")
-        crit = amount_cents > liab.minimum_payment_cents * CRIT_MULTIPLE
+        # A crit needs a KNOWN minimum payment. ``minimum_payment_cents == 0`` means
+        # "unknown" (the default until the user enters it), and ``amount > 0 * 1.25``
+        # would make EVERY payment a crit — cheapening the celebration. Suppress
+        # crits until a real minimum is set.
+        crit = (
+            liab.minimum_payment_cents > 0
+            and amount_cents > liab.minimum_payment_cents * CRIT_MULTIPLE
+        )
 
         before = _boss(self.db, liability_id)
         phases_before = set(before.get("phases_broken", []))

@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from ..db.models import Account as AccountORM, Expense as ExpenseORM
 from ..money import cents_to_dollars, dollars_to_cents, round_half_even_cents
+from ..settings import settings
 from .forecast_sim import bootstrap_overdraft
 from .recurring_service import RecurringService
 
@@ -277,6 +278,7 @@ class ForecastService:
                 num_days,
                 pool,
                 rng=rng or random.Random(),
+                block_days=settings.sim_block_days,
             )
             result["overdraft_probability"] = sim["overdraft_probability"]
             result["trough_band"] = {

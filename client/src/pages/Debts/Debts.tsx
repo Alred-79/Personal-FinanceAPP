@@ -23,6 +23,7 @@ interface BossLiability {
   name: string;
   kind: CreatureKind;
   principal_cents: number;
+  minimum_payment_cents: number;
   status: string;
   is_active_boss: boolean;
   boss: { hp: number | null; starting_hp: number | null; defeated: boolean; phases_broken: number[] };
@@ -111,6 +112,15 @@ function ActiveBoss({ boss, hpLabel }: { boss: BossLiability; hpLabel: string })
                 style={{ width: `${pct * 100}%` }}
               />
             </div>
+            {boss.minimum_payment_cents === 0 ? (
+              <p
+                data-testid="min-payment-hint"
+                className="mt-2 text-xs text-muted-foreground"
+              >
+                Set this debt's minimum payment to land critical hits when you pay
+                more than the minimum.
+              </p>
+            ) : null}
           </div>
         </div>
       </CardContent>

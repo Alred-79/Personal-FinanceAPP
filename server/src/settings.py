@@ -104,6 +104,17 @@ class Settings(BaseSettings):
     # source is wired (see Step 03). Do NOT present it to the user as a hard cap
     # while it meters 0 on the streaming path.
     llm_daily_token_budget: int = 200_000
+    # --- Per-user daily DOLLAR ceiling (the real cost cap, enforced) ---
+    # Tokens alone aren't the bill; dollars are. We now meter actual usage —
+    # exact Groq usage_metadata when the response carries it, else a tiktoken
+    # count — convert to cents at the prices below, and DENY pre-flight once the
+    # day's accumulated cost would exceed this cap. Soft-overshoot: the in-flight
+    # turn may exceed by one generation; the NEXT is blocked (same as requests).
+    # Prices are per 1M tokens in cents (Groq llama-3.3-70b-versatile, override in
+    # env when the model or pricing changes). 0 cost-budget disables the $ cap.
+    llm_daily_cost_budget_cents: int = 50  # $0.50/user/day
+    groq_input_price_cents_per_mtok: int = 59   # ~$0.59 / 1M input tokens
+    groq_output_price_cents_per_mtok: int = 79  # ~$0.79 / 1M output tokens
     # Agent loop guards (denial-of-wallet on a runaway tool loop), used in Step 03.
     assistant_max_iterations: int = 8
     assistant_max_execution_seconds: int = 60
@@ -111,6 +122,10 @@ class Settings(BaseSettings):
     # --- Receipts and forecasting ---
     # Groq multimodal model we use for reading receipts. Override it in env if needed.
     groq_vision_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
+    # Moving-block length (days) for the overdraft residual bootstrap. A weekly
+    # block preserves day-of-week spending autocorrelation so the band isn't
+    # overconfident; 1 reverts to the legacy IID draw. See forecast_sim.py.
+    sim_block_days: int = 7
 
     # --- Voice input (speech-to-text) ---
     # Groq hosts Whisper, so voice input reuses ``groq_api_key`` — no new vendor.
@@ -126,6 +141,13 @@ class Settings(BaseSettings):
     groq_chat_model: str = "llama-3.3-70b-versatile"
     assistant_temperature: float = 0.0
     assistant_memory_window: int = 4
+    # --- Context hygiene: cap large tool outputs before they enter agent memory.
+    # A "show all transactions" tool call can return up to MAX_TX_LIMIT (500)
+    # rows; ConversationBufferWindowMemory keeps them for several turns, bloating
+    # context and (paired with the LLM cost cap) the bill. We keep the first N
+    # rows and append a truthful ``_truncated`` marker the model is told to relay
+    # — never a silent drop. 0 disables capping.
+    assistant_tool_max_rows: int = 40
     # --- Privacy: data minimization before the third-party LLM (Groq) ---
     # High-risk tokens (SSN/email/card/account/phone) are ALWAYS scrubbed from
     # tool outputs before they reach Groq (see server/src/services/pii.py) — this

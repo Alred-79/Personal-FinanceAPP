@@ -153,15 +153,44 @@ async def chronicler_ask(
         return {"text": RATE_LIMIT_REFUSAL_PLAIN if plain else RATE_LIMIT_REFUSAL_FULL,
                 "kind": "refusal", "persona": not plain, "ai_label": True, "blocked": False}
 
-    # 3. Assistant, buffered into one string (NOT streamed) so the firewall can
+    # 3. Cost/request budget — reserve PRE-FLIGHT (same hard caps as the chat
+    #    endpoint) so the drawer can't run up spend that only the *next* call
+    #    would notice. The estimate is small (a typical turn is a fraction of a
+    #    cent), so a generous daily $ budget isn't hit by ordinary use; only a
+    #    runaway/abusive pattern trips it. On exceed, return the friendly daily
+    #    refusal in-persona — not a hard error. Crisis (above) is intentionally
+    #    NOT charged, mirroring the streaming path.
+    from server.src.services import llm_budget, token_meter
+
+    est_cost = token_meter.estimate_cost_cents(body.message)
+    try:
+        llm_budget.check_and_reserve(
+            db, current_user.id, requests=1, est_cost_cents=est_cost
+        )
+        # Commit the reservation NOW: chat() reconciles/releases in its OWN
+        # SessionLocal, which (unlike the streaming endpoint, whose request db is
+        # already closed) wouldn't see an uncommitted reservation on this still-
+        # open request db — and the open write txn would block that second
+        # connection under WAL. Commit so the meter row is visible and unlocked.
+        db.commit()
+    except llm_budget.BudgetExceeded:
+        return {"text": RATE_LIMIT_REFUSAL_PLAIN if plain else RATE_LIMIT_REFUSAL_FULL,
+                "kind": "refusal", "persona": not plain, "ai_label": True, "blocked": False}
+
+    # 4. Assistant, buffered into one string (NOT streamed) so the firewall can
     #    screen the whole output before rendering. Reuse the assistant router's
-    #    singleton (the drawer IS the existing assistant with a skin).
+    #    singleton (the drawer IS the existing assistant with a skin). Pass the
+    #    reserved estimate so chat()'s finally block reconciles to actual cost
+    #    (and releases the reservation if no model call happens) instead of
+    #    double-charging.
     from server.src.routers.assistant import assistant_service
 
     persona_system_prompt(mode)  # the skin (the assistant memory carries voice)
     chunks: list[str] = []
     try:
-        async for piece in assistant_service.chat(current_user, body.message):
+        async for piece in assistant_service.chat(
+            current_user, body.message, reserved_cost_cents=est_cost
+        ):
             chunks.append(piece)
     except Exception:
         return {"text": "The chronicle is unavailable right now.", "kind": "error",

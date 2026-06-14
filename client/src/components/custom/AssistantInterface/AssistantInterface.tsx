@@ -173,6 +173,12 @@ export function AssistantInterface() {
             }
             return [...next, { role: "assistant", content: assistantMessage }];
           });
+        } else if (eventType === "crisis" || eventType === "dispute") {
+          // Safety/compliance short-circuits (988 crisis line, charge-dispute
+          // guidance). The server also emits the same text as a `token` frame,
+          // which renders the body; here we just make sure the spinner stops so
+          // the static resource shows immediately and no model reply is awaited.
+          setIsLoading(false);
         } else if (eventType === "done") {
           setIsLoading(false);
         }

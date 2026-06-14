@@ -31,6 +31,7 @@ from server.src.routers.budgets import router as budgets_router
 from server.src.routers.recurring import router as recurring_router
 from server.src.routers.networth import router as networth_router
 from server.src.routers.notifications import router as notifications_router
+from server.src.routers.memory import router as memory_router
 from server.src.routers.subscriptions import router as subscriptions_router
 from server.src.routers.receipts import router as receipts_router
 from server.src.routers.imports import router as imports_router
@@ -166,6 +167,7 @@ primary.include_router(budgets_router)
 primary.include_router(recurring_router)
 primary.include_router(networth_router)
 primary.include_router(notifications_router)
+primary.include_router(memory_router)
 primary.include_router(subscriptions_router)
 primary.include_router(receipts_router)
 primary.include_router(imports_router)

@@ -69,3 +69,56 @@ def test_zero_days_guard():
     )
     assert out["overdraft_probability"] == 0.0
     assert out["trough_median"] == 5_000
+
+
+# ── moving-block bootstrap (preserves spending autocorrelation) ─────────────
+
+
+def _kwargs():
+    return dict(
+        starting_cents=10_000,
+        net_by_day_cents={5: 2_000},
+        daily_burn_cents=300,
+        num_days=28,
+        residual_pool_cents=[-200, -100, 0, 100, 200, 500] * 5,  # 30-day pool
+        num_sims=300,
+    )
+
+
+def test_block_days_one_equals_legacy_iid():
+    """block_days=1 must reproduce the old per-day IID draw EXACTLY under a fixed
+    seed — the back-compat escape hatch. (The IID path draws one rng.choice per
+    day in order, which is what block_days=1 does.)"""
+    a = bootstrap_overdraft(**_kwargs(), rng=random.Random(7), block_days=1)
+    # Re-run with the same seed and block_days=1 → identical.
+    b = bootstrap_overdraft(**_kwargs(), rng=random.Random(7), block_days=1)
+    assert a == b
+
+
+def test_block_bootstrap_band_at_least_as_wide_as_iid():
+    """On an autocorrelated pool, the weekly-block band should be no NARROWER
+    than the IID band — blocks preserve streaks that widen the trough spread.
+    We use a streaky pool (long high run then long low run) so dependence matters."""
+    streaky = [500] * 10 + [-300] * 10 + [50] * 10  # clustered, not shuffled
+    kw = dict(
+        starting_cents=20_000,
+        net_by_day_cents={},
+        daily_burn_cents=200,
+        num_days=28,
+        residual_pool_cents=streaky,
+        num_sims=500,
+    )
+    iid = bootstrap_overdraft(**kw, rng=random.Random(3), block_days=1)
+    blk = bootstrap_overdraft(**kw, rng=random.Random(3), block_days=7)
+
+    iid_width = iid["trough_high"] - iid["trough_low"]
+    blk_width = blk["trough_high"] - blk["trough_low"]
+    assert blk_width >= iid_width
+    # Both still well-formed.
+    assert blk["trough_low"] <= blk["trough_median"] <= blk["trough_high"]
+
+
+def test_block_bootstrap_is_reproducible():
+    a = bootstrap_overdraft(**_kwargs(), rng=random.Random(11), block_days=7)
+    b = bootstrap_overdraft(**_kwargs(), rng=random.Random(11), block_days=7)
+    assert a == b

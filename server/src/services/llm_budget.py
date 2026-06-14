@@ -7,15 +7,16 @@ charge. This module is the shared primitive Steps 03 (chat) and 04
 (propose/confirm) reserve against, so cost control is consistent instead of
 reinvented per endpoint.
 
-Unit honesty (the crux):
-- ``requests`` is the ONLY genuinely-enforced cap. The chat path streams via
-  ``astream_events(version="v2")``, which surfaces no usage metadata, so there
-  is no real post-stream token count to meter. Every chat/propose call costs
-  exactly 1 request; ``settings.llm_daily_request_budget`` is the real ceiling.
-- ``tokens`` is ADVISORY / observability only — a best-effort pre-flight
-  estimate. It is NEVER used to deny a request here, because a token cap that
-  silently records 0 on streaming would read to the user as a working cap while
-  metering nothing. Keep it for the day a real usage source lands (Step 03).
+Units (the crux):
+- ``requests`` — a hard cap (``settings.llm_daily_request_budget``). Every
+  chat/propose call reserves exactly 1.
+- ``cost_cents`` — a hard cap (``settings.llm_daily_cost_budget_cents``), the
+  real DOLLAR ceiling (A3). Pre-flight reserves a conservative estimate; the
+  chat stream reconciles it to the ACTUAL cost — exact Groq ``usage_metadata``
+  when the response carries it, else a tiktoken count — priced via
+  ``token_meter.cost_cents``. Both caps are checked in one conditional UPDATE.
+- ``tokens`` — ADVISORY / observability only (a token total for dashboards);
+  the dollar figure, not this, is what gates spend.
 
 Concurrency: ``check_and_reserve`` is TOCTOU-free. The cap check and the
 increment are a SINGLE conditional UPDATE whose WHERE clause carries the cap
@@ -53,8 +54,8 @@ def _ensure_row(db: Session, user_id: int, day: str) -> None:
     """Seed the (user_id, day) meter row if absent. Idempotent."""
     db.execute(
         text(
-            "INSERT INTO llm_usage (user_id, day, tokens, requests) "
-            "VALUES (:uid, :day, 0, 0) "
+            "INSERT INTO llm_usage (user_id, day, tokens, requests, cost_cents) "
+            "VALUES (:uid, :day, 0, 0, 0) "
             "ON CONFLICT(user_id, day) DO NOTHING"
         ),
         {"uid": user_id, "day": day},
@@ -62,68 +63,113 @@ def _ensure_row(db: Session, user_id: int, day: str) -> None:
 
 
 def check_and_reserve(
-    db: Session, user_id: int, *, est_tokens: int = 0, requests: int = 1
+    db: Session,
+    user_id: int,
+    *,
+    est_tokens: int = 0,
+    est_cost_cents: int = 0,
+    requests: int = 1,
 ) -> None:
-    """Atomically reserve ``requests`` against today's request budget.
+    """Atomically reserve ``requests`` (and an estimated cost) against today.
 
-    Adds ``requests`` (and ``est_tokens`` for observability) in one conditional
-    UPDATE whose WHERE clause enforces the cap. If the UPDATE matches no row
-    (the increment would exceed the budget), the reservation does NOT persist
-    and ``BudgetExceeded`` is raised. The request was either fully reserved or
-    not at all — never a partial/over-cap write.
+    TWO hard caps are enforced in ONE conditional UPDATE: the day's requests
+    must stay ``<= llm_daily_request_budget`` AND the day's accumulated cost must
+    stay ``<= llm_daily_cost_budget_cents`` (when that budget is > 0). If the
+    UPDATE matches no row, neither counter is written and ``BudgetExceeded`` is
+    raised — all-or-nothing, no partial/over-cap write, no read-then-write window.
 
-    ``est_tokens`` rides along on the same statement purely as an advisory
-    estimate; it never gates the reservation (see module docstring).
+    ``est_cost_cents`` is a conservative pre-flight estimate reserved up front;
+    the stream later reconciles it to the actual figure via ``record_cost``.
+    ``est_tokens`` still rides along as the advisory token figure.
     """
     day = today_key()
-    budget = settings.llm_daily_request_budget
+    req_budget = settings.llm_daily_request_budget
+    cost_budget = settings.llm_daily_cost_budget_cents
 
     _ensure_row(db, user_id, day)
 
+    # The cost clause is only enforced when a cost budget is configured (> 0);
+    # ``:cost_budget`` is bound either way so the SQL is static.
+    cost_clause = (
+        "AND cost_cents + :est_cost <= :cost_budget" if cost_budget > 0 else ""
+    )
     result = db.execute(
         text(
             "UPDATE llm_usage "
-            "SET requests = requests + :req, tokens = tokens + :est "
+            "SET requests = requests + :req, tokens = tokens + :est, "
+            "    cost_cents = cost_cents + :est_cost "
             "WHERE user_id = :uid AND day = :day "
-            "AND requests + :req <= :budget"
+            "AND requests + :req <= :req_budget "
+            f"{cost_clause}"
         ),
         {
             "req": requests,
             "est": est_tokens,
+            "est_cost": est_cost_cents,
             "uid": user_id,
             "day": day,
-            "budget": budget,
+            "req_budget": req_budget,
+            "cost_budget": cost_budget,
         },
     )
 
     if result.rowcount == 0:
-        # The row exists (we just seeded it), so a zero rowcount means the cap
-        # clause rejected the increment — over budget.
+        # The row exists (we just seeded it), so a zero rowcount means one of the
+        # cap clauses rejected the increment — over the request or the cost cap.
         raise BudgetExceeded(
-            f"Daily AI request budget of {budget} reached for today."
+            "Daily AI budget reached for today "
+            f"(requests <= {req_budget}, cost <= {cost_budget}c)."
         )
 
 
-def release_request(db: Session, user_id: int, requests: int = 1) -> None:
-    """Give back ``requests`` reserved today when a call did no paid work.
+def release_request(
+    db: Session, user_id: int, requests: int = 1, *, reserved_cost_cents: int = 0
+) -> None:
+    """Give back ``requests`` (and any reserved cost) when a call did no paid work.
 
-    The chat endpoint reserves one request **pre-flight** (the real hard cap).
-    If the stream then errors *before any model call*, no paid Groq/Tavily work
-    happened, so permanently consuming the user's daily slot would be unfair —
-    a buggy client retry could exhaust the cap on errors alone. This decrements
-    the day's request counter (clamped at 0 so it can never go negative), which
-    ``record_actual(.., 0)`` deliberately does NOT do (that only reconciles the
-    advisory token figure). Call it only on the "no model call happened" path.
+    The chat endpoint reserves one request + an estimated cost **pre-flight**
+    (the real hard caps). If the stream then errors *before any model call*, no
+    paid Groq/Tavily work happened, so permanently consuming the user's daily
+    slot or charging the estimate would be unfair — a buggy client retry could
+    exhaust the cap on errors alone. This decrements the request counter and the
+    reserved cost (both clamped at 0). Call it only on the "no model call" path.
     """
-    if requests <= 0:
+    if requests <= 0 and reserved_cost_cents <= 0:
         return
     day = today_key()
     db.execute(
         text(
-            "UPDATE llm_usage SET requests = MAX(0, requests - :req) "
+            "UPDATE llm_usage "
+            "SET requests = MAX(0, requests - :req), "
+            "    cost_cents = MAX(0, cost_cents - :cost) "
             "WHERE user_id = :uid AND day = :day"
         ),
-        {"req": requests, "uid": user_id, "day": day},
+        {"req": max(0, requests), "cost": max(0, reserved_cost_cents),
+         "uid": user_id, "day": day},
+    )
+
+
+def record_cost(
+    db: Session, user_id: int, actual_cost_cents: int, *, reserved_cost_cents: int = 0
+) -> None:
+    """Reconcile the pre-flight cost estimate to the ACTUAL cost after a run.
+
+    Pre-flight reserved ``reserved_cost_cents``; the real run cost
+    ``actual_cost_cents`` (from Groq usage or a tiktoken count). Apply the delta
+    so the day's ``cost_cents`` reflects truth — over-estimates are refunded,
+    under-estimates are topped up. Clamped at 0; never touches the request count.
+    """
+    delta = actual_cost_cents - reserved_cost_cents
+    if delta == 0:
+        return
+    day = today_key()
+    _ensure_row(db, user_id, day)
+    db.execute(
+        text(
+            "UPDATE llm_usage SET cost_cents = MAX(0, cost_cents + :delta) "
+            "WHERE user_id = :uid AND day = :day"
+        ),
+        {"delta": delta, "uid": user_id, "day": day},
     )
 
 

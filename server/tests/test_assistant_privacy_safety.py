@@ -28,7 +28,7 @@ from server.src.db.models import User as UserORM
 from server.src.models import UserInDB
 from server.src.services.assistant_service import AssistantService
 from server.src.services.pii import scrub_secrets, redact_payload
-from server.src.services.game.firewall import screen_output, is_crisis
+from server.src.services.game.firewall import screen_output, is_crisis, is_dispute
 
 
 # ── PII scrubbing (always-on) ───────────────────────────────────────────────
@@ -171,6 +171,44 @@ def test_crisis_input_detected():
     assert not is_crisis("how much did i spend on coffee")
 
 
+# ── dispute / complaint routing (CFPB) ──────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "I want to dispute a charge from Amazon",
+        "There's an unauthorized charge on my account",
+        "How do I report this transaction as fraud?",
+        "I didn't make this purchase",
+        "I need to file a complaint about a billing error",
+        "my card was stolen",
+    ],
+)
+def test_dispute_intent_detected(text):
+    assert is_dispute(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "how much did I spend at Amazon last month",
+        "what is this transaction from Starbucks",
+        "why did I spend so much on food",
+        "show me my recent charges",  # 'charges' alone is not a dispute
+        "can you categorize this purchase",
+    ],
+)
+def test_ordinary_questions_are_not_disputes(text):
+    # Precision over recall: normal spending questions must still reach the LLM.
+    assert not is_dispute(text)
+
+
+def test_dispute_detected_through_unicode_obfuscation():
+    # Full-width obfuscation must not bypass the dispute screen.
+    assert is_dispute("I want to ｄｉｓｐｕｔｅ a charge")
+
+
 # ── prompt-injection: adversarial content must not slip advice through ───────
 
 
@@ -275,6 +313,47 @@ def test_crisis_message_short_circuits_chat_without_calling_the_llm(
     blob = "".join(frames)
     assert "event: crisis" in blob
     assert "988" in blob          # the resource text reached the stream
+    assert "event: done" in blob
+
+
+def test_dispute_message_short_circuits_chat_without_calling_the_llm(
+    db_session, _engine, monkeypatch
+):
+    """A charge-dispute message must emit the static dispute resource and finish
+    WITHOUT ever building/invoking the agent (mirrors the crisis short-circuit)."""
+    TestSession = sessionmaker(
+        bind=_engine, autoflush=False, autocommit=False, future=True
+    )
+    monkeypatch.setattr(svc_mod, "SessionLocal", TestSession)
+
+    u = UserORM(
+        username="disputeuser", full_name="D", email="d@example.com",
+        hashed_password="x",
+    )
+    db_session.add(u)
+    db_session.commit()
+    user = UserInDB(
+        id=u.id, username=u.username, email=u.email, full_name=u.full_name,
+        disabled=False, hashed_password="x",
+    )
+
+    service = AssistantService()
+    monkeypatch.setattr(
+        service, "agents",
+        _ExplodingDict("dispute path must not touch the agent/LLM"),
+    )
+
+    frames: list[str] = []
+
+    async def _drive():
+        async for frame in service.chat(user, "I want to dispute a charge"):
+            frames.append(frame)
+
+    anyio.run(_drive)
+
+    blob = "".join(frames)
+    assert "event: dispute" in blob
+    assert "consumerfinance.gov" in blob  # CFPB resource reached the stream
     assert "event: done" in blob
 
 

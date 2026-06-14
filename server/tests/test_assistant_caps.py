@@ -48,7 +48,7 @@ def _user_id(db_session, username="chatter"):
     return int(user.id)
 
 
-async def _empty_stream(user, message):
+async def _empty_stream(user, message, **kwargs):
     """A benign service.chat replacement: emits one frame, makes no model call."""
     yield "event: done\ndata: {}\n\n"
 
@@ -73,6 +73,16 @@ def _usage_requests(session_factory, user_id):
         return s.execute(
             text(
                 "SELECT requests FROM llm_usage WHERE user_id = :uid AND day = :d"
+            ),
+            {"uid": user_id, "d": llm_budget.today_key()},
+        ).scalar_one_or_none()
+
+
+def _usage_cost(session_factory, user_id):
+    with session_factory() as s:
+        return s.execute(
+            text(
+                "SELECT cost_cents FROM llm_usage WHERE user_id = :uid AND day = :d"
             ),
             {"uid": user_id, "d": llm_budget.today_key()},
         ).scalar_one_or_none()
@@ -113,7 +123,7 @@ def test_chat_over_budget_returns_429(client, db_session, monkeypatch):
     llm_budget.check_and_reserve(db_session, uid, requests=1)
     db_session.commit()
 
-    def _boom_chat(user, message):
+    def _boom_chat(user, message, **kwargs):
         raise AssertionError("service.chat must not run when over budget")
 
     monkeypatch.setattr(assistant_router.assistant_service, "chat", _boom_chat)
@@ -243,4 +253,115 @@ def test_reconciliation_uses_own_session(client, db_session, _engine, monkeypatc
 
     # The generator opened exactly one fresh session of its own for reconcile.
     assert opened["count"] >= 1
+    assistant_router.assistant_service.agents.pop(uid, None)
+
+
+# ── Cost cap (A3 — the real per-user daily DOLLAR ceiling) ───────────────────
+
+
+def test_chat_over_cost_budget_returns_429(client, db_session, monkeypatch):
+    """When the day's accumulated cost already meets the dollar cap, chat → 429
+    pre-flight (before any stream), even though requests are still available."""
+    monkeypatch.setattr(settings, "llm_daily_request_budget", 100)
+    monkeypatch.setattr(settings, "llm_daily_cost_budget_cents", 10)
+    h = _signup(client)
+    uid = _user_id(db_session)
+
+    # Burn the cost budget without touching the request budget meaningfully.
+    llm_budget.check_and_reserve(db_session, uid, requests=1, est_cost_cents=10)
+    db_session.commit()
+
+    def _boom_chat(user, message, **kwargs):
+        raise AssertionError("service.chat must not run when over cost budget")
+
+    monkeypatch.setattr(assistant_router.assistant_service, "chat", _boom_chat)
+
+    resp = client.post("/api/assistant/chat/?message=hello", headers=h)
+    assert resp.status_code == 429, resp.text
+    assert "daily ai limit" in resp.text.lower()
+
+
+def test_real_groq_usage_is_recorded_as_cost(
+    client, db_session, _engine, monkeypatch
+):
+    """A stream whose on_chat_model_end carries usage_metadata records the ACTUAL
+    cost (priced from real tokens), reconciled against the pre-flight estimate."""
+    monkeypatch.setattr(settings, "llm_daily_request_budget", 5)
+    monkeypatch.setattr(settings, "llm_daily_cost_budget_cents", 1000)
+    # $1/Mtok in, $2/Mtok out → 1M in + 1M out priced to 300c.
+    monkeypatch.setattr(settings, "groq_input_price_cents_per_mtok", 100)
+    monkeypatch.setattr(settings, "groq_output_price_cents_per_mtok", 200)
+    h = _signup(client)
+    uid = _user_id(db_session)
+    session_factory = _bind_generator_session_to_test_engine(monkeypatch, _engine)
+
+    from types import SimpleNamespace
+
+    executor = MagicMock()
+
+    async def _events(*args, **kwargs):
+        yield {"event": "on_chat_model_start", "name": "ChatGroq", "data": {}}
+        yield {
+            "event": "on_chat_model_stream",
+            "name": "ChatGroq",
+            "data": {"chunk": MagicMock(content="hello there")},
+        }
+        # The provider returns real usage on the end event.
+        yield {
+            "event": "on_chat_model_end",
+            "name": "ChatGroq",
+            "data": {
+                "output": SimpleNamespace(
+                    usage_metadata={
+                        "input_tokens": 1_000_000,
+                        "output_tokens": 1_000_000,
+                        "total_tokens": 2_000_000,
+                    }
+                )
+            },
+        }
+
+    executor.astream_events = _events
+    assistant_router.assistant_service.agents[uid] = executor
+
+    resp = client.post("/api/assistant/chat/?message=hello", headers=h)
+    assert resp.status_code == 200, resp.text
+
+    # Cost reflects the real usage (300c), not the small pre-flight estimate.
+    assert _usage_cost(session_factory, uid) == 300
+    assistant_router.assistant_service.agents.pop(uid, None)
+
+
+def test_tiktoken_fallback_records_cost_when_no_usage(
+    client, db_session, _engine, monkeypatch
+):
+    """When the stream carries NO usage_metadata, cost is still recorded via the
+    tiktoken/char fallback (non-zero), so the dollar cap can't be evaded."""
+    monkeypatch.setattr(settings, "llm_daily_request_budget", 5)
+    monkeypatch.setattr(settings, "llm_daily_cost_budget_cents", 1000)
+    monkeypatch.setattr(settings, "groq_input_price_cents_per_mtok", 100_000)
+    monkeypatch.setattr(settings, "groq_output_price_cents_per_mtok", 100_000)
+    h = _signup(client)
+    uid = _user_id(db_session)
+    session_factory = _bind_generator_session_to_test_engine(monkeypatch, _engine)
+
+    executor = MagicMock()
+
+    async def _events(*args, **kwargs):
+        yield {"event": "on_chat_model_start", "name": "ChatGroq", "data": {}}
+        # Long output, no on_chat_model_end usage → fallback counts it.
+        yield {
+            "event": "on_chat_model_stream",
+            "name": "ChatGroq",
+            "data": {"chunk": MagicMock(content="word " * 200)},
+        }
+
+    executor.astream_events = _events
+    assistant_router.assistant_service.agents[uid] = executor
+
+    resp = client.post("/api/assistant/chat/?message=hello", headers=h)
+    assert resp.status_code == 200, resp.text
+
+    # With high prices and a real output, the fallback records a positive cost.
+    assert (_usage_cost(session_factory, uid) or 0) > 0
     assistant_router.assistant_service.agents.pop(uid, None)

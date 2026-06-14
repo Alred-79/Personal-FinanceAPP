@@ -553,6 +553,11 @@ class LlmUsage(Base):
     day: Mapped[str] = mapped_column(String, primary_key=True)  # server-local YYYY-MM-DD
     tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # advisory
     requests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # hard-cap unit
+    # Accumulated cost in cents — the real $ cap unit. Pre-flight reserves an
+    # estimate; the stream reconciles to actual (Groq usage_metadata or tiktoken
+    # count) priced at settings.groq_*_price_cents_per_mtok. Hard-capped like
+    # requests via a conditional UPDATE in check_and_reserve.
+    cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 # ---------------------------------------------------------------------------
@@ -779,6 +784,43 @@ class CanonFact(Base):
     value: Mapped[str] = mapped_column(String, nullable=False)
     updated_at: Mapped[str] = mapped_column(String, nullable=False)
     source_event_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+
+class UserMemory(Base):
+    """Durable learned facts/preferences about the user (Pillar 1A).
+
+    Unlike :class:`CanonFact` (engine-only, LLM never writes), this store has a
+    *mixed* trust model and is read into the assistant prompt every turn so the
+    Clerk "remembers" the user across sessions. ``source`` records the lane:
+
+    * ``"user"``          — the user stated/edited it (most trusted)
+    * ``"deterministic"`` — derived from app signals (a recategorize, a setting)
+    * ``"llm"``           — extracted by the model at narration time (opt-in,
+      lowest trust; ``value`` is PII-scrubbed and firewall-screened *before*
+      it is ever persisted, so an advice-shaped or secret-bearing fact can
+      never be stored)
+
+    ``key`` is a closed slug (see ``user_memory.MEMORY_KEYS``); ``confidence`` is
+    0–100 (only meaningful for the ``llm`` lane); ``pinned`` facts sort first and
+    survive render truncation. One row per (user, key) — upsert semantics.
+    """
+
+    __tablename__ = "user_memory"
+    __table_args__ = (
+        UniqueConstraint("user_id", "key", name="uq_user_memory_user_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    key: Mapped[str] = mapped_column(String, nullable=False)
+    value: Mapped[str] = mapped_column(String, nullable=False)
+    source: Mapped[str] = mapped_column(String, nullable=False, default="user")
+    confidence: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    pinned: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
 
 
 class LiabilityAdjustment(Base):
