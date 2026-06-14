@@ -288,3 +288,17 @@ export interface CommittedPlan {
   plan_id: number;
   rule_ids: number[];
 }
+
+/** The assistant's ``proposal`` SSE frame (v6 doc 08): a what-if commit offer. */
+export interface AssistantProposal {
+  action: string;
+  scenario_id?: number | null;
+  summary: string;
+  confirm_token: string;
+  diff?: {
+    ending_balance?: number;
+    safe_to_spend?: number;
+    overdraft_probability?: number;
+    timeline?: ForecastPoint[];
+  };
+}

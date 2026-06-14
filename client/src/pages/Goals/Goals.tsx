@@ -1,4 +1,5 @@
 import React, { useState, ChangeEvent, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,6 +54,7 @@ const Goals: React.FC = () => {
     updateGoalProgress,
   } = useStore();
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   // These store actions rethrow on failure; without a catch the awaiting
   // handlers below would leak an unhandled rejection AND still close/clear the
@@ -323,16 +325,29 @@ const Goals: React.FC = () => {
                             </span>
                           )}
                         </p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setProgressUpdateGoal(goal);
-                          }}
-                        >
-                          Deposit
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            aria-label="What if"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/forecast?goal=${goal.id}`);
+                            }}
+                          >
+                            What if…
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setProgressUpdateGoal(goal);
+                            }}
+                          >
+                            Deposit
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </Certificate>
