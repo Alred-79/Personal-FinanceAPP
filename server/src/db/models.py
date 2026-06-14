@@ -96,6 +96,12 @@ class User(Base):
         "MCPKey", back_populates="user", cascade="all, delete-orphan"
     )
     rules = relationship("Rule", back_populates="user", cascade="all, delete-orphan")
+    scenarios = relationship(
+        "Scenario", back_populates="user", cascade="all, delete-orphan"
+    )
+    plans_of_record = relationship(
+        "PlanOfRecord", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Account(Base):
@@ -943,3 +949,66 @@ class MetricFade(Base):
     pin: Mapped[str] = mapped_column(
         String, nullable=False, default="none"
     )  # none | always_active | always_faded
+
+
+class Scenario(Base):
+    """A named, owned ``ScenarioOverlay`` (v6 doc 03).
+
+    The overlay itself lives in ``overlay_json`` as a schema-versioned dict whose
+    every money field is integer cents — there are deliberately NO top-level
+    money columns, so the cents discipline lives entirely inside the JSON. The
+    service converts dollar floats → cents at the API boundary on the way in.
+    """
+
+    __tablename__ = "scenarios"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    overlay_json: Mapped[str] = mapped_column(String, nullable=False, default="{}")  # ScenarioOverlay as JSON (cents)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+
+    user = relationship("User", back_populates="scenarios")
+    plans_of_record = relationship(
+        "PlanOfRecord", back_populates="scenario", passive_deletes=True
+    )
+
+
+class PlanOfRecord(Base):
+    """A committed plan: the rule ids that make it up plus a baseline snapshot to
+    drift-check against later (v6 doc 06).
+
+    ``scenario_id`` is SET NULL when the source scenario is deleted, so a
+    committed plan is never pinned to a still-existing scenario. Both JSON columns
+    hold integer cents where they hold money. ``status`` is ``'active'`` until the
+    plan is retired.
+    """
+
+    __tablename__ = "plans_of_record"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    scenario_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("scenarios.id", ondelete="SET NULL"), nullable=True
+    )
+    rule_ids_json: Mapped[str] = mapped_column(String, nullable=False, default="[]")
+    baseline_snapshot_json: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")
+    committed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+    last_checked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
+
+    user = relationship("User", back_populates="plans_of_record")
+    scenario = relationship("Scenario", back_populates="plans_of_record")
