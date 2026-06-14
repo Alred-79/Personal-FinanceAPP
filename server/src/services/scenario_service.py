@@ -21,14 +21,18 @@ from __future__ import annotations
 
 import json
 import random
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from server.src.dates import parse_iso_date
-from server.src.db.models import Goal as GoalORM, Scenario as ScenarioORM
+from server.src.db.models import (
+    Goal as GoalORM,
+    PlanOfRecord as PlanOfRecordORM,
+    Scenario as ScenarioORM,
+)
 from server.src.models import (
     DiscreteFlowIn,
     GoalMutationIn,
@@ -74,6 +78,16 @@ def _parse_overlay_json(raw: Optional[str]) -> ScenarioOverlay:
 _MONEY_METRICS = ("lowest_balance", "ending_balance", "safe_to_spend")
 # Raw metrics diff directly (a probability in [0,1]; whole days).
 _RAW_METRICS = ("overdraft_probability", "runway_days")
+
+# Drift thresholds (doc 06). A committed plan only nags when reality has slipped
+# *meaningfully* past the locked snapshot — small noise must stay silent.
+#   * overdraft probability that has RISEN by more than this (absolute, [0,1]);
+#   * any goal whose reach date has SLIPPED later than the plan by > N days.
+_OVERDRAFT_DRIFT_THRESHOLD = 0.10
+_GOAL_SLIP_DAYS_THRESHOLD = 14
+# The drift job runs from a fixed seed so a re-check on unchanged reality is
+# noise-free (the same apples-to-apples discipline ``evaluate`` uses).
+_DRIFT_SEED = 0
 
 
 def _seed_of(rng: Optional[random.Random]) -> int:
@@ -407,6 +421,124 @@ class ScenarioService:
                 }
             )
         return {"columns": columns}
+
+    # -- plan-of-record drift tracking (doc 06) ----------------------------
+    def check_drift(
+        self,
+        user_id: int,
+        *,
+        as_of: Optional[date] = None,
+    ) -> list[int]:
+        """Re-check every ACTIVE plan against its locked snapshot.
+
+        For each ``status="active"`` :class:`PlanOfRecord` owned by *user_id*,
+        re-evaluate current reality (the EMPTY overlay column = live data) and
+        compare it against the metrics locked in ``baseline_snapshot_json`` at
+        commit time. When a tracked metric has slipped past threshold — overdraft
+        probability risen by more than :data:`_OVERDRAFT_DRIFT_THRESHOLD`, or any
+        goal's reach date slipped later by more than
+        :data:`_GOAL_SLIP_DAYS_THRESHOLD` days — insert ONE deduped
+        ``plan_drift`` notification (``ref=f"plan_drift:{plan_id}:{period}"`` so a
+        re-run in the same month is idempotent, a new month can re-fire).
+
+        ``last_checked_at`` is stamped on every plan examined, drift or not.
+        Returns the ids of the plans that produced a notification.
+
+        The job is kept light (R7): ``include_outlook=False`` is already implied
+        by ``evaluate``'s column path, the scope is active-only, and a fixed
+        :data:`_DRIFT_SEED` makes a re-check on unchanged reality noise-free.
+        """
+        from server.src.services.notification_service import NotificationService
+
+        as_of = as_of or date.today()
+        period = as_of.strftime("%Y-%m")
+        notifier = NotificationService(self.db)
+        drifted: list[int] = []
+
+        plans = (
+            self.db.execute(
+                select(PlanOfRecordORM).where(
+                    PlanOfRecordORM.user_id == user_id,
+                    PlanOfRecordORM.status == "active",
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        for plan in plans:
+            planned = self._snapshot_metrics(plan.baseline_snapshot_json)
+            # Current reality is the live (EMPTY-overlay) column, seeded the same
+            # way the snapshot's columns were so the comparison is apples-to-apples.
+            current = self.evaluate(
+                user_id, EMPTY, as_of=as_of, rng=random.Random(_DRIFT_SEED)
+            )["baseline"]["result"]
+
+            reasons = self._drift_reasons(planned, current)
+            if reasons:
+                created = notifier._add_if_new(
+                    user_id,
+                    type="plan_drift",
+                    title="Your committed plan is drifting",
+                    message=(
+                        f"Plan #{plan.id} has slipped from its committed outlook: "
+                        + "; ".join(reasons)
+                        + "."
+                    ),
+                    ref=f"plan_drift:{plan.id}:{period}",
+                )
+                if created is not None:
+                    drifted.append(plan.id)
+
+            plan.last_checked_at = datetime.now()
+
+        self.db.flush()
+        return drifted
+
+    @staticmethod
+    def _snapshot_metrics(snapshot_json: str) -> dict:
+        """The plan's committed-intent metric set from a stored evaluate() dict.
+
+        The snapshot is the full ``evaluate`` payload; the plan's intended state
+        is the *scenario* column's ``result`` (the projection under the committed
+        overlay), which is what reality is held to.
+        """
+        snap = json.loads(snapshot_json or "{}")
+        return snap.get("scenario", {}).get("result", {}) or {}
+
+    @staticmethod
+    def _drift_reasons(planned: dict, current: dict) -> list[str]:
+        """Human reasons reality has drifted past threshold, or ``[]`` if within.
+
+        Only DEGRADATION counts: a higher overdraft probability or a *later* goal
+        reach date. Reality coming out ahead of plan is never a nag.
+        """
+        reasons: list[str] = []
+
+        planned_od = planned.get("overdraft_probability")
+        current_od = current.get("overdraft_probability")
+        if planned_od is not None and current_od is not None:
+            if current_od - planned_od > _OVERDRAFT_DRIFT_THRESHOLD:
+                reasons.append(
+                    f"overdraft risk up {(current_od - planned_od) * 100:.0f}%"
+                )
+
+        planned_gr = planned.get("goal_reach", {}) or {}
+        current_gr = current.get("goal_reach", {}) or {}
+        # The snapshot round-trips goal ids through JSON, so planned keys are
+        # strings while a freshly-evaluated current column keys by int. Index
+        # current by str() so either side's typing lines up.
+        current_by_str = {str(k): v for k, v in current_gr.items()}
+        for goal_id, p in planned_gr.items():
+            c = current_by_str.get(str(goal_id))
+            pd = (p or {}).get("reaches_on")
+            cd = (c or {}).get("reaches_on")
+            if pd and cd:
+                slip = (date.fromisoformat(cd) - date.fromisoformat(pd)).days
+                if slip > _GOAL_SLIP_DAYS_THRESHOLD:
+                    reasons.append(f"goal {goal_id} reaches {slip} days later")
+
+        return reasons
 
     # -- internal: one column's metric set ---------------------------------
     def _column_result(

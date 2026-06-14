@@ -172,6 +172,34 @@ def run_due_game_jobs(db: Session, now: Optional[datetime | date] = None) -> dic
 
 
 # ---------------------------------------------------------------------------
+# Plan-of-record drift (v6 doc 06) — the FIRST notification producer in the
+# scheduler. It does not sit alongside an existing one; the game ticks above
+# produce game events, not notifications. Same idempotent + own-session rules.
+# ---------------------------------------------------------------------------
+
+def job_check_plan_drift(db: Session, now: Optional[datetime | date] = None) -> int:
+    """Re-check every user's ACTIVE plans against their locked snapshots.
+
+    Pure and idempotent: ``ScenarioService.check_drift`` dedups its notifications
+    by ``ref`` (``plan_drift:{plan_id}:{period}``), so an overlapping fire or a
+    restart cannot double-notify. Kept light (R7): active-only scope and the
+    fixed-seed cheap sim path live inside ``check_drift``. Returns the total
+    number of plans that produced a notification across all users.
+    """
+    from .services.scenario_service import ScenarioService
+
+    now = now or datetime.now()
+    today = now.date() if isinstance(now, datetime) else now
+
+    svc = ScenarioService(db)
+    total = 0
+    for user in _users(db):
+        total += len(svc.check_drift(user.id, as_of=today))
+    db.flush()
+    return total
+
+
+# ---------------------------------------------------------------------------
 # The scheduled wrappers — own-session, commit, close (no request context).
 # ---------------------------------------------------------------------------
 
@@ -202,6 +230,12 @@ async def _weekly_tick() -> None:
     _run_in_own_session(lambda db: run_due_game_jobs(db, datetime.now()))
 
 
+async def _drift_tick() -> None:
+    """Daily cron: re-check active plans-of-record for drift. Idempotent per
+    ``ref`` so a re-fire within the same month adds no duplicate notification."""
+    _run_in_own_session(lambda db: job_check_plan_drift(db, datetime.now()))
+
+
 # ---------------------------------------------------------------------------
 # APScheduler wiring
 # ---------------------------------------------------------------------------
@@ -229,6 +263,16 @@ def build_scheduler():
         _weekly_tick,
         CronTrigger(day_of_week="mon", hour=0, minute=10),
         id="game_weekly",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+    # Plan-of-record drift (v6 doc 06): a daily re-check of active plans. Gated
+    # cadence + active-only scope + ref dedup keep it cheap and double-fire safe.
+    scheduler.add_job(
+        _drift_tick,
+        CronTrigger(hour=0, minute=20),
+        id="plan_drift",
         replace_existing=True,
         misfire_grace_time=3600,
         coalesce=True,
