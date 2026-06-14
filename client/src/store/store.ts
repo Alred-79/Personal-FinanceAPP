@@ -7,13 +7,21 @@ import {
   Account,
   Frequency,
   ReceiptDraft,
+  ForecastPoint,
+  Scenario,
+  ScenarioDiff,
+  ScenarioCompareResult,
+  ScenarioMutationPayload,
+  CommittedPlan,
 } from "../types";
 import api from "../lib/api";
 import { currentWeekRange, toLocalISODate, parseLocalISODate } from "../lib/dates";
 import { toast } from "../hooks/useToast";
 import { resetGameMode } from "./gameMode";
 
-export type { Account };
+// ``ForecastPoint`` moved to types/index.ts (so the scenario types can reuse it
+// without a store→types→store cycle); re-exported here for existing consumers.
+export type { Account, ForecastPoint };
 
 export interface User {
   id: number;
@@ -71,15 +79,6 @@ export interface ProjectedTransaction {
   account_id: number;
   type: "expense";
   projected: true;
-}
-
-export interface ForecastPoint {
-  date: string;
-  balance: number;
-  change: number;
-  income?: number;
-  expenses?: number;
-  label: string;
 }
 
 export interface Forecast {
@@ -283,6 +282,29 @@ interface StoreState {
   markNotificationRead: (notificationId: number) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   fetchSubscriptions: () => Promise<void>;
+
+  // Scenarios (v6 doc 07) — saved hypotheticals + live evaluate/compare/commit.
+  scenarios: Scenario[];
+  scenariosLoaded: boolean;
+  activeScenarioResult: ScenarioDiff | null;
+  compareResult: ScenarioCompareResult | null;
+  committedPlan: CommittedPlan | null;
+  fetchScenarios: () => Promise<void>;
+  createScenario: (name: string, overlay: ScenarioMutationPayload) => Promise<Scenario>;
+  updateScenario: (
+    id: number,
+    name: string,
+    overlay: ScenarioMutationPayload
+  ) => Promise<void>;
+  deleteScenario: (id: number) => Promise<void>;
+  /** Live-evaluate an in-progress (unsaved) overlay; abortable mid-flight. */
+  runScenario: (
+    overlay: ScenarioMutationPayload,
+    opts?: { name?: string; horizonDays?: number }
+  ) => Promise<void>;
+  compareScenarios: (scenarioIds: number[], horizonDays?: number) => Promise<void>;
+  /** Propose→confirm a saved scenario into a standing plan; refetches on success. */
+  commitScenario: (scenarioId: number, name: string) => Promise<CommittedPlan>;
 }
 
 /**
@@ -336,6 +358,11 @@ const initialState = {
   notificationsLoaded: false,
   subscriptions: [] as Subscription[],
   subscriptionsLoaded: false,
+  scenarios: [] as Scenario[],
+  scenariosLoaded: false,
+  activeScenarioResult: null as ScenarioDiff | null,
+  compareResult: null as ScenarioCompareResult | null,
+  committedPlan: null as CommittedPlan | null,
 };
 
 /**
@@ -983,6 +1010,133 @@ export const useStore = create<StoreState>((set, get) => ({
       });
     } catch (error) {
       console.error("Error changing password:", error);
+      throw error;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  // ── Scenarios (v6 doc 07) ────────────────────────────────────────────────
+  fetchScenarios: async () => {
+    try {
+      const response = await api.get("/scenarios/");
+      set({ scenarios: response.data, scenariosLoaded: true });
+    } catch (error) {
+      console.error("Error fetching scenarios:", error);
+      set({ scenariosLoaded: true });
+    }
+  },
+
+  createScenario: async (name, overlay) => {
+    set({ isLoading: true });
+    try {
+      const response = await api.post("/scenarios/", { name, overlay });
+      set({ scenariosLoaded: false });
+      await get().fetchScenarios();
+      return response.data as Scenario;
+    } catch (error) {
+      console.error("Error creating scenario:", error);
+      throw error;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  updateScenario: async (id, name, overlay) => {
+    set({ isLoading: true });
+    try {
+      await api.put(`/scenarios/${id}/`, { name, overlay });
+      set({ scenariosLoaded: false });
+      await get().fetchScenarios();
+    } catch (error) {
+      console.error("Error updating scenario:", error);
+      throw error;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  deleteScenario: async (id) => {
+    set({ isLoading: true });
+    try {
+      await api.delete(`/scenarios/${id}/`);
+      set({ scenariosLoaded: false });
+      await get().fetchScenarios();
+    } catch (error) {
+      console.error("Error deleting scenario:", error);
+      throw error;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  runScenario: async (overlay, opts = {}) => {
+    // The live builder re-runs on every debounced edit; abort the prior run so a
+    // slow earlier response can't overwrite the freshest overlay's diff. A
+    // dedicated inflight key keeps this independent of the forecast fetch.
+    inflight.scenarioRun?.abort();
+    const controller = new AbortController();
+    inflight.scenarioRun = controller;
+    try {
+      const response = await api.post(
+        "/scenarios/evaluate/",
+        {
+          name: opts.name ?? "Scenario",
+          horizon_days: opts.horizonDays ?? 90,
+          overlay,
+        },
+        { signal: controller.signal }
+      );
+      set({ activeScenarioResult: response.data });
+    } catch (error) {
+      if (isAbort(error)) return; // superseded by a newer overlay — ignore
+      console.error("Error running scenario:", error);
+      toast({
+        variant: "destructive",
+        title: "Could not run the scenario",
+        description: "Please try again in a moment.",
+      });
+    } finally {
+      if (inflight.scenarioRun === controller) inflight.scenarioRun = undefined;
+    }
+  },
+
+  compareScenarios: async (scenarioIds, horizonDays = 90) => {
+    try {
+      const response = await api.post("/scenarios/compare/", {
+        scenario_ids: scenarioIds,
+        horizon_days: horizonDays,
+      });
+      set({ compareResult: response.data });
+    } catch (error) {
+      console.error("Error comparing scenarios:", error);
+      toast({
+        variant: "destructive",
+        title: "Could not compare scenarios",
+        description: "Please try again in a moment.",
+      });
+    }
+  },
+
+  commitScenario: async (scenarioId, name) => {
+    // Two-step gate: propose mints a signed token describing the commit, then
+    // confirm runs it. On success the standing rules change the projection and
+    // a goal's earmark, so refetch forecast + goals to reflect the new reality.
+    set({ isLoading: true });
+    try {
+      const proposal = await api.post("/assistant/actions/propose/", {
+        action: "scenario_commit",
+        params: { scenario_id: scenarioId, name },
+      });
+      const token = proposal.data.token;
+      const confirm = await api.post("/assistant/actions/confirm/", { token });
+      const result = confirm.data.result as CommittedPlan;
+      set({ committedPlan: result });
+      set({ forecastLoaded: false, goalsLoaded: false });
+      await Promise.all([get().fetchForecast(get().forecastHorizon || 30), get().fetchGoals()]);
+      return result;
+    } catch (error) {
+      console.error("Error committing scenario:", error);
       throw error;
     } finally {
       set({ isLoading: false });

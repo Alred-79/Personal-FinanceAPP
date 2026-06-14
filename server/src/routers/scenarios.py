@@ -14,9 +14,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from server.src.db.session import get_db
-from server.src.models import ScenarioCompareIn, ScenarioIn, UserInDB
+from server.src.models import (
+    ScenarioCompareIn,
+    ScenarioEvaluateIn,
+    ScenarioIn,
+    UserInDB,
+)
 from server.src.services.auth_service import AuthService
-from server.src.services.scenario_service import ScenarioService
+from server.src.services.scenario_service import (
+    ScenarioService,
+    overlay_in_to_overlay,
+)
 
 router = APIRouter(prefix="/scenarios", tags=["scenarios"])
 
@@ -102,6 +110,25 @@ async def compare_scenarios(
         )
     except KeyError:
         raise HTTPException(status_code=404, detail="Scenario not found")
+
+
+@router.post("/evaluate/")
+async def evaluate_overlay(
+    payload: ScenarioEvaluateIn,
+    current_user: Annotated[UserInDB, Depends(AuthService.get_current_active_user)],
+    db: Session = Depends(get_db),
+):
+    """Baseline-vs-scenario diff for an ad-hoc, unsaved overlay (live builder).
+
+    The static ``/evaluate/`` path is declared before ``/{scenario_id}/evaluate/``
+    so it is never shadowed by the parameterized route. Money is dollars on the
+    wire; the service owns the dollar↔cents seam.
+    """
+    horizon = min(max(payload.horizon_days, 1), _MAX_HORIZON_DAYS)
+    overlay = overlay_in_to_overlay(payload.overlay)
+    return ScenarioService(db).evaluate(
+        current_user.id, overlay, horizon_days=horizon, name=payload.name
+    )
 
 
 @router.post("/{scenario_id}/evaluate/")

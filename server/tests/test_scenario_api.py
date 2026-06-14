@@ -277,3 +277,44 @@ class TestCompareEndpoint:
             "/api/scenarios/compare/", json={"scenario_ids": [1]}
         )
         assert resp.status_code == 401
+
+
+class TestAdHocEvaluate:
+    """POST /scenarios/evaluate/ diffs an unsaved overlay (the live builder)."""
+
+    def test_evaluate_unsaved_overlay_returns_diff(self, client):
+        headers = _auth_header(client, "ev", "ev@t.com")
+        resp = client.post(
+            "/api/scenarios/evaluate/",
+            json={
+                "name": "Live",
+                "horizon_days": 60,
+                "overlay": {
+                    "added_recurring": [
+                        {"title": "Raise", "amount": 500.0,
+                         "recurrence": "monthly", "kind": "income"}
+                    ]
+                },
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        # The evaluate diff shape: baseline + scenario columns with a delta.
+        assert body["baseline"]["result"].keys() >= {
+            "overdraft_probability", "ending_balance", "safe_to_spend"
+        }
+        assert body["scenario"]["name"] == "Live"
+        assert "delta" in body["scenario"]
+
+    def test_evaluate_empty_overlay_zero_delta(self, client):
+        headers = _auth_header(client, "ev2", "ev2@t.com")
+        resp = client.post(
+            "/api/scenarios/evaluate/", json={"overlay": {}}, headers=headers
+        )
+        assert resp.status_code == 200, resp.text
+        # An empty (identity) overlay diffs to exactly zero against the baseline.
+        assert resp.json()["scenario"]["delta"]["ending_balance"] == 0.0
+
+    def test_evaluate_requires_auth(self, client):
+        assert client.post("/api/scenarios/evaluate/", json={"overlay": {}}).status_code == 401

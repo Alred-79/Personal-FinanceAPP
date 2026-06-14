@@ -120,3 +120,171 @@ export interface ActionMessage {
   text: string;
   timestamp: number;
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Forecast + scenarios (v6).
+//
+// ``ForecastPoint`` lives here (not in store.ts) so the scenario types below can
+// reuse it without a store→types→store import cycle; store.ts re-exports it for
+// its existing consumers. Money is dollar floats on the client; the API boundary
+// converts to/from cents.
+// ───────────────────────────────────────────────────────────────────────────
+
+export interface ForecastPoint {
+  date: string;
+  balance: number;
+  change: number;
+  income?: number;
+  expenses?: number;
+  label: string;
+}
+
+/** The kinds of hypothetical a scenario can stack. */
+export type ScenarioMutationKind =
+  | "income"
+  | "expense"
+  | "oneoff"
+  | "goal"
+  | "balance"
+  | "config";
+
+/**
+ * One row in the stacked builder, a discriminated union on ``kind``. Each row is
+ * an editable, dollar-denominated draft; {@link toOverlayPayload} folds the list
+ * into the API's {@link ScenarioMutationPayload}.
+ */
+export type ScenarioMutation =
+  | {
+      id: string;
+      kind: "income" | "expense";
+      title: string;
+      amount: number;
+      recurrence: string;
+      category?: string;
+      anchorDate?: string;
+    }
+  | {
+      id: string;
+      kind: "oneoff";
+      title: string;
+      amount: number;
+      date: string;
+      flowKind: "income" | "expense";
+      category?: string;
+    }
+  | {
+      id: string;
+      kind: "goal";
+      goalId: number;
+      amount?: number;
+      targetDate?: string;
+      progress?: number;
+      name?: string;
+    }
+  | {
+      id: string;
+      kind: "balance";
+      amount: number;
+    }
+  | {
+      id: string;
+      kind: "config";
+      key: string;
+      value: boolean;
+    };
+
+/** The dollar overlay the API accepts (`ScenarioOverlayIn` on the server). */
+export interface ScenarioMutationPayload {
+  added_recurring: Array<{
+    title: string;
+    amount: number;
+    recurrence: string;
+    kind: "income" | "expense";
+    category?: string;
+    anchor_date?: string | null;
+  }>;
+  excluded_source_ids: Array<[string, number]>;
+  overridden_recurring: Array<{
+    source_id: number;
+    kind: "income" | "expense";
+    amount?: number | null;
+    recurrence?: string | null;
+  }>;
+  discrete_flows: Array<{
+    date: string;
+    amount: number;
+    kind: "income" | "expense";
+    title?: string;
+    category?: string;
+  }>;
+  goal_mutations: Array<{
+    goal_id: number;
+    amount?: number | null;
+    target_date?: string | null;
+    progress?: number | null;
+    name?: string | null;
+  }>;
+  balance_override?: number | null;
+  config_overrides: Record<string, unknown>;
+}
+
+/** A saved scenario as returned by `GET /scenarios/` (dollar overlay). */
+export interface Scenario {
+  id: number;
+  name: string;
+  overlay: ScenarioMutationPayload;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** The metric set for one column of an evaluate/compare run (dollars). */
+export interface ScenarioResult {
+  overdraft_probability: number;
+  lowest_balance: number;
+  ending_balance: number;
+  safe_to_spend: number;
+  runway_days: number;
+  goal_reach: Record<string, { reaches_on: string | null }>;
+  /** Present on the forecast-backed columns; reused for the chart overlay. */
+  timeline?: ForecastPoint[];
+  trough_band?: { low: number; median: number; high: number };
+}
+
+/** Scenario − baseline, the shape `_diff` emits server-side (dollars / raw). */
+export interface ScenarioDelta {
+  overdraft_probability: number;
+  lowest_balance: number;
+  ending_balance: number;
+  safe_to_spend: number;
+  runway_days: number;
+  goal_reach: Record<string, { reaches_on: string | null; delta_days: number | null }>;
+}
+
+/** A baseline-vs-scenario evaluate run (`POST /scenarios/{id}/evaluate/`). */
+export interface ScenarioDiff {
+  baseline: { name: string; result: ScenarioResult };
+  scenario: {
+    name: string;
+    scenario_id: number | null;
+    result: ScenarioResult;
+    delta: ScenarioDelta;
+  };
+}
+
+/** One column of a compare run, plus the N-column wrapper. */
+export interface ScenarioCompareColumn {
+  name: string;
+  scenario_id?: number;
+  result: ScenarioResult;
+  delta?: ScenarioDelta;
+}
+
+export interface ScenarioCompareResult {
+  columns: ScenarioCompareColumn[];
+}
+
+/** The result of committing a scenario through propose→confirm. */
+export interface CommittedPlan {
+  plan_id: number;
+  rule_ids: number[];
+}

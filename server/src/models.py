@@ -241,3 +241,15 @@ class ScenarioCompareIn(BaseModel):
     scenario_ids: list[int] = Field(min_length=1)
     horizon_days: int = Field(default=90, gt=0, le=3650)
 
+
+class ScenarioEvaluateIn(BaseModel):
+    """Evaluate an ad-hoc (unsaved) overlay — the live builder's run seam (doc 07).
+
+    Unlike ``POST /scenarios/{id}/evaluate/``, this takes the overlay inline so the
+    Forecast page can diff an in-progress scenario before it is ever saved.
+    """
+
+    overlay: ScenarioOverlayIn = ScenarioOverlayIn()
+    name: str = Field(default="Scenario", max_length=200)
+    horizon_days: int = Field(default=90, gt=0, le=3650)
+
