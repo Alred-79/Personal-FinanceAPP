@@ -174,3 +174,35 @@ def test_extract_rejects_unsupported_type(client, monkeypatch):
         headers=headers,
     )
     assert resp.status_code == 415
+
+
+def test_detangle_endpoint_flags_transfer(client, monkeypatch):
+    headers = _auth_header(client)
+    chk = _create_account(client, headers, balance=1000.0)
+    # second account
+    client.post(
+        "/api/accounts/",
+        json={"name": "Savings", "type": "savings", "balance": 1000.0},
+        headers=headers,
+    )
+    sav = client.get("/api/accounts/", headers=headers).json()[-1]["id"]
+
+    # A transfer: -500 from checking, +500 to savings, same day.
+    client.post(
+        "/api/expenses/",
+        json={"title": "Transfer", "amount": 500.0, "date": "2026-03-01",
+              "category": "Transfer", "account_id": chk},
+        headers=headers,
+    )
+    client.post(
+        "/api/income/",
+        json={"title": "Transfer", "amount": 500.0, "date": "2026-03-01",
+              "category": "Transfer", "account_id": sav},
+        headers=headers,
+    )
+
+    resp = client.post("/api/imports/detangle/run/", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["flagged"] == 1
+    # Idempotent: a second run flags nothing new.
+    assert client.post("/api/imports/detangle/run/", headers=headers).json()["flagged"] == 0

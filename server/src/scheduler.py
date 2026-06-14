@@ -200,6 +200,29 @@ def job_check_plan_drift(db: Session, now: Optional[datetime | date] = None) -> 
 
 
 # ---------------------------------------------------------------------------
+# The Detangler (messy-data ingestion) — a second notification producer. Flags
+# transfer/refund/duplicate pairs across every user's transactions. Idempotent
+# per pairing ``ref`` like the drift job, so a re-fire never double-notifies.
+# ---------------------------------------------------------------------------
+
+def job_detangle(db: Session, now: Optional[datetime | date] = None) -> int:
+    """Run the Detangler for every user. Returns total new pairings flagged.
+
+    Pure and idempotent: ``DetangleService.run`` dedups its notifications by
+    ``ref`` (``detangle:{kind}:{a}:{b}``), so an overlapping fire or a restart
+    cannot double-notify. Gated by ``settings.detangle_enabled`` at the tick.
+    """
+    from .services.detangle_service import DetangleService
+
+    svc = DetangleService(db)
+    total = 0
+    for user in _users(db):
+        total += len(svc.run(user.id))
+    db.flush()
+    return total
+
+
+# ---------------------------------------------------------------------------
 # The scheduled wrappers — own-session, commit, close (no request context).
 # ---------------------------------------------------------------------------
 
@@ -234,6 +257,14 @@ async def _drift_tick() -> None:
     """Daily cron: re-check active plans-of-record for drift. Idempotent per
     ``ref`` so a re-fire within the same month adds no duplicate notification."""
     _run_in_own_session(lambda db: job_check_plan_drift(db, datetime.now()))
+
+
+async def _detangle_tick() -> None:
+    """Daily cron: flag transfer/refund/duplicate pairs. Gated by
+    ``detangle_enabled``; idempotent per ``ref`` so a re-fire adds no duplicate."""
+    if not settings.detangle_enabled:
+        return
+    _run_in_own_session(lambda db: job_detangle(db, datetime.now()))
 
 
 # ---------------------------------------------------------------------------
@@ -273,6 +304,17 @@ def build_scheduler():
         _drift_tick,
         CronTrigger(hour=0, minute=20),
         id="plan_drift",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+    # The Detangler (messy-data ingestion): a daily pass flagging transfer /
+    # refund / duplicate pairs. The tick self-gates on ``detangle_enabled``; ref
+    # dedup keeps a double-fire harmless.
+    scheduler.add_job(
+        _detangle_tick,
+        CronTrigger(hour=0, minute=30),
+        id="detangle",
         replace_existing=True,
         misfire_grace_time=3600,
         coalesce=True,

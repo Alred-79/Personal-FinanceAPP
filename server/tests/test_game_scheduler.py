@@ -101,13 +101,15 @@ def test_scheduler_disabled_in_tests(monkeypatch):
 
 def test_scheduler_builds_declarative_cron_jobs():
     """The built scheduler registers exactly its declarative cron jobs (monthly
-    month-close/fade + weekly rollups + the v6 daily plan-drift check). Built,
-    not started, so no event loop / background fire is needed."""
+    month-close/fade + weekly rollups + the v6 daily plan-drift check + the
+    messy-data daily Detangler). Built, not started, so no event loop /
+    background fire is needed."""
     sched = scheduler.build_scheduler()
     assert {j.id for j in sched.get_jobs()} == {
         "game_monthly",
         "game_weekly",
         "plan_drift",
+        "detangle",
     }
 
 

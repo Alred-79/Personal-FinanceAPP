@@ -39,6 +39,7 @@ from server.src.limiter import limiter
 from server.src.models import ImportRowPatchIn, ImportSessionOut, ImportTextIn, UserInDB
 from server.src.services import llm_budget
 from server.src.services.auth_service import AuthService
+from server.src.services.detangle_service import DetangleService
 from server.src.services.import_service import ImportService
 from server.src.services.reconciliation_service import ReconciliationService
 from server.src.settings import settings
@@ -208,3 +209,18 @@ def discard_session(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return {"status": "discarded"}
+
+
+@router.post("/detangle/run/")
+def run_detangle(
+    current_user: Annotated[UserInDB, Depends(AuthService.get_current_active_user)],
+    db: Session = Depends(get_db),
+):
+    """On-demand Detangler pass: flag transfer/refund/duplicate pairs.
+
+    Surfaces each as a deduplicated notification; never edits money. The same
+    work also runs nightly via the scheduler. Returns how many NEW pairings were
+    flagged this run (idempotent, so a repeat run reports 0).
+    """
+    created = DetangleService(db).run(current_user.id)
+    return {"flagged": len(created)}

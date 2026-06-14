@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     # external trigger exists (production backlog). Enforced at startup in
     # main.py and documented in docs/v5 execution.
     scheduler_enabled: bool = True
+    # The Detangler's nightly pass (transfer/refund/duplicate flagging). On by
+    # default; the per-pair notification dedup makes a re-fire harmless. Disable
+    # to silence the nightly job without affecting the on-demand endpoint.
+    detangle_enabled: bool = True
 
     # Rate limiting via slowapi. We turn it off in the test suite so repeated
     # login and refresh calls don't trip the limiter.
