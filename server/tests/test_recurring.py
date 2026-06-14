@@ -234,3 +234,92 @@ class TestProjectCashflows:
         assert svc.next_paycheck_date(user.id, date(2026, 3, 2)) == date(2026, 3, 15)
         # No recurring income → None
         assert svc.next_paycheck_date(user.id + 999, date(2026, 3, 2)) is None
+
+
+class TestProjectWithOverlay:
+    """The scenario overlay threaded through ``_project_rows`` (doc 01)."""
+
+    def _seed_rent(self, db_session, account):
+        db_session.add(
+            Expense(
+                title="Rent",
+                amount=150_000,
+                date="2026-03-05",
+                category="Housing",
+                recurrence="monthly",
+                account_id=account.id,
+            )
+        )
+        db_session.flush()
+
+    def test_overlay_none_is_byte_identical(self, db_session, seeded_user):
+        user, account = seeded_user
+        self._seed_rent(db_session, account)
+        svc = RecurringService(db_session)
+        window = (date(2026, 3, 6), date(2026, 6, 6))
+        plain = svc.project_expenses(user.id, *window)
+        explicit_none = svc.project_expenses(user.id, *window, overlay=None)
+        assert plain == explicit_none
+        # The no-overlay path emits no overlay-only fields.
+        assert all("source_anchor" not in r for r in plain)
+
+    def test_empty_overlay_is_identity(self, db_session, seeded_user):
+        from server.src.services.scenario_overlay import EMPTY
+
+        user, account = seeded_user
+        self._seed_rent(db_session, account)
+        svc = RecurringService(db_session)
+        window = (date(2026, 3, 6), date(2026, 6, 6))
+        plain = svc.project_expenses(user.id, *window)
+        overlaid = svc.project_expenses(user.id, *window, overlay=EMPTY)
+        # Same instances, same amounts/dates (overlay path adds source_anchor).
+        assert [(r["date"], r["amount"]) for r in overlaid] == [
+            (r["date"], r["amount"]) for r in plain
+        ]
+
+    def test_exclude_overlay_drops_source(self, db_session, seeded_user):
+        from server.src.services.scenario_overlay import ScenarioOverlay
+
+        user, account = seeded_user
+        self._seed_rent(db_session, account)
+        rent_id = (
+            db_session.query(Expense).filter_by(title="Rent").one().id
+        )
+        svc = RecurringService(db_session)
+        overlay = ScenarioOverlay(
+            excluded_source_ids=frozenset({("expense", rent_id)})
+        )
+        out = svc.project_expenses(
+            user.id, date(2026, 3, 6), date(2026, 6, 6), overlay=overlay
+        )
+        assert out == []
+
+    def test_add_overlay_injects_expanded_occurrences(self, db_session, seeded_user):
+        from server.src.services.scenario_overlay import (
+            RecurringAdd,
+            ScenarioOverlay,
+        )
+
+        user, account = seeded_user  # no DB rows needed for the added stream
+        svc = RecurringService(db_session)
+        overlay = ScenarioOverlay(
+            added_recurring=(
+                RecurringAdd(
+                    title="Gym",
+                    amount_cents=4500,
+                    recurrence="monthly",
+                    kind="expense",
+                    anchor_date="2026-03-10",
+                ),
+            )
+        )
+        out = svc.project_expenses(
+            user.id, date(2026, 3, 1), date(2026, 6, 30), overlay=overlay
+        )
+        assert [r["date"] for r in out] == [
+            "2026-04-10",
+            "2026-05-10",
+            "2026-06-10",
+        ]
+        assert all(r["amount"] == 45.0 for r in out)
+        assert all(r["title"] == "Gym" for r in out)

@@ -134,6 +134,8 @@ class RecurringService:
         user_id: int,
         horizon_start: date,
         horizon_end: date,
+        *,
+        overlay=None,
     ) -> list[dict[str, Any]]:
         """Project recurring rows of *model* over the horizon (shared engine).
 
@@ -162,20 +164,32 @@ class RecurringService:
             for occ in project_occurrences(
                 anchor, row.recurrence, horizon_start, horizon_end  # type: ignore[arg-type]
             ):
-                projected.append(
-                    {
-                        "id": row.id,
-                        "source_id": row.id,
-                        "title": row.title,
-                        "amount": cents_to_dollars(row.amount),  # type: ignore[arg-type]
-                        "date": occ.isoformat(),
-                        "category": row.category,
-                        "recurrence": row.recurrence,
-                        "account_id": row.account_id,
-                        "type": tx_type,
-                        "projected": True,
-                    }
-                )
+                instance = {
+                    "id": row.id,
+                    "source_id": row.id,
+                    "title": row.title,
+                    "amount": cents_to_dollars(row.amount),  # type: ignore[arg-type]
+                    "date": occ.isoformat(),
+                    "category": row.category,
+                    "recurrence": row.recurrence,
+                    "account_id": row.account_id,
+                    "type": tx_type,
+                    "projected": True,
+                }
+                if overlay is not None:
+                    # The original anchor the series stepped from, so a scenario
+                    # overlay's recurrence change can re-expand it. Only emitted
+                    # under an overlay so the no-overlay shape stays identical.
+                    instance["source_anchor"] = anchor.isoformat()
+                projected.append(instance)
+
+        # Scenario overlay applies after expansion, before the final sort, so
+        # injected/overridden rows land in date order. ``overlay=None`` is a
+        # no-op: the projection is byte-identical to today.
+        if overlay is not None:
+            projected = overlay.apply_to_projected(
+                projected, horizon_start, horizon_end, kind=tx_type
+            )
 
         projected.sort(key=lambda d: d["date"])
         return projected
@@ -185,15 +199,18 @@ class RecurringService:
         user_id: int,
         horizon_start: date,
         horizon_end: date,
+        *,
+        overlay=None,
     ) -> list[dict[str, Any]]:
         """Return projected future expense instances over the horizon.
 
         Each dict mirrors the transaction shape used elsewhere (dollar amounts),
         plus ``projected: True`` and ``source_id`` (the originating expense row).
-        Results are sorted by date ascending.
+        Results are sorted by date ascending.  An optional ``overlay`` layers in
+        hypothetical adds/excludes/overrides at the projection seam.
         """
         return self._project_rows(
-            ExpenseORM, "expense", user_id, horizon_start, horizon_end
+            ExpenseORM, "expense", user_id, horizon_start, horizon_end, overlay=overlay
         )
 
     def project_income(
@@ -201,10 +218,12 @@ class RecurringService:
         user_id: int,
         horizon_start: date,
         horizon_end: date,
+        *,
+        overlay=None,
     ) -> list[dict[str, Any]]:
         """Return projected future income instances over the horizon."""
         return self._project_rows(
-            IncomeORM, "income", user_id, horizon_start, horizon_end
+            IncomeORM, "income", user_id, horizon_start, horizon_end, overlay=overlay
         )
 
     def project_cashflows(
@@ -212,26 +231,34 @@ class RecurringService:
         user_id: int,
         horizon_start: date,
         horizon_end: date,
+        *,
+        overlay=None,
     ) -> list[dict[str, Any]]:
         """Both streams merged and date-sorted, each instance tagged ``type``.
 
         This is the single Layer-A read consumed by the forecast and
         Safe-to-Spend (v1), and later by anything that needs "what's scheduled".
+        The same ``overlay`` is forwarded to both sub-calls.
         """
         merged = self.project_expenses(
-            user_id, horizon_start, horizon_end
-        ) + self.project_income(user_id, horizon_start, horizon_end)
+            user_id, horizon_start, horizon_end, overlay=overlay
+        ) + self.project_income(user_id, horizon_start, horizon_end, overlay=overlay)
         merged.sort(key=lambda d: d["date"])
         return merged
 
-    def next_paycheck_date(self, user_id: int, after: date) -> date | None:
+    def next_paycheck_date(
+        self, user_id: int, after: date, *, overlay=None
+    ) -> date | None:
         """The next projected income date strictly after *after*, or None.
 
         Used as the default Safe-to-Spend horizon anchor. Looks ahead up to ~2
-        months so even monthly pay cycles resolve.
+        months so even monthly pay cycles resolve.  An income ``overlay`` can
+        move the anchoring paycheck, so it is forwarded to ``project_income``.
         """
         horizon_end = _add_months(after, 2)
-        income = self.project_income(user_id, after + timedelta(days=1), horizon_end)
+        income = self.project_income(
+            user_id, after + timedelta(days=1), horizon_end, overlay=overlay
+        )
         if not income:
             return None
         first = parse_iso_date(income[0]["date"])
