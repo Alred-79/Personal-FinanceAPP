@@ -85,6 +85,47 @@ def test_redact_payload_does_not_mutate_input():
     assert rows[0]["title"] == "bob@example.com"  # original untouched
 
 
+# ── Unicode-obfuscation bypass of the deterministic guardrails ──────────────
+# Regression for the audit finding: regex-only PII/firewall checks are
+# trivially bypassed with full-width / zero-width Unicode. scrub_secrets and
+# the firewall must NFKC-normalize + strip invisible chars before matching.
+
+
+def test_scrub_secrets_catches_fullwidth_ssn():
+    # Full-width digits read as an SSN to a human/LLM but bypass ASCII \d.
+    fullwidth = "paid １２３-４５-６７８９ for rent"
+    out = scrub_secrets(fullwidth)
+    assert "REDACTED" in out
+    # The original digits (normalized to ASCII then redacted) must be gone.
+    assert "１２３" not in out
+
+
+def test_scrub_secrets_catches_zero_width_interleaved_ssn():
+    # Zero-width joiner between digits defeats a naive \d{3}-\d{2}-\d{4}.
+    zwj = "ssn 1‍2‍3-4‍5-6‍7‍8‍9 noted"
+    out = scrub_secrets(zwj)
+    assert "REDACTED" in out
+    assert "6789" not in out
+
+
+@pytest.mark.parametrize(
+    "obfuscated",
+    [
+        # full-width "invest in stocks" advice
+        "you should ｉｎｖｅｓｔ in stocks",
+        # zero-width chars splitting the advice trigger word
+        "i recommend you bu‍y crypto today",
+    ],
+)
+def test_firewall_blocks_unicode_obfuscated_advice(obfuscated):
+    assert screen_output(obfuscated, plain=True).blocked
+
+
+def test_crisis_detected_through_unicode_obfuscation():
+    # Full-width "suicide" must still route to the static resource.
+    assert is_crisis("thinking about ｓｕｉｃｉｄｅ")
+
+
 # ── advice firewall now guards the MAIN chat output ─────────────────────────
 
 

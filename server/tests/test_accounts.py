@@ -327,6 +327,35 @@ class TestAtomicBalanceUpdates:
         assert row.balance == 10000  # reversed back to $100
 
 
+class TestAccountNameUniqueness:
+    def test_duplicate_name_rejected_with_409(self, client):
+        """Two accounts with the same name under one user are refused (the
+        UNIQUE(user_id, name) constraint), with a clean 409 rather than a 500."""
+        headers = _auth_header(client, "dup", "dup@example.com")
+        _make_account(client, headers, "Checking", 100.00)
+
+        resp = client.post(
+            "/api/accounts/",
+            json={"name": "Checking", "type": "checking", "balance": 5.00},
+            headers=headers,
+        )
+        assert resp.status_code == 409
+        assert "already exists" in resp.json()["detail"].lower()
+
+    def test_same_name_allowed_for_different_users(self, client):
+        """The constraint is per-user: two different users may both have a
+        'Checking' account."""
+        h1 = _auth_header(client, "userA", "a@example.com")
+        h2 = _auth_header(client, "userB", "b@example.com")
+        _make_account(client, h1, "Checking", 100.00)
+        resp = client.post(
+            "/api/accounts/",
+            json={"name": "Checking", "type": "checking", "balance": 1.00},
+            headers=h2,
+        )
+        assert resp.status_code == 200, resp.text
+
+
 class TestTransfers:
     def test_transfer_rejects_overdraft(self, client, db_session):
         """Transfer more than the source holds → 422 and NO balance change on

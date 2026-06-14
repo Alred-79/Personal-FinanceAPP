@@ -315,12 +315,18 @@ class TransactionService:
         account_id = row.account_id
         row_amount = row.amount
 
+        # Delete the row first, then reverse its balance effect. Both run inside
+        # the caller's transaction, but ordering the delete ahead of the balance
+        # adjustment means a failure on the delete aborts before the balance is
+        # touched — the account can never be left adjusted for a row that still
+        # exists. The adjustment itself is an issued atomic UPDATE
+        # (``balance = balance + delta``), not a stale read-modify-write.
         # Reverse: income was +, so delete is -.  Expense was -, so delete is +.
-        # Issued atomic UPDATE rather than a stale read-modify-write.
+        self.db.delete(row)
+        self.db.flush()
+
         self._adjust_balance(account_id, -balance_sign * row_amount)
         self.db.expire(account)
-
-        self.db.delete(row)
         self.db.flush()
 
         label = "Expense" if model is ExpenseORM else "Income"

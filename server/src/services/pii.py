@@ -24,7 +24,40 @@ by the advice firewall.
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
+
+# ── Unicode normalization (applied BEFORE any regex) ────────────────────────
+# Regex guardrails are trivially bypassable with Unicode tricks: a full-width
+# SSN (``１２３-４５-６７８９``) or digits separated by zero-width joiners slip past
+# an ASCII ``\d{3}-\d{2}-\d{4}`` and reach the LLM unredacted; the same evasion
+# beats the advice/shame firewall via homoglyphs. NFKC folds full-width and
+# other compatibility forms back to ASCII, and stripping format/control
+# characters (Cf/Cc — zero-width joiner/space, BOM, bidi marks, soft hyphen)
+# collapses interleaved-invisible evasions. Normalize once, then match.
+# (OWASP LLM01:2025; "Bypassing Prompt Injection and Jailbreak Detection",
+# arXiv:2504.11168.)
+_FORMAT_CONTROL = {"Cf", "Cc"}
+
+
+def normalize_for_matching(text: str) -> str:
+    """NFKC-normalize and strip invisible format/control chars before regex.
+
+    Returns text safe to run deterministic guardrail patterns against. Newlines
+    and tabs are preserved (they carry layout, not evasion); other Cc/Cf code
+    points (zero-width joiner/space, BOM, bidi overrides, soft hyphen) are
+    dropped so an SSN/advice phrase can't be smuggled past a regex by
+    interleaving invisible characters.
+    """
+    if not text:
+        return text
+    normalized = unicodedata.normalize("NFKC", text)
+    return "".join(
+        ch
+        for ch in normalized
+        if ch in ("\n", "\t") or unicodedata.category(ch) not in _FORMAT_CONTROL
+    )
+
 
 # ── high-risk patterns (always redacted) ────────────────────────────────────
 # Ordered most-specific first so a card number isn't half-matched as a phone.
@@ -55,7 +88,9 @@ def scrub_secrets(text: str) -> str:
     """
     if not text:
         return text
-    out = text
+    # Normalize first so Unicode-obfuscated secrets (full-width / zero-width
+    # interleaved) can't slip past the ASCII patterns below.
+    out = normalize_for_matching(text)
     for pattern, repl in _REDACTION_RULES:
         out = pattern.sub(repl, out)
     return out

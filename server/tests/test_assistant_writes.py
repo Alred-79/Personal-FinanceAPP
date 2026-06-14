@@ -202,6 +202,49 @@ def test_confirm_recategorize(client, db_session):
     assert cat == "Entertainment"
 
 
+def test_confirm_recategorize_canonicalizes_category(client, db_session):
+    """Regression: recategorize must canonicalize the label like manual create,
+    so a non-canonical/Plaid-coded string can't mint a ghost category that
+    breaks budget matching and reports."""
+    headers = _auth_header(client)
+    acct = _create_account(client, headers)
+    client.post(
+        "/api/expenses/",
+        json={
+            "account_id": acct,
+            "title": "Mystery Charge",
+            "amount": 12.00,
+            "date": "2026-05-01",
+            "category": "Other",
+        },
+        headers=headers,
+    )
+    db_session.expire_all()
+    expense_id = db_session.execute(select(ExpenseORM.id)).scalar_one()
+
+    proposal = client.post(
+        "/api/assistant/actions/propose/",
+        json={
+            "action": "recategorize_transaction",
+            # Plaid PFC primary code — must fold to the canonical "Food and Drink".
+            "params": {"transaction_id": expense_id, "category": "food_and_drink"},
+        },
+        headers=headers,
+    ).json()
+    confirm = client.post(
+        "/api/assistant/actions/confirm/",
+        json={"token": proposal["token"]},
+        headers=headers,
+    )
+    assert confirm.status_code == 200, confirm.text
+
+    db_session.expire_all()
+    cat = db_session.execute(
+        select(ExpenseORM.category).where(ExpenseORM.id == expense_id)
+    ).scalar_one()
+    assert cat == "Food and Drink"  # canonicalized, not the raw "food_and_drink"
+
+
 # ── Gate rejections ──────────────────────────────────────────────────────────
 
 

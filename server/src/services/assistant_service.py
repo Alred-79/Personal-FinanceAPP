@@ -42,7 +42,10 @@ from ..services.read_queries import (
     query_transactions_per_account,
 )
 from ..services.transaction_service import TransactionService
-from ..services.categorization_service import CategorizationService
+from ..services.categorization_service import (
+    CategorizationService,
+    canonicalize_category,
+)
 from ..services.pii import redact_payload, scrub_secrets
 from ..services.game.firewall import screen_output, is_crisis, CRISIS_RESOURCE
 from ..settings import settings
@@ -920,10 +923,16 @@ class ActionService:
                 row = expense_row or income_row
             if row is None:
                 raise ActionError("Transaction not found.")
-            row.category = params["category"]
+            # Canonicalize the model-supplied label onto the app's taxonomy so a
+            # hallucinated/near-miss string ("Food Stuff") can't mint a ghost
+            # category that breaks budget matching and category reports. This
+            # mirrors the manual-create path (TransactionService.create →
+            # canonicalize_category); recategorize must not be a back door.
+            category = canonicalize_category(params["category"])
+            row.category = category
             # Make the recategorization "stick" for this merchant.
             CategorizationService(db).learn(
-                user_id, row.title, params["category"], source="user"  # type: ignore[arg-type]
+                user_id, row.title, category, source="user"
             )
             db.flush()
             return {

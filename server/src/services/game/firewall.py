@@ -23,6 +23,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from ..pii import normalize_for_matching
+
 # The in-character redirect shown when the firewall blocks (ambient/full). Off
 # mode uses the plain variant.
 REDIRECT_IN_CHARACTER = (
@@ -117,9 +119,14 @@ def screen_output(text: str, *, plain: bool = False) -> FirewallVerdict:
     """
     redirect = REDIRECT_PLAIN if plain else REDIRECT_IN_CHARACTER
 
+    # Match on a Unicode-normalized copy so homoglyph/zero-width evasions can't
+    # smuggle advice/shame past the ASCII patterns. ``text`` (the original) is
+    # what we display when nothing blocks, so normalization never alters output.
+    probe = normalize_for_matching(text)
+
     for family, patterns in _COMPILED.items():
         for pat in patterns:
-            if pat.search(text):
+            if pat.search(probe):
                 return FirewallVerdict(
                     blocked=True,
                     family=family,
@@ -130,7 +137,7 @@ def screen_output(text: str, *, plain: bool = False) -> FirewallVerdict:
     # Heuristic tier — imperative verb + money noun in one sentence. Treated as
     # high-confidence advice (block); a softer policy could pass-with-log, but the
     # safe default for money directives is to block.
-    if _HEURISTIC.search(text):
+    if _HEURISTIC.search(probe):
         return FirewallVerdict(
             blocked=True,
             family="heuristic",
@@ -166,4 +173,5 @@ CRISIS_RESOURCE = {
 
 def is_crisis(user_text: str) -> bool:
     """True if user input trips the crisis lexicon → static resource, no LLM."""
-    return any(pat.search(user_text) for pat in _CRISIS)
+    probe = normalize_for_matching(user_text)
+    return any(pat.search(probe) for pat in _CRISIS)

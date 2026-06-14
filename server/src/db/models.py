@@ -106,6 +106,12 @@ class User(Base):
 
 class Account(Base):
     __tablename__ = "accounts"
+    # One account name per user. Two "Checking" accounts under the same user
+    # break the legacy name-based matching still used for pre-Step-08 (manually
+    # managed) accounts and confuse the UI account picker.
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_account_user_name"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String, nullable=False)

@@ -11,6 +11,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import Annotated
 
@@ -60,7 +61,9 @@ async def get_accounts(
     db: Session = Depends(get_db),
 ):
     accounts = db.execute(
-        select(AccountORM).where(AccountORM.user_id == current_user.id)
+        select(AccountORM)
+        .where(AccountORM.user_id == current_user.id)
+        .order_by(AccountORM.id)
     ).scalars().all()
     return [_account_to_dict(a) for a in accounts]
 
@@ -126,7 +129,16 @@ async def create_account(
         user_id=current_user.id,
     )
     db.add(new_account)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        # UNIQUE(user_id, name) — surface a clean 409 instead of a 500. The
+        # request-scoped session is rolled back by get_db's error handling.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="An account with that name already exists.",
+        )
     return {"message": "Account created successfully"}
 
 
@@ -150,6 +162,15 @@ async def update_account(
     existing.name = account.name
     existing.type = account.type
     existing.balance = dollars_to_cents(account.balance)
+    try:
+        db.flush()
+    except IntegrityError:
+        # Renaming onto an existing (user_id, name) → clean 409, not a 500.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="An account with that name already exists.",
+        )
     return {"message": "Account updated successfully"}
 
 

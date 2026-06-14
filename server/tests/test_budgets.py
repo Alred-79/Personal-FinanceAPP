@@ -81,10 +81,10 @@ def _auth_header(client, username="buser", email="b@example.com"):
     return {"Authorization": f"Bearer {token}"}
 
 
-def _create_account(client, headers, balance=1000.00):
+def _create_account(client, headers, balance=1000.00, name="Checking"):
     resp = client.post(
         "/api/accounts/",
-        json={"name": "Checking", "type": "checking", "balance": balance},
+        json={"name": name, "type": "checking", "balance": balance},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -215,8 +215,8 @@ class TestBudgetEndpoints:
 class TestNetWorthAndProjection:
     def test_networth_snapshot_and_series(self, client):
         headers = _auth_header(client, username="nw", email="nw@t.com")
-        _create_account(client, headers, balance=500.00)
-        _create_account(client, headers, balance=250.00)
+        _create_account(client, headers, balance=500.00, name="Checking")
+        _create_account(client, headers, balance=250.00, name="Savings")
 
         series = client.get("/api/networth/", headers=headers).json()
         assert len(series) == 1
