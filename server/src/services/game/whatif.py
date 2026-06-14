@@ -29,6 +29,7 @@ from ...db.models import Goal as GoalORM
 from ...money import cents_to_dollars, dollars_to_cents
 from ..goal_math import add_months as _add_months
 from ..goal_math import months_to_reach as _months_to_reach
+from ..scenario_overlay import GoalMutation, ScenarioOverlay
 
 
 @dataclass
@@ -125,8 +126,24 @@ class WhatIfService:
                 commit_label="commit_single_step",
             )
 
+        # Unify onto the v6 core: the hypothetical is a single goal mutation
+        # whose progress is bumped by one month of the (current + delta) pace.
+        # The reach date then falls out of the shared goal-math helpers, the
+        # SAME ones the scenario evaluate/compare diff uses — one implementation
+        # of "how long at this pace, and on what date". Behaviour is unchanged:
+        # months-to-reach is still ``remaining / (current + delta)`` ceil'd.
         new_monthly = current_cents + delta_cents
-        months = _months_to_reach(remaining_cents, new_monthly)
+        overlay = ScenarioOverlay(
+            goal_mutations=(
+                GoalMutation(goal_id=goal.id, amount_cents=goal.amount),
+            )
+        )
+        mutation = overlay.goal_mutations[0]
+        target_cents = (
+            mutation.amount_cents if mutation.amount_cents is not None else goal.amount
+        )
+        overlay_remaining = max(target_cents - (goal.progress or 0), 0)
+        months = _months_to_reach(overlay_remaining, new_monthly)
         reaches_on = (
             _add_months(as_of, months).isoformat() if months is not None else None
         )

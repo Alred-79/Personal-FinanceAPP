@@ -53,6 +53,7 @@ from ..db.models import (
     Expense as ExpenseORM,
     Goal as GoalORM,
     Income as IncomeORM,
+    PlanOfRecord,
     Rule as RuleORM,
     UsedActionToken as UsedActionTokenORM,
 )
@@ -493,7 +494,12 @@ class InformationTool(BaseTool):
 # only when the user sends that token back to the explicit
 # ``/assistant/actions/confirm`` endpoint. Model proposes, user approves, server runs it.
 
-SUPPORTED_ACTIONS = ("add_transaction", "add_goal", "recategorize_transaction")
+SUPPORTED_ACTIONS = (
+    "add_transaction",
+    "add_goal",
+    "recategorize_transaction",
+    "scenario_commit",
+)
 
 # Anti-drift single source of truth (C5). ``_HANDLED`` is the explicit set of
 # actions ``validate``/``execute`` are *allowed* to run. ``validate`` dispatches
@@ -505,8 +511,15 @@ SUPPORTED_ACTIONS = ("add_transaction", "add_goal", "recategorize_transaction")
 # branches below for historical reasons, but they are deliberately NOT in this
 # set, so the guard makes them unreachable — they are dead but safe. To actually
 # support them, a product owner must add them HERE and to ``SUPPORTED_ACTIONS``
-# *and* wire their UI — never one without the other.
-_HANDLED = {"add_transaction", "add_goal", "recategorize_transaction"}
+# *and* wire their UI — never one without the other. ``scenario_commit`` (the v6
+# successor to ``whatif_commit``: a whole scenario overlay → standing rules + a
+# tracked PlanOfRecord) IS live; it moved into both sets together (doc 05).
+_HANDLED = {
+    "add_transaction",
+    "add_goal",
+    "recategorize_transaction",
+    "scenario_commit",
+}
 
 _ACTION_TOKEN_TYPE = "assistant_action"
 _ACTION_TOKEN_TTL = timedelta(minutes=10)
@@ -710,6 +723,21 @@ class ActionService:
             )
             return norm, summary
 
+        if action == "scenario_commit":
+            # v6 (doc 05): commit a saved scenario as standing rules + a tracked
+            # PlanOfRecord. DB-free here — ``execute`` loads the overlay and turns
+            # its allocation-shaped commitments into ``allocate`` rules.
+            name = (params.get("name") or "Committed scenario").strip()
+            norm = {
+                "scenario_id": _coerce_int(params.get("scenario_id"), "scenario_id"),
+                "name": name,
+            }
+            summary = (
+                f"Commit scenario #{norm['scenario_id']} as the standing plan "
+                f"'{norm['name']}'"
+            )
+            return norm, summary
+
         if action == "create_allocation":
             # v4 package 03: an alert/what-if "fix" — move money into a goal's
             # virtual earmark (Goal.progress). In-app only; never moves real
@@ -870,6 +898,92 @@ class ActionService:
                 "message": "Transaction recategorized",
                 "transaction_id": row.id,
                 "category": row.category,
+            }
+
+        if action == "scenario_commit":
+            # v6 (doc 05): turn a saved scenario into the standing plan. The order
+            # below is load-bearing: ``plan_id`` does not exist until the
+            # PlanOfRecord is flushed, and the idempotency key that makes the
+            # WhatIfCommitted event replay-safe references it.
+            from server.src.services.game.events import (
+                GameEventDraft,
+                record_events,
+            )
+            from server.src.services.scenario_service import ScenarioService
+
+            svc = ScenarioService(db)
+            # 1. load the overlay (ownership-scoped; None → not this user's / gone).
+            overlay = svc.load_overlay(user_id, params["scenario_id"])
+            if overlay is None:
+                raise ActionError("Scenario not found.")
+
+            # 2. each allocation-shaped commitment → a standing ``allocate`` rule.
+            #    A scenario expresses "fund goal G" as a goal_mutation carrying the
+            #    goal id; we mint one allocate rule per mutation, fixed-dollar.
+            #    v6 overlays don't carry a percentage on goal mutations, so this is
+            #    scoped to ``{"amount": X}`` only (the engine also supports
+            #    ``{"pct": P}``, but nothing here needs it — see _allocation_cents).
+            rule_ids: list[int] = []
+            for mut in overlay.goal_mutations:
+                if mut.amount_cents is None:
+                    continue
+                rule = RuleORM(
+                    user_id=user_id,
+                    name=params["name"],
+                    enabled=1,
+                    conditions=json.dumps(
+                        [{"field": "type", "op": "eq", "value": "income"}]
+                    ),
+                    action_type="allocate",
+                    action_params=json.dumps(
+                        {"amount": cents_to_dollars(mut.amount_cents)}
+                    ),
+                    target_kind="goal",
+                    target_id=mut.goal_id,
+                    priority=0,
+                )
+                db.add(rule)
+                db.flush()  # assign rule.id
+                rule_ids.append(rule.id)
+
+            # 3. one PlanOfRecord, snapshotting the committed scenario's evaluate
+            #    diff so doc 06's drift job can compare reality against it later.
+            snapshot = svc.evaluate(
+                user_id,
+                overlay,
+                name=params["name"],
+                scenario_id=params["scenario_id"],
+            )
+            plan = PlanOfRecord(
+                user_id=user_id,
+                scenario_id=params["scenario_id"],
+                rule_ids_json=json.dumps(rule_ids),
+                baseline_snapshot_json=json.dumps(snapshot),
+            )
+            db.add(plan)
+            db.flush()  # assign plan.id (the idempotency key references it)
+
+            # 4. the durable game event, keyed on plan_id so a replayed confirm
+            #    token cannot append a second WhatIfCommitted.
+            record_events(
+                db,
+                [
+                    GameEventDraft(
+                        stream=f"user:{user_id}",
+                        type="WhatIfCommitted",
+                        payload={
+                            "scenario_id": params["scenario_id"],
+                            "rule_ids": rule_ids,
+                            "plan_id": plan.id,
+                        },
+                        idempotency_key=f"scenario_commit:{plan.id}",
+                    )
+                ],
+            )
+            return {
+                "message": "Scenario committed",
+                "plan_id": plan.id,
+                "rule_ids": rule_ids,
             }
 
         if action == "create_allocation":
