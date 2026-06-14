@@ -21,9 +21,10 @@ from __future__ import annotations
 
 import base64
 import json
-import re
-from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
+
+from .extraction_utils import parse_amount as _parse_amount
+from .extraction_utils import parse_date as _parse_date
 
 # (image_base64, content_type) -> structured dict from the vision model.
 VisionFn = Callable[[str, str], dict]
@@ -77,33 +78,6 @@ def _default_vision_fn(image_b64: str, content_type: str) -> dict:
     except (json.JSONDecodeError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
-
-
-def _parse_amount(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return round(float(value), 2)
-    # Strip currency symbols / thousands separators from a string total.
-    cleaned = re.sub(r"[^0-9.\-]", "", str(value))
-    if not cleaned:
-        return None
-    try:
-        return round(float(cleaned), 2)
-    except ValueError:
-        return None
-
-
-def _parse_date(value: Any) -> Optional[str]:
-    if not value:
-        return None
-    text = str(value).strip()
-    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%B %d, %Y"):
-        try:
-            return datetime.strptime(text, fmt).date().isoformat()
-        except ValueError:
-            continue
-    return None
 
 
 class ReceiptService:

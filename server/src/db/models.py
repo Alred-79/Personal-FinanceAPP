@@ -102,6 +102,9 @@ class User(Base):
     plans_of_record = relationship(
         "PlanOfRecord", back_populates="user", cascade="all, delete-orphan"
     )
+    import_sessions = relationship(
+        "ImportSession", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Account(Base):
@@ -154,6 +157,19 @@ class Expense(Base):
             unique=True,
             sqlite_where=text("plaid_transaction_id IS NOT NULL"),
         ),
+        # Messy-data ingestion: the non-Plaid equivalent of the dedup index
+        # above. ``import_row_id`` is the ``import_rows`` row this expense was
+        # committed from; a PARTIAL unique index (NULLs excluded, so manual and
+        # Plaid rows are unaffected) makes re-committing the same statement a
+        # no-op instead of duplicating every line. We do NOT reuse
+        # ``plaid_transaction_id`` for this — it is semantically Plaid's and the
+        # sync's modify/remove logic keys off it.
+        Index(
+            "uq_expense_import_row",
+            "import_row_id",
+            unique=True,
+            sqlite_where=text("import_row_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -163,6 +179,12 @@ class Expense(Base):
     category: Mapped[str] = mapped_column(String, nullable=False)
     recurrence: Mapped[Optional[str]] = mapped_column(String)
     plaid_transaction_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # Plaid's own dedup key
+    # Messy-data ingestion: the ``import_rows`` row this was committed from, or
+    # NULL for manual / Plaid rows. Traces a transaction back to its statement
+    # batch and makes re-upload idempotent (see the partial unique index above).
+    import_row_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("import_rows.id", ondelete="SET NULL"), nullable=True
+    )
     # v4 packages 05/09: was this purchase worth it? 'yes' | 'no' | NULL (unset).
     worth_it: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     account_id: Mapped[int] = mapped_column(
@@ -185,6 +207,14 @@ class Income(Base):
             unique=True,
             sqlite_where=text("plaid_transaction_id IS NOT NULL"),
         ),
+        # Messy-data ingestion: mirrors Expense (see that note). Partial unique
+        # index so re-committing the same statement can't duplicate income rows.
+        Index(
+            "uq_income_import_row",
+            "import_row_id",
+            unique=True,
+            sqlite_where=text("import_row_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -194,6 +224,10 @@ class Income(Base):
     category: Mapped[str] = mapped_column(String, nullable=False)
     recurrence: Mapped[Optional[str]] = mapped_column(String)  # mirrors Expense.recurrence
     plaid_transaction_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # Plaid's own dedup key
+    # Messy-data ingestion: mirrors Expense.import_row_id.
+    import_row_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("import_rows.id", ondelete="SET NULL"), nullable=True
+    )
     # v4 packages 05/09: mirrors Expense.worth_it. 'yes' | 'no' | NULL (unset).
     worth_it: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     account_id: Mapped[int] = mapped_column(
@@ -1018,3 +1052,83 @@ class PlanOfRecord(Base):
 
     user = relationship("User", back_populates="plans_of_record")
     scenario = relationship("Scenario", back_populates="plans_of_record")
+
+
+class ImportSession(Base):
+    """One messy-document import the user is reviewing (Reconciliation Desk).
+
+    A statement (PDF / image / CSV / pasted text) is extracted into a batch of
+    ``ImportRow`` rows the user reviews before committing. The session carries the
+    *statement-level* facts the balance check needs — ``opening_balance``,
+    ``closing_balance`` — plus the result of that check (``reconciled``,
+    ``discrepancy_cents``).
+
+    PII NOTE: the raw document bytes are **never stored** (same stance as receipt
+    scanning). Only the structured rows persist, which the user already sees.
+    Money columns are integer cents; the 0/1 ``reconciled`` int mirrors the
+    SQLite-no-bool convention used elsewhere (e.g. ``User.s2s_include_income``).
+    """
+
+    __tablename__ = "import_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    account_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    source_kind: Mapped[str] = mapped_column(String, nullable=False)  # 'pdf'|'image'|'csv'|'text'
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="pending_review"
+    )  # 'pending_review' | 'committed' | 'discarded'
+    opening_balance: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # cents
+    closing_balance: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # cents
+    statement_period: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    reconciled: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 0/1
+    discrepancy_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # signed
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+    committed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    user = relationship("User", back_populates="import_sessions")
+    rows = relationship(
+        "ImportRow", back_populates="session", cascade="all, delete-orphan"
+    )
+
+
+class ImportRow(Base):
+    """One parsed line from an import session, in whole signed cents.
+
+    ``amount`` is **signed** (+in / -out), matching ``matching.MatchRow`` and the
+    Plaid sign convention, so the reconcile sum and the transfer/refund matcher
+    agree on sign. ``status`` carries the row's review verdict and ``reason`` a
+    short machine code for *why* (e.g. ``running_balance_mismatch``). ``included``
+    is the user's keep/skip toggle. ``match_ref`` points at an existing
+    expense/income id when the row was flagged a duplicate. The two
+    ``committed_*_id`` columns record what (if anything) the row became on commit.
+    """
+
+    __tablename__ = "import_rows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("import_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)  # signed cents (+in / -out)
+    date: Mapped[str] = mapped_column(String, nullable=False)  # ISO YYYY-MM-DD
+    category: Mapped[str] = mapped_column(String, nullable=False, default="Other")
+    merchant_key: Mapped[str] = mapped_column(String, nullable=False, default="")
+    running_balance: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # cents
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="ok"
+    )  # ok | duplicate | exception | needs_category | transfer_candidate
+    reason: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    included: Mapped[int] = mapped_column(Integer, nullable=False, default=1)  # 0/1 user toggle
+    match_ref: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # existing txn id when duplicate
+    committed_expense_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    committed_income_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    session = relationship("ImportSession", back_populates="rows")

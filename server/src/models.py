@@ -253,3 +253,65 @@ class ScenarioEvaluateIn(BaseModel):
     name: str = Field(default="Scenario", max_length=200)
     horizon_days: int = Field(default=90, gt=0, le=3650)
 
+
+# ── Messy-data ingestion (Reconciliation Desk / Import Anything) ─────────────
+# These are financial endpoints, so they speak dollar floats on the wire (the
+# DB stores integer cents; routers convert at the boundary). ``amount`` is
+# signed: positive = money in, negative = money out.
+
+
+class ImportTextIn(BaseModel):
+    """Paste / email body to extract transactions from (the non-file path)."""
+
+    account_id: int
+    text: str = Field(min_length=1, max_length=200_000)
+
+
+class ImportRowOut(BaseModel):
+    """One parsed line of an import session, in dollars."""
+
+    id: int
+    title: str
+    amount: float = Field(**_MONEY)  # signed: +in / -out
+    date: str
+    category: str
+    running_balance: Optional[float] = Field(default=None, **_MONEY)
+    status: str  # ok | duplicate | exception | needs_category | transfer_candidate
+    reason: Optional[str] = None
+    included: bool
+    match_ref: Optional[int] = None
+
+
+class BalanceCheckOut(BaseModel):
+    """The reconcile headline — does opening + Σtxns equal closing?"""
+
+    opening: Optional[float] = Field(default=None, **_MONEY)
+    closing: Optional[float] = Field(default=None, **_MONEY)
+    expected_delta: Optional[float] = Field(default=None, **_MONEY)
+    actual_delta: float = Field(**_MONEY)
+    discrepancy: Optional[float] = Field(default=None, **_MONEY)
+    reconciled: bool
+    exception_count: int = Field(ge=0)
+
+
+class ImportSessionOut(BaseModel):
+    """A session plus its rows and balance check — the review payload."""
+
+    id: int
+    account_id: int
+    source_kind: str
+    status: str  # pending_review | committed | discarded
+    statement_period: Optional[str] = None
+    balance_check: BalanceCheckOut
+    rows: list[ImportRowOut]
+
+
+class ImportRowPatchIn(BaseModel):
+    """A single-row edit during review. All fields optional (partial update)."""
+
+    title: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    amount: Optional[float] = Field(default=None, **_MONEY)
+    date: Optional[str] = None
+    category: Optional[str] = Field(default=None, max_length=200)
+    included: Optional[bool] = None
+
