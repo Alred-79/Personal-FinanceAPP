@@ -39,6 +39,7 @@ from server.src.limiter import limiter
 from server.src.models import ImportRowPatchIn, ImportSessionOut, ImportTextIn, UserInDB
 from server.src.services import llm_budget
 from server.src.services.auth_service import AuthService
+from server.src.services.import_service import ImportService
 from server.src.services.reconciliation_service import ReconciliationService
 from server.src.settings import settings
 
@@ -53,10 +54,6 @@ _ALLOWED_DOC_TYPES = {
     "image/webp",
     "application/pdf",
 }
-
-
-def _source_kind_for(content_type: str) -> str:
-    return "pdf" if content_type == "application/pdf" else "image"
 
 
 @router.post("/extract/", response_model=ImportSessionOut)
@@ -93,7 +90,6 @@ async def extract_document(
         db,
         current_user.id,
         account_id=account_id,
-        source_kind=_source_kind_for(content_type),
         raw_bytes=data,
         content_type=content_type,
     )
@@ -112,7 +108,6 @@ def extract_text(
         db,
         current_user.id,
         account_id=payload.account_id,
-        source_kind="text",
         raw_text=payload.text,
     )
 
@@ -122,24 +117,28 @@ def _run_extract(
     user_id: int,
     *,
     account_id: int,
-    source_kind: str,
     raw_bytes: Optional[bytes] = None,
     content_type: Optional[str] = None,
     raw_text: Optional[str] = None,
 ) -> dict:
-    """Shared extract path: budget gate → ingest → review payload."""
-    # Reserve one unit of the daily AI budget before the paid model call. If the
-    # ingest fails before doing paid work we give the unit back.
+    """Shared extract path: budget gate → classify+ingest → review payload.
+
+    Routes through ``ImportService`` (Import Anything), which classifies the
+    document and dispatches to the right extractor (statement → reconciliation,
+    feed/unknown → balance-less reconciliation, receipt → single-row session).
+    """
+    # Reserve budget before the paid model call(s). ImportService makes a classify
+    # call plus an extract call; both are bounded by the same per-request unit
+    # here and the endpoint rate limit. If ingest fails before paid work, refund.
     try:
         llm_budget.check_and_reserve(db, user_id, requests=1)
     except llm_budget.BudgetExceeded as exc:
         raise HTTPException(status_code=429, detail=str(exc))
 
     try:
-        session = ReconciliationService(db).ingest(
+        session, detected_kind = ImportService(db).ingest_any(
             user_id=user_id,
             account_id=account_id,
-            source_kind=source_kind,
             raw_bytes=raw_bytes,
             content_type=content_type,
             raw_text=raw_text,
@@ -152,10 +151,12 @@ def _run_extract(
         llm_budget.release_request(db, user_id)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not read the statement. Please try a clearer file or paste the text.",
+            detail="Could not read the document. Please try a clearer file or paste the text.",
         )
 
-    return ReconciliationService(db).review_payload(user_id, session.id)
+    payload = ReconciliationService(db).review_payload(user_id, session.id)
+    payload["detected_kind"] = detected_kind
+    return payload
 
 
 @router.get("/sessions/{session_id}/", response_model=ImportSessionOut)

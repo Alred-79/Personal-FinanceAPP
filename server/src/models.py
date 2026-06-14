@@ -299,7 +299,8 @@ class ImportSessionOut(BaseModel):
 
     id: int
     account_id: int
-    source_kind: str
+    source_kind: str  # how it was uploaded: pdf | image | text
+    detected_kind: Optional[str] = None  # what it was classified as: statement | feed | receipt | unknown
     status: str  # pending_review | committed | discarded
     statement_period: Optional[str] = None
     balance_check: BalanceCheckOut

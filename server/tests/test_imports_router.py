@@ -3,7 +3,7 @@ assistant action endpoints. The Groq vision call is monkeypatched; the commit
 path goes through the real propose/confirm token machinery.
 """
 
-from server.src.services import reconciliation_service
+from server.src.services import import_service, reconciliation_service
 
 
 def _auth_header(client, username="imuser", email="im@example.com"):
@@ -44,9 +44,14 @@ CLEAN = {
 }
 
 
-def _patch_vision(monkeypatch, statement):
+def _patch_vision(monkeypatch, statement, kind="statement"):
+    # The router goes through ImportService (Import Anything), so patch BOTH the
+    # classifier (→ kind) and the statement extractor — neither hits Groq.
     monkeypatch.setattr(
         reconciliation_service, "_default_vision_fn", lambda b64, ct: statement
+    )
+    monkeypatch.setattr(
+        import_service, "_default_classify_fn", lambda text, b64, ct: kind
     )
 
 
@@ -69,6 +74,7 @@ def test_extract_reconciles_and_returns_payload(client, monkeypatch):
     assert bc["opening"] == 1000.00 and bc["closing"] == 1075.50
     assert len(body["rows"]) == 3
     assert body["status"] == "pending_review"
+    assert body["detected_kind"] == "statement"  # Import Anything classification
 
 
 def test_full_commit_flow_creates_transactions(client, monkeypatch):
