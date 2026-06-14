@@ -389,7 +389,7 @@ class DailyService:
 
         from server.src.services.spend_service import SpendService
 
-        sts = SpendService(self.db).safe_to_spend(user, as_of=day)
+        sts = SpendService(self.db).safe_to_spend(user, as_of=day, include_outlook=False)
 
         has_data = bool(acct_ids) and self._had_activity(acct_ids, day)
         only_pending = False  # pending txns aren't modelled separately yet → False

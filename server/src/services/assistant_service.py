@@ -43,7 +43,7 @@ from ..services.read_queries import (
 )
 from ..services.transaction_service import TransactionService
 from ..services.categorization_service import CategorizationService
-from ..services.pii import redact_payload
+from ..services.pii import redact_payload, scrub_secrets
 from ..services.game.firewall import screen_output, is_crisis, CRISIS_RESOURCE
 from ..settings import settings
 from ..services import llm_budget
@@ -1136,6 +1136,17 @@ class AssistantService:
             finally:
                 db_crisis.close()
             return
+
+        # Input PII redaction (P0 — privacy): the user's own message can carry
+        # high-risk tokens (an SSN, a card/account number, a phone read aloud or
+        # pasted). Tool OUTPUTS are already scrubbed via ``_safe_for_llm``; this
+        # closes the matching gap on the INBOUND turn so nothing high-risk reaches
+        # Groq for inference — typed or spoken alike (the voice path lands here too,
+        # via /transcribe/ → the chat box). Deterministic, always-on, and it leaves
+        # merchant names/amounts intact so the assistant stays useful. The crisis
+        # screen above runs on the ORIGINAL text on purpose: its lexicon is words,
+        # not PII, and we want it maximally sensitive.
+        message = scrub_secrets(message)
 
         if user.id not in self.agents:
             tools = [

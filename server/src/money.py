@@ -36,3 +36,22 @@ def cents_to_dollars(cents: int) -> float:
     0.0
     """
     return cents / 100.0
+
+
+def round_half_even_cents(value: float) -> int:
+    """Round a fractional-cent quantity to whole cents, ties to the even cent.
+
+    For when a cents value is computed in floating point (e.g. a daily goal
+    contribution ``remaining / days * window``) and must land back on a whole
+    cent. Uses the same banker's rounding as ``dollars_to_cents`` so the whole
+    money layer rounds one consistent way, rather than truncating toward zero
+    (``int()``) at some sites and rounding at others.
+
+    >>> round_half_even_cents(166.4)
+    166
+    >>> round_half_even_cents(166.5)
+    166
+    >>> round_half_even_cents(167.5)
+    168
+    """
+    return int(Decimal(str(value)).to_integral_value(rounding=ROUND_HALF_EVEN))

@@ -4,7 +4,7 @@ Coverage:
 1. Shape/schema: top-level keys, schema_version, generated_at (UTC), currency.
 2. Annotation invariant: every computed block has non-empty method + assumptions.
 3. Anti-misrepresentation: spendable.period == "P14D"; assumptions mention "NOT monthly";
-   forecast assumptions mention "expenses only" / "no income".
+   forecast assumptions are honest about projected income + discretionary burn.
 4. Correctness: seeded fixture → spendable.value matches SpendService output;
    budgets match BudgetService.summarize; amounts are dollars.
 5. Empty-data user: valid, fully-annotated snapshot with zeros/empties, no crash.
@@ -136,6 +136,18 @@ class TestShape:
                     "lowest_balance", "will_go_negative", "method", "assumptions", "caveats"):
             assert key in cf, f"cashflow_forecast missing key: {key}"
 
+    def test_cashflow_forecast_exposes_overdraft_outlook(self, db_session):
+        """The MCP context surfaces the probabilistic outlook so the assistant
+        can speak to overdraft risk: a probability, a daily burn, and a band on
+        the trough."""
+        uid = _make_user(db_session).id
+        cf = _build(db_session, uid)["cashflow_forecast"]
+        assert "overdraft_probability" in cf
+        assert 0.0 <= cf["overdraft_probability"] <= 1.0
+        assert "daily_discretionary_burn" in cf
+        band = cf["lowest_balance"]["band"]
+        assert band["low"] <= band["median"] <= band["high"]
+
     def test_budgets_block_shape(self, db_session):
         uid = _make_user(db_session).id
         bud = _build(db_session, uid)["budgets"]
@@ -189,15 +201,22 @@ class TestAntiMisrepresentation:
         text = " ".join(_build(db_session, uid)["spendable"]["assumptions"])
         assert "NOT monthly" in text
 
-    def test_forecast_assumptions_mention_recurring_expenses_only(self, db_session):
+    def test_forecast_assumptions_mention_recurring_expenses(self, db_session):
         uid = _make_user(db_session).id
         text = " ".join(_build(db_session, uid)["cashflow_forecast"]["assumptions"])
         assert "expenses" in text.lower()
 
-    def test_forecast_assumptions_mention_no_income(self, db_session):
+    def test_forecast_assumptions_are_honest_about_income_and_burn(self, db_session):
+        """The narration must reflect the real method: income IS projected, and
+        the forecast drains a discretionary burn (the old 'no income' /
+        'expenses only' copy was stale and is now corrected)."""
         uid = _make_user(db_session).id
-        text = " ".join(_build(db_session, uid)["cashflow_forecast"]["assumptions"])
-        assert "no income" in text.lower()
+        text = " ".join(
+            _build(db_session, uid)["cashflow_forecast"]["assumptions"]
+        ).lower()
+        assert "income" in text
+        assert "burn" in text
+        assert "no income" not in text  # the old lie must be gone
 
 
 # ---------------------------------------------------------------------------

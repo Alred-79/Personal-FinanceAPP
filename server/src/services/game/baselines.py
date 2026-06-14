@@ -14,6 +14,7 @@ with <6 weeks of data is ``LOW_CONFIDENCE``; consumers must check the flag
 
 from __future__ import annotations
 
+import statistics
 from dataclasses import dataclass
 from datetime import date
 from typing import Optional
@@ -79,27 +80,72 @@ def _is_low_confidence(db: Session, user_id: int, as_of: date) -> bool:
     return weeks < LOW_CONFIDENCE_WEEKS
 
 
-def _refund_offset_cents(
-    db: Session, acct_ids: list[int], category: str, start: date, end: date
-) -> int:
-    """Income in the same category over the window — treated as refunds that
-    offset the category's spend (a refund-matched pair nets out)."""
-    if not acct_ids:
-        return 0
-    total = db.execute(
-        select(func.coalesce(func.sum(IncomeORM.amount), 0)).where(
-            IncomeORM.account_id.in_(acct_ids),
-            IncomeORM.category == category,
-            IncomeORM.date >= start.isoformat(),
-            IncomeORM.date < end.isoformat(),
-        )
-    ).scalar_one()
-    return int(total or 0)
-
-
 # Categories that are internal transfers between the user's own accounts — never
 # counted as spend. The canonical category for these in this app is "Transfer".
 _TRANSFER_CATEGORIES = {"Transfer", "Transfers"}
+
+
+def _robust_monthly(buckets: list[int]) -> int:
+    """Robust per-month estimator across the calendar-month buckets (cents).
+
+    The MEDIAN of the buckets, not the mean. With the usual 3 buckets a
+    symmetric trimmed mean (drop min and max) IS the median, and the median
+    rejects a single anomalous month — one car-repair splurge or one empty
+    month — without a tunable outlier threshold. For an odd count the median is
+    one of the input ints, so cents stay exact (no rounding).
+
+    Buckets MUST be the full window (an explicit ``0`` for a month with no
+    activity), so partial-history users trend low, exactly as the old
+    ``SUM // BASELINE_MONTHS`` did; the ``low_confidence`` flag still guards them.
+    """
+    if not buckets:
+        return 0
+    return int(statistics.median(buckets))
+
+
+def _month_edges(as_of: date, months: int) -> list[tuple[date, date]]:
+    """The ``months`` calendar-month [start, end) windows ending just before
+    *as_of*'s month, oldest first. e.g. as_of 2026-06-xx, months=3 →
+    [(Mar1,Apr1), (Apr1,May1), (May1,Jun1)]."""
+    edges: list[tuple[date, date]] = []
+    for i in range(months, 0, -1):
+        start = _months_back_start(as_of, i)
+        end = _months_back_start(as_of, i - 1)
+        edges.append((start, end))
+    return edges
+
+
+def _month_buckets(
+    db: Session,
+    acct_ids: list[int],
+    model,
+    as_of: date,
+    *,
+    category: Optional[str] = None,
+    exclude_categories: Optional[set[str]] = None,
+) -> list[int]:
+    """Per-calendar-month summed amounts of *model* over the baseline window —
+    one int per month (explicit ``0`` for months with no rows). Length ==
+    ``BASELINE_MONTHS``. Optionally filter to a single ``category`` or exclude a
+    set of categories (e.g. transfers)."""
+    if not acct_ids:
+        return [0] * BASELINE_MONTHS
+    buckets: list[int] = []
+    for start, end in _month_edges(as_of, BASELINE_MONTHS):
+        conds = [
+            model.account_id.in_(acct_ids),
+            model.date >= start.isoformat(),
+            model.date < end.isoformat(),
+        ]
+        if category is not None:
+            conds.append(model.category == category)
+        if exclude_categories:
+            conds.append(model.category.notin_(exclude_categories))
+        total = db.execute(
+            select(func.coalesce(func.sum(model.amount), 0)).where(*conds)
+        ).scalar_one()
+        buckets.append(int(total or 0))
+    return buckets
 
 
 def category_baseline(
@@ -115,25 +161,19 @@ def category_baseline(
     if not acct_ids:
         return Baseline(0, True)
 
-    window_start = _months_back_start(as_of, BASELINE_MONTHS)
-    window_end = _start_of_month(as_of)  # exclude the current partial month
-
     if category in _TRANSFER_CATEGORIES:
         return Baseline(0, _is_low_confidence(db, user_id, as_of))
 
-    spend = db.execute(
-        select(func.coalesce(func.sum(ExpenseORM.amount), 0)).where(
-            ExpenseORM.account_id.in_(acct_ids),
-            ExpenseORM.category == category,
-            ExpenseORM.date >= window_start.isoformat(),
-            ExpenseORM.date < window_end.isoformat(),
-        )
-    ).scalar_one()
-    refunds = _refund_offset_cents(
-        db, acct_ids, category, window_start, window_end
+    spend_buckets = _month_buckets(
+        db, acct_ids, ExpenseORM, as_of, category=category
     )
-    net = max(int(spend or 0) - refunds, 0)
-    monthly = net // BASELINE_MONTHS
+    refund_buckets = _month_buckets(
+        db, acct_ids, IncomeORM, as_of, category=category
+    )
+    # Net refunds PER MONTH (clamped at 0 each), so a refund-heavy month can't
+    # drag the median negative or bleed into another month's bucket.
+    net_buckets = [max(s - r, 0) for s, r in zip(spend_buckets, refund_buckets)]
+    monthly = _robust_monthly(net_buckets)
     return Baseline(monthly, _is_low_confidence(db, user_id, as_of))
 
 
@@ -146,17 +186,10 @@ def income_baseline(
     acct_ids = _account_ids(db, user_id)
     if not acct_ids:
         return Baseline(0, True)
-    window_start = _months_back_start(as_of, BASELINE_MONTHS)
-    window_end = _start_of_month(as_of)
-    total = db.execute(
-        select(func.coalesce(func.sum(IncomeORM.amount), 0)).where(
-            IncomeORM.account_id.in_(acct_ids),
-            IncomeORM.category.notin_(_TRANSFER_CATEGORIES),
-            IncomeORM.date >= window_start.isoformat(),
-            IncomeORM.date < window_end.isoformat(),
-        )
-    ).scalar_one()
-    monthly = int(total or 0) // BASELINE_MONTHS
+    income_buckets = _month_buckets(
+        db, acct_ids, IncomeORM, as_of, exclude_categories=_TRANSFER_CATEGORIES
+    )
+    monthly = _robust_monthly(income_buckets)
     return Baseline(monthly, _is_low_confidence(db, user_id, as_of))
 
 
@@ -169,29 +202,20 @@ def total_spend_baseline(
     acct_ids = _account_ids(db, user_id)
     if not acct_ids:
         return Baseline(0, True)
-    window_start = _months_back_start(as_of, BASELINE_MONTHS)
-    window_end = _start_of_month(as_of)
-    spend = db.execute(
-        select(func.coalesce(func.sum(ExpenseORM.amount), 0)).where(
-            ExpenseORM.account_id.in_(acct_ids),
-            ExpenseORM.category.notin_(_TRANSFER_CATEGORIES),
-            ExpenseORM.date >= window_start.isoformat(),
-            ExpenseORM.date < window_end.isoformat(),
-        )
-    ).scalar_one()
-    refunds = db.execute(
-        select(func.coalesce(func.sum(IncomeORM.amount), 0)).where(
-            IncomeORM.account_id.in_(acct_ids),
-            IncomeORM.category.notin_(_TRANSFER_CATEGORIES),
-            # Only income that looks like a refund (has a spend category twin);
-            # for the baseline we conservatively offset using non-Work income.
-            IncomeORM.category != "Work",
-            IncomeORM.date >= window_start.isoformat(),
-            IncomeORM.date < window_end.isoformat(),
-        )
-    ).scalar_one()
-    net = max(int(spend or 0) - int(refunds or 0), 0)
-    return Baseline(net // BASELINE_MONTHS, _is_low_confidence(db, user_id, as_of))
+    spend_buckets = _month_buckets(
+        db, acct_ids, ExpenseORM, as_of, exclude_categories=_TRANSFER_CATEGORIES
+    )
+    # Refund offset = non-transfer, non-Work income (a refund has a spend twin;
+    # paychecks are excluded so they don't masquerade as refunds), netted PER
+    # MONTH against that month's spend.
+    refund_buckets = _month_buckets(
+        db, acct_ids, IncomeORM, as_of,
+        exclude_categories=_TRANSFER_CATEGORIES | {"Work"},
+    )
+    net_buckets = [max(s - r, 0) for s, r in zip(spend_buckets, refund_buckets)]
+    return Baseline(
+        _robust_monthly(net_buckets), _is_low_confidence(db, user_id, as_of)
+    )
 
 
 def savings_rate_baseline(

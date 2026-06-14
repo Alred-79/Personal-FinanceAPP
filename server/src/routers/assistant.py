@@ -1,4 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from typing import Dict, List, Annotated
 from sqlalchemy.orm import Session
@@ -8,6 +16,11 @@ from ..services.assistant_service import (
     ActionService,
     ActionError,
     PlaidAccountError,
+)
+from ..services.speech_service import (
+    ALLOWED_CONTENT_TYPES,
+    MAX_AUDIO_BYTES,
+    SpeechService,
 )
 from server.src.db.session import get_db
 from server.src.models import (
@@ -104,6 +117,64 @@ async def clear_history(
     """
     assistant_service.clear_history(current_user)
     return {"status": "success"}
+
+
+# ---------------------------------------------------------------------------
+# Voice input (speech-to-text)
+# ---------------------------------------------------------------------------
+# Turns an uploaded mic clip into text that pre-fills the chat box for the user
+# to review before sending. Validation mirrors /receipts/scan/ exactly (auth +
+# content-type + size, bytes held in memory only, never persisted). This makes
+# NO LLM/agent call — transcription is the whole job — so it needs no
+# ``llm_budget`` reservation; its own rate limit is the cost ceiling. Same Step-02
+# callable-limit gotcha as /chat/ (slowapi freezes a bare string at decoration).
+@router.post("/transcribe/")
+@limiter.limit(lambda: settings.assistant_stt_rate_limit)
+async def transcribe(
+    request: Request,
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    file: UploadFile = File(...),
+):
+    content_type = (file.content_type or "").lower()
+    # Some browsers append codec params, e.g. "audio/webm;codecs=opus".
+    base_type = content_type.split(";", 1)[0].strip()
+    if base_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported file type. Record audio (webm, mp4, wav, or mp3).",
+        )
+
+    # Reject oversize uploads using the declared size before buffering anything.
+    if file.size is not None and file.size > MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Audio too large. Maximum clip size is 25 MB.",
+        )
+
+    # Read at most one byte past the limit so a lying/absent Content-Length can't
+    # exhaust memory; anything larger is rejected without holding the full body.
+    data = await file.read(MAX_AUDIO_BYTES + 1)
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(data) > MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Audio too large. Maximum clip size is 25 MB.",
+        )
+
+    try:
+        text = SpeechService().transcribe(data, base_type)
+    except Exception:
+        # STT/network errors must never leak internals; fail gracefully so the
+        # user falls back to typing.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not transcribe the audio. Please type your message.",
+        )
+
+    return {"text": text}
 
 
 # ---------------------------------------------------------------------------

@@ -9,11 +9,20 @@ import {
 } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { MessageCircle, Send, Trash2, Sparkles } from "lucide-react";
+import {
+  MessageCircle,
+  Send,
+  Trash2,
+  Sparkles,
+  Mic,
+  Square,
+  Loader2,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import styles from "./AssistantInterface.module.css";
 import { Message, ActionMessage } from "@/types";
 import { apiBase } from "@/lib/apiBase";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
 
 const EXAMPLE_QUESTIONS = [
   "How much have I spent this week?",
@@ -43,6 +52,19 @@ export function AssistantInterface() {
   const [isLoading, setIsLoading] = useState(false);
   const [actionMessages, setActionMessages] = useState<ActionMessage[]>([]);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const voice = useVoiceInput();
+
+  // Toggle the mic: first tap records, second tap stops + transcribes. The
+  // transcript is APPENDED into the editable input box for the user to review —
+  // it is never auto-sent (a mis-hearing should be caught before it hits the LLM).
+  const handleMicToggle = async () => {
+    if (voice.isRecording) {
+      const text = await voice.stop();
+      if (text) setInput((prev) => (prev ? `${prev} ${text}` : text));
+    } else {
+      await voice.start();
+    }
+  };
 
   useEffect(() => {
     const viewport = scrollAreaRef.current?.querySelector(
@@ -286,6 +308,11 @@ export function AssistantInterface() {
               ))}
             </div>
           )}
+          {voice.error && (
+            <div className={styles.voiceError} role="alert">
+              {voice.error}
+            </div>
+          )}
           <div className={styles.inputContainer}>
             {!isEmpty && (
               <Button
@@ -302,14 +329,39 @@ export function AssistantInterface() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyPress}
-              placeholder="Ask about your finances…"
-              disabled={isLoading}
+              placeholder={
+                voice.isRecording ? "Listening… tap to stop" : "Ask about your finances…"
+              }
+              disabled={isLoading || voice.isRecording || voice.isTranscribing}
               className={styles.messageInput}
             />
+            {voice.supported && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleMicToggle}
+                disabled={isLoading || voice.isTranscribing}
+                title={
+                  voice.isRecording ? "Stop recording" : "Speak your message"
+                }
+                aria-label={
+                  voice.isRecording ? "Stop recording" : "Speak your message"
+                }
+                aria-pressed={voice.isRecording}
+              >
+                {voice.isTranscribing ? (
+                  <Loader2 className={`${styles.iconSize} ${styles.spin}`} />
+                ) : voice.isRecording ? (
+                  <Square className={`${styles.iconSize} ${styles.recordingMic}`} />
+                ) : (
+                  <Mic className={styles.iconSize} />
+                )}
+              </Button>
+            )}
             <Button
               size="icon"
               onClick={() => handleSend()}
-              disabled={!input.trim() || isLoading}
+              disabled={!input.trim() || isLoading || voice.isRecording}
             >
               <Send className={styles.iconSize} />
             </Button>

@@ -147,8 +147,11 @@ class HeatService:
         from server.src.services.forecast_service import ForecastService
 
         try:
+            # Scheduled-only (include_burn=False): the Heat veto keys off bills
+            # vs. income, not estimated discretionary burn, so its behavior is
+            # stable and explainable.
             fc = ForecastService(self.db).forecast(
-                user.id, as_of, as_of + timedelta(days=30))
+                user.id, as_of, as_of + timedelta(days=30), include_burn=False)
             return bool(fc.get("will_go_negative"))
         except Exception:
             return False

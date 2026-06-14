@@ -101,6 +101,14 @@ class Settings(BaseSettings):
     # Groq multimodal model we use for reading receipts. Override it in env if needed.
     groq_vision_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
 
+    # --- Voice input (speech-to-text) ---
+    # Groq hosts Whisper, so voice input reuses ``groq_api_key`` — no new vendor.
+    # The /assistant/transcribe/ endpoint turns uploaded mic audio into text the
+    # user reviews before sending. Its own rate limit caps STT cost independently
+    # of the chat budget (transcription makes no LLM/agent call).
+    groq_stt_model: str = "whisper-large-v3-turbo"
+    assistant_stt_rate_limit: str = "30/hour"
+
     # --- AI assistant ---
     # Chat model, sampling temperature, and how many prior turns the agent
     # remembers. These used to be hardcoded inside the assistant service.

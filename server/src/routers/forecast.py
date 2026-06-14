@@ -36,5 +36,5 @@ async def get_forecast(
     horizon_start = start or date.today()
     horizon_end = end or (horizon_start + timedelta(days=days))
     return ForecastService(db).forecast(
-        current_user.id, horizon_start, horizon_end
+        current_user.id, horizon_start, horizon_end, include_burn=True
     )

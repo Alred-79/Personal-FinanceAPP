@@ -75,7 +75,7 @@ def weekly_reveal(
     # near horizon. (The What-If commit handles the actual add via propose→confirm.)
     from server.src.services.spend_service import SpendService
 
-    sts = SpendService(db).safe_to_spend(user, as_of=as_of)
+    sts = SpendService(db).safe_to_spend(user, as_of=as_of, include_outlook=False)
     from ...money import dollars_to_cents
 
     current = dollars_to_cents(sts["breakdown"]["current_balance"])
@@ -124,7 +124,7 @@ def check_milestones(
     reached = set(state["tiers"])
     newly: list[str] = []
 
-    sts = SpendService(db).safe_to_spend(user, as_of=as_of)
+    sts = SpendService(db).safe_to_spend(user, as_of=as_of, include_outlook=False)
     buffer_cents = dollars_to_cents(sts["breakdown"]["current_balance"])
     runway_months, _ = StatsService(db).vitality(user.id, as_of)
 

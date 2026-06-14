@@ -184,7 +184,7 @@ class AlertEngine:
 
     def _buffer_floor_cents(self, user: UserInDB) -> int:
         """The user's safety buffer in cents (the bill-dip floor)."""
-        s2s = self.spend.safe_to_spend(user)
+        s2s = self.spend.safe_to_spend(user, include_outlook=False)
         return dollars_to_cents(s2s["config"]["buffer"])
 
     def _bill_dip(self, user: UserInDB, as_of: date) -> list[Alert]:
@@ -195,7 +195,7 @@ class AlertEngine:
         out: list[Alert] = []
         flows = self.recurring.project_cashflows(user.id, as_of, window_end)
         # Running balance from current total.
-        balance = self.spend.safe_to_spend(user)["breakdown"]["current_balance"]
+        balance = self.spend.safe_to_spend(user, include_outlook=False)["breakdown"]["current_balance"]
         balance_cents = dollars_to_cents(balance)
         # Walk flows in date order, tracking the balance at each due bill.
         running = balance_cents
@@ -227,7 +227,7 @@ class AlertEngine:
     def _negative_ahead(self, user: UserInDB, as_of: date) -> list[Alert]:
         """The projected balance goes negative within the action window."""
         window_end = as_of + timedelta(days=NEGATIVE_AHEAD_WINDOW_DAYS)
-        balance = self.spend.safe_to_spend(user)["breakdown"]["current_balance"]
+        balance = self.spend.safe_to_spend(user, include_outlook=False)["breakdown"]["current_balance"]
         running = dollars_to_cents(balance)
         flows = self.recurring.project_cashflows(user.id, as_of, window_end)
         for item in sorted(flows, key=lambda i: i["date"]):

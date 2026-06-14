@@ -230,6 +230,73 @@ def test_new_user_is_low_confidence(db_session, user_acct):
     assert b.low_confidence is True
 
 
+def test_robust_monthly_is_the_median_not_the_mean():
+    from server.src.services.game.baselines import _robust_monthly
+
+    assert _robust_monthly([]) == 0
+    assert _robust_monthly([0, 0, 0]) == 0
+    assert _robust_monthly([100, 200, 300]) == 200
+    # The whole point: one anomalous month is rejected. Mean would be 366.
+    assert _robust_monthly([100, 100, 900]) == 100
+
+
+def test_category_baseline_is_robust_to_outlier_month(db_session, user_acct):
+    """One splurge month must not drag the baseline up. Buckets [100,100,700]
+    → median $100, where the old mean would have been ($900/3)=$300."""
+    user, acct = user_acct
+    _spend(db_session, acct, category="Dining", cents=100_00, when="2026-03-15")
+    _spend(db_session, acct, category="Dining", cents=100_00, when="2026-04-15")
+    _spend(db_session, acct, category="Dining", cents=700_00, when="2026-05-15")
+    b = category_baseline(db_session, user.id, "Dining", AS_OF)
+    assert b.monthly_cents == 100_00  # median, not the 300_00 mean
+
+
+def test_total_spend_baseline_is_robust_to_outlier_month(db_session, user_acct):
+    """Total-spend baseline takes the median across months too. A one-off big
+    month (across mixed categories) doesn't inflate it."""
+    user, acct = user_acct
+    _spend(db_session, acct, category="Dining", cents=120_00, when="2026-03-10")
+    _spend(db_session, acct, category="Groceries", cents=120_00, when="2026-04-10")
+    _spend(db_session, acct, category="Travel", cents=900_00, when="2026-05-10")
+    from server.src.services.game.baselines import total_spend_baseline
+
+    b = total_spend_baseline(db_session, user.id, AS_OF)
+    assert b.monthly_cents == 120_00  # median of [120, 120, 900]
+
+
+def test_income_baseline_is_robust_to_outlier_month(db_session, user_acct):
+    """A one-off bonus month doesn't inflate the income baseline."""
+    user, acct = user_acct
+    for when, cents in (
+        ("2026-03-01", 100_00),
+        ("2026-04-01", 100_00),
+        ("2026-05-01", 1000_00),
+    ):
+        db_session.add(IncomeORM(title="pay", amount=cents, date=when,
+                                 category="Work", account_id=acct.id))
+    db_session.flush()
+    from server.src.services.game.baselines import income_baseline
+
+    b = income_baseline(db_session, user.id, AS_OF)
+    assert b.monthly_cents == 100_00  # median of [100, 100, 1000]
+
+
+def test_per_month_refund_netting_clamps_each_month(db_session, user_acct):
+    """A refund larger than its month's spend clamps that month to 0 only — it
+    does not bleed into other months. Spend [50,50,50] with an 80 refund in the
+    first month → net buckets [0,50,50] → median 50 (old whole-window math netted
+    150−80=70 → 23.33)."""
+    user, acct = user_acct
+    _spend(db_session, acct, category="Dining", cents=50_00, when="2026-03-15")
+    _spend(db_session, acct, category="Dining", cents=50_00, when="2026-04-15")
+    _spend(db_session, acct, category="Dining", cents=50_00, when="2026-05-15")
+    db_session.add(IncomeORM(title="refund", amount=80_00, date="2026-03-16",
+                             category="Dining", account_id=acct.id))
+    db_session.flush()
+    b = category_baseline(db_session, user.id, "Dining", AS_OF)
+    assert b.monthly_cents == 50_00
+
+
 # ── 9-11: stats ──────────────────────────────────────────────────────────
 
 

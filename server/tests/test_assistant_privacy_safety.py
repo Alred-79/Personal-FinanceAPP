@@ -16,6 +16,7 @@ text the model would have produced.
 """
 
 import pathlib
+from types import SimpleNamespace
 
 import anyio
 import pytest
@@ -249,3 +250,58 @@ class _ExplodingDict(dict):
 
     def __getitem__(self, _key):
         raise AssertionError(self._why)
+
+
+# ── end-to-end: inbound PII is scrubbed BEFORE the executor (P0) ────────────
+
+
+def test_chat_scrubs_pii_from_inbound_message_before_the_executor(
+    db_session, _engine, monkeypatch
+):
+    """The user's OWN message — not just tool outputs — must be scrubbed of
+    high-risk tokens before it reaches the agent/Groq. We pre-seed the per-user
+    agent cache with a fake executor that captures the ``input`` it's handed and
+    assert the SSN/email never appear in what the model would see."""
+    TestSession = sessionmaker(
+        bind=_engine, autoflush=False, autocommit=False, future=True
+    )
+    monkeypatch.setattr(svc_mod, "SessionLocal", TestSession)
+
+    u = UserORM(
+        username="piiuser", full_name="P", email="p@example.com",
+        hashed_password="x",
+    )
+    db_session.add(u)
+    db_session.commit()
+    user = UserInDB(
+        id=u.id, username=u.username, email=u.email, full_name=u.full_name,
+        disabled=False, hashed_password="x",
+    )
+
+    captured: dict = {}
+
+    class _FakeExecutor:
+        async def astream_events(self, payload, version="v2"):
+            captured["input"] = payload["input"]
+            # One clean model token so the generator finishes normally.
+            yield {
+                "event": "on_chat_model_stream",
+                "data": {"chunk": SimpleNamespace(content="Noted.")},
+            }
+
+    service = AssistantService()
+    # Pre-seed the cache so chat() uses our fake executor (no agent build, no Groq).
+    service.agents = {user.id: _FakeExecutor()}
+
+    async def _drive():
+        async for _ in service.chat(
+            user, "my SSN is 123-45-6789 and email bob@example.com"
+        ):
+            pass
+
+    anyio.run(_drive)
+
+    seen = captured["input"]
+    assert "123-45-6789" not in seen
+    assert "bob@example.com" not in seen
+    assert "REDACTED" in seen

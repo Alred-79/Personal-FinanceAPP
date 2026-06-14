@@ -101,7 +101,7 @@ class GraceService:
         shock = self._essential_shock(user, day)
 
         # 4. Safe-to-Spend below the floor.
-        sts = SpendService(self.db).safe_to_spend(user, as_of=day)
+        sts = SpendService(self.db).safe_to_spend(user, as_of=day, include_outlook=False)
         sts_low = float(sts["available"]) < STS_FLOOR
 
         return GraceSignals(will_negative, income_low, shock, sts_low)
@@ -167,8 +167,12 @@ class GraceService:
         from server.src.services.forecast_service import ForecastService
 
         try:
+            # Scheduled-only (include_burn=False): Grace protects against a
+            # genuine scheduled shortfall, keeping its trigger independent of the
+            # discretionary-burn estimate.
             fc = ForecastService(self.db).forecast(
-                user.id, day, day + timedelta(days=NEGATIVE_HORIZON_DAYS)
+                user.id, day, day + timedelta(days=NEGATIVE_HORIZON_DAYS),
+                include_burn=False,
             )
         except Exception:
             return False

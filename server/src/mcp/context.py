@@ -47,14 +47,20 @@ _SECTION_SCOPES = {
 # Annotation constants — cashflow forecast
 # ---------------------------------------------------------------------------
 
-_FORECAST_METHOD = "forecast_service.forecast"
+_FORECAST_METHOD = "forecast_service.forecast (burn-aware + residual-bootstrap)"
 _FORECAST_ASSUMPTIONS: list[str] = [
-    "Projects ONLY recurring expenses; no income is projected forward",
     "Starts from the current sum of all account balances",
-    "One-off / non-recurring future expenses are not included",
+    "Projects recurring expenses AND recurring income forward over the horizon",
+    "Drains an estimated daily discretionary burn (avg of recent non-recurring "
+    "spend, top decile dropped) on every day",
+    "overdraft_probability and the trough_band come from a residual-bootstrap "
+    "simulation that resamples the user's recent daily-spend variation",
 ]
 _FORECAST_CAVEATS: list[str] = [
-    "Deliberately pessimistic — real balance is usually higher because income isn't modeled",
+    "The burn estimate needs a few weeks of non-recurring spend; with little "
+    "history it is zero and the forecast is scheduled-only",
+    "overdraft_probability is a modelled estimate, not a guarantee; treat the "
+    "trough_band (low/median/high) as the range of likely outcomes",
     "Accuracy depends on recurrence detection; mislabeled recurrence skews it",
 ]
 
@@ -139,7 +145,11 @@ class ContextBuilder:
     def _build_forecast(self, uid: int, today: date) -> dict[str, Any]:
         horizon_days = settings.mcp_context_forecast_days
         horizon_end = today + timedelta(days=horizon_days)
-        raw = ForecastService(self._db).forecast(uid, today, horizon_end)
+        # Burn-aware so the assistant's forecast matches the user-facing one and
+        # can speak to overdraft risk honestly.
+        raw = ForecastService(self._db).forecast(
+            uid, today, horizon_end, include_burn=True
+        )
         return {
             "horizon": {
                 "start": raw["horizon_start"],
@@ -151,8 +161,11 @@ class ContextBuilder:
             "lowest_balance": {
                 "value": raw["lowest_balance"],
                 "date": raw["lowest_date"],
+                "band": raw["trough_band"],
             },
             "will_go_negative": raw["will_go_negative"],
+            "overdraft_probability": raw["overdraft_probability"],
+            "daily_discretionary_burn": raw["daily_discretionary_burn"],
             "method": _FORECAST_METHOD,
             "assumptions": _FORECAST_ASSUMPTIONS,
             "caveats": _FORECAST_CAVEATS,
