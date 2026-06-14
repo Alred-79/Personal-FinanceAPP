@@ -27,6 +27,8 @@ from sqlalchemy.orm import Session
 
 from ...db.models import Goal as GoalORM
 from ...money import cents_to_dollars, dollars_to_cents
+from ..goal_math import add_months as _add_months
+from ..goal_math import months_to_reach as _months_to_reach
 
 
 @dataclass
@@ -57,20 +59,6 @@ class WhatIfResult:
 # still yields a real, reachable suggestion (never +$0).
 _DEFAULT_DELTA_PCT = 0.05
 _MIN_DELTA_CENTS = 100
-
-
-def _months_to_reach(remaining_cents: int, monthly_cents: int) -> Optional[int]:
-    """Whole months to cover *remaining* at *monthly*, or None if monthly ≤ 0."""
-    if monthly_cents <= 0:
-        return None
-    return -(-remaining_cents // monthly_cents)  # ceil division
-
-
-def _add_months(start: date, months: int) -> date:
-    m = start.month - 1 + months
-    year = start.year + m // 12
-    month = m % 12 + 1
-    return date(year, month, 1)
 
 
 class WhatIfService:

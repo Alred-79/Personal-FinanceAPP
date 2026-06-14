@@ -178,3 +178,102 @@ class TestCentsDiscipline:
         assert ov["balance_override"] == 3333.33
         assert ov["excluded_source_ids"] == [["expense", 7]]
         assert ov["config_overrides"] == {"s2s_buffer_on": True}
+
+
+def _create_account(client, headers, balance=3000.00):
+    resp = client.post(
+        "/api/accounts/",
+        json={"name": "Checking", "type": "checking", "balance": balance},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    return client.get("/api/accounts/", headers=headers).json()[-1]["id"]
+
+
+# ── doc 04: evaluate + compare endpoints ─────────────────────────────────────
+
+
+class TestEvaluateEndpoint:
+    def test_evaluate_shape_and_auth(self, client):
+        headers = _auth_header(client, "ev", "ev@t.com")
+        _create_account(client, headers, balance=3000.00)
+        sid = client.post(
+            "/api/scenarios/",
+            json={"name": "Low balance", "overlay": {"balance_override": 50.0}},
+            headers=headers,
+        ).json()["id"]
+
+        resp = client.post(f"/api/scenarios/{sid}/evaluate/", headers=headers)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert set(body) == {"baseline", "scenario"}
+        assert body["scenario"]["scenario_id"] == sid
+        for col in (body["baseline"], body["scenario"]):
+            assert {
+                "overdraft_probability",
+                "lowest_balance",
+                "ending_balance",
+                "safe_to_spend",
+                "runway_days",
+                "goal_reach",
+            } <= set(col["result"])
+        # A $50 starting balance is far below the real $3,000 → ending drops.
+        assert body["scenario"]["delta"]["ending_balance"] < 0.0
+
+    def test_evaluate_requires_auth(self, client):
+        assert client.post("/api/scenarios/1/evaluate/").status_code == 401
+
+    def test_evaluate_other_users_scenario_404(self, client):
+        ha = _auth_header(client, "oa", "oa@t.com")
+        hb = _auth_header(client, "ob", "ob@t.com")
+        sid = client.post(
+            "/api/scenarios/", json={"name": "A"}, headers=ha
+        ).json()["id"]
+        assert (
+            client.post(f"/api/scenarios/{sid}/evaluate/", headers=hb).status_code == 404
+        )
+
+
+class TestCompareEndpoint:
+    def test_compare_columns(self, client):
+        headers = _auth_header(client, "cmp", "cmp@t.com")
+        _create_account(client, headers, balance=3000.00)
+        s1 = client.post(
+            "/api/scenarios/",
+            json={"name": "Tight", "overlay": {"balance_override": 100.0}},
+            headers=headers,
+        ).json()["id"]
+        s2 = client.post(
+            "/api/scenarios/",
+            json={"name": "Flush", "overlay": {"balance_override": 9000.0}},
+            headers=headers,
+        ).json()["id"]
+
+        resp = client.post(
+            "/api/scenarios/compare/",
+            json={"scenario_ids": [s1, s2], "horizon_days": 60},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        cols = resp.json()["columns"]
+        assert len(cols) == 3
+        assert cols[0]["name"] == "Baseline"
+        assert cols[1]["scenario_id"] == s1
+        assert cols[2]["scenario_id"] == s2
+        # Flush ends richer than Tight.
+        assert cols[1]["delta"]["ending_balance"] < cols[2]["delta"]["ending_balance"]
+
+    def test_compare_unknown_id_404(self, client):
+        headers = _auth_header(client, "cmp2", "cmp2@t.com")
+        resp = client.post(
+            "/api/scenarios/compare/",
+            json={"scenario_ids": [999999], "horizon_days": 30},
+            headers=headers,
+        )
+        assert resp.status_code == 404
+
+    def test_compare_requires_auth(self, client):
+        resp = client.post(
+            "/api/scenarios/compare/", json={"scenario_ids": [1]}
+        )
+        assert resp.status_code == 401
