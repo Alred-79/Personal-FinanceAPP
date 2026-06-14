@@ -29,7 +29,11 @@ from server.src.db.models import (
 )
 from server.src.dates import parse_iso_date
 from server.src.models import UserInDB
-from server.src.money import cents_to_dollars, dollars_to_cents
+from server.src.money import (
+    cents_to_dollars,
+    dollars_to_cents,
+    round_half_even_cents,
+)
 from server.src.services.recurring_service import (
     RECURRENCE_TO_DAYS,
     RecurringService,
@@ -148,7 +152,15 @@ class SpendService:
         )
         return remaining_income / 2
 
-    def safe_to_spend(self, user: UserInDB, as_of: Optional[date] = None) -> dict:
+    def safe_to_spend(
+        self,
+        user: UserInDB,
+        as_of: Optional[date] = None,
+        *,
+        include_outlook: bool = True,
+        rng=None,
+        overlay=None,
+    ) -> dict:
         """The single source of truth for the Safe-to-Spend number (v1 F3).
 
         Dynamic (recomputed every call) AND anchored (measured to the next
@@ -164,19 +176,43 @@ class SpendService:
                       − buffer
 
         All math in integer cents; dollars only at the output boundary.
+
+        An optional ``overlay`` (:class:`ScenarioOverlay`) makes the number
+        hypothetical-aware with ZERO change when omitted (R1). It threads through
+        every projection (``recurring.*`` and the inner ``forecast``) so
+        added/excluded/overridden streams reshape the horizon and bills/income;
+        its ``config_overrides`` layer over the user's ``s2s_*`` rules (horizon,
+        include_income, include_goals, buffer); its ``balance_override_cents``
+        replaces the summed balance; and its ``goal_mutations`` (keyed by
+        ``goal_id``) reshape earmarks and contributions in the goals loop.
         """
         as_of = as_of or date.today()
 
         # Per-user config straight off the ORM row (not threaded through auth).
+        # An overlay's ``config_overrides`` layer ON TOP of the stored rules so a
+        # hypothetical can flip include_income / buffer / horizon without writing
+        # to the DB. Unknown keys are ignored.
         user_row = self.db.execute(
             select(UserORM).where(UserORM.id == user.id)
         ).scalar_one()
-        horizon_mode: str = user_row.s2s_horizon or "paycheck"
-        include_income = bool(user_row.s2s_include_income)
-        include_goals = bool(user_row.s2s_include_goals)
-        buffer_cents: int = user_row.s2s_buffer or 0
+        config_overrides: dict = (
+            getattr(overlay, "config_overrides", None) or {}
+        )
+
+        def _cfg(key: str, default):
+            return config_overrides.get(key, default)
+
+        horizon_mode = str(_cfg("s2s_horizon", user_row.s2s_horizon or "paycheck"))
+        include_income = bool(_cfg("s2s_include_income", user_row.s2s_include_income))
+        include_goals = bool(_cfg("s2s_include_goals", user_row.s2s_include_goals))
+        buffer_cents = int(_cfg("s2s_buffer", user_row.s2s_buffer or 0) or 0)
 
         recurring = RecurringService(self.db)
+
+        # Goal hypotheticals indexed by goal_id (consumed in the goals loop).
+        goal_mutations = {
+            m.goal_id: m for m in getattr(overlay, "goal_mutations", ()) or ()
+        }
 
         # ── Horizon ───────────────────────────────────────────────────────
         # Default anchor: the next projected paycheck; fall back to
@@ -193,7 +229,7 @@ class SpendService:
         elif horizon_mode == "month":
             horizon_end = _end_of_month(as_of)
         else:  # 'paycheck'
-            next_pay = recurring.next_paycheck_date(user.id, as_of)
+            next_pay = recurring.next_paycheck_date(user.id, as_of, overlay=overlay)
             if next_pay is not None:
                 horizon_end = next_pay
                 anchored_on_paycheck = True
@@ -204,26 +240,35 @@ class SpendService:
         days_remaining = max((horizon_end - as_of).days, 1)
 
         # ── Current balance ───────────────────────────────────────────────
+        # An overlay's ``balance_override_cents`` replaces the summed balance, so
+        # a hypothetical can ask "what if I had $X right now?".
         balance_cents = self.db.execute(
             select(func.coalesce(func.sum(AccountORM.balance), 0)).where(
                 AccountORM.user_id == user.id
             )
         ).scalar() or 0
+        if overlay is not None and overlay.balance_override_cents is not None:
+            balance_cents = overlay.balance_override_cents
 
         # ── Scheduled cashflows to the horizon (Layer A read) ─────────────
         upcoming_bills_cents = 0
         projected_income_cents = 0
         horizon_end_iso = horizon_end.isoformat()
-        for item in recurring.project_cashflows(user.id, as_of, horizon_end):
+        # When the horizon IS the anchoring paycheck date, exclude exactly ONE
+        # income item on that boundary — the single anchoring paycheck — not all
+        # income that happens to land that day. project_cashflows is date-sorted,
+        # so the first boundary income item is the anchoring paycheck; a second
+        # deposit on the same day (e.g. a one-off bonus) still counts.
+        anchor_skip_pending = anchored_on_paycheck
+        for item in recurring.project_cashflows(
+            user.id, as_of, horizon_end, overlay=overlay
+        ):
             cents = dollars_to_cents(item["amount"])
             if item["type"] == "expense":
                 upcoming_bills_cents += cents
             elif include_income:
-                # Exclude the anchoring paycheck that lands exactly on the
-                # horizon boundary (inclusive upper bound) — counting it would
-                # add a pay period of income that hasn't landed within *this*
-                # horizon. Only applies when the horizon IS that paycheck.
-                if anchored_on_paycheck and item["date"] == horizon_end_iso:
+                if anchor_skip_pending and item["date"] == horizon_end_iso:
+                    anchor_skip_pending = False
                     continue
                 projected_income_cents += cents
 
@@ -236,12 +281,24 @@ class SpendService:
         goal_contributions_cents = 0
         if include_goals:
             goal_rows = self.db.execute(
-                select(GoalORM.amount, GoalORM.date, GoalORM.progress).where(
+                select(
+                    GoalORM.id, GoalORM.amount, GoalORM.date, GoalORM.progress
+                ).where(
                     GoalORM.user_id == user.id,
                     GoalORM.completed == 0,
                 )
             ).all()
-            for amount_cents, date_str, progress_cents in goal_rows:
+            for goal_id, amount_cents, date_str, progress_cents in goal_rows:
+                # A goal_mutation for this goal hypothetically reshapes its
+                # amount / target_date / progress before it feeds the math.
+                mut = goal_mutations.get(goal_id)
+                if mut is not None:
+                    if mut.amount_cents is not None:
+                        amount_cents = mut.amount_cents
+                    if mut.target_date is not None:
+                        date_str = mut.target_date
+                    if mut.progress_cents is not None:
+                        progress_cents = mut.progress_cents
                 progress = progress_cents or 0
                 goal_earmarks_cents += progress
                 goal_date = parse_iso_date(date_str) if date_str else None
@@ -251,7 +308,11 @@ class SpendService:
                 if days_to_goal > 0:
                     remaining = max(amount_cents - progress, 0)
                     daily = remaining / days_to_goal
-                    goal_contributions_cents += int(daily * days_remaining)
+                    # Banker's rounding (not int() truncation) so fractional
+                    # cents round the same way as the rest of the money layer.
+                    goal_contributions_cents += round_half_even_cents(
+                        daily * days_remaining
+                    )
 
         available_cents = (
             balance_cents
@@ -261,9 +322,11 @@ class SpendService:
             - goal_contributions_cents
             - buffer_cents
         )
+        # Floor (not banker's round) on purpose: the daily plan is a spending
+        # ceiling, so rounding down keeps the sum of daily plans <= available.
         daily_plan_cents = available_cents // days_remaining
 
-        return {
+        result: dict = {
             "available": cents_to_dollars(available_cents),
             "horizon_end": horizon_end.isoformat(),
             "horizon_source": horizon_source,
@@ -284,6 +347,23 @@ class SpendService:
                 "buffer": cents_to_dollars(buffer_cents),
             },
         }
+
+        if include_outlook:
+            # Probabilistic overdraft outlook over the same horizon, delegated to
+            # the forecast's burn-aware simulation so both surfaces agree on
+            # method. Additive only — the values above are untouched. Game-mode
+            # callers pass include_outlook=False to skip the simulation cost,
+            # since they read only ``available``/``breakdown``.
+            from server.src.services.forecast_service import ForecastService
+
+            fc = ForecastService(self.db).forecast(
+                user.id, as_of, horizon_end, include_burn=True, rng=rng,
+                overlay=overlay,
+            )
+            result["overdraft_probability"] = fc["overdraft_probability"]
+            result["trough_band"] = fc["trough_band"]
+
+        return result
 
     def get_spend_over_time(self, user: UserInDB, start_date: date, end_date: date):
         total = self.db.execute(

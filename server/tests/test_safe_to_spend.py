@@ -7,12 +7,17 @@ next projected paycheck). Components are config-gated per user; earmarks
 Service-level tests pin ``as_of`` so the horizon math is deterministic.
 """
 
+import random
 from datetime import date
 
 import pytest
 
 from server.src.db.models import Account, Expense, Goal, Income, User
 from server.src.models import UserInDB
+from server.src.services.scenario_overlay import (
+    GoalMutation,
+    ScenarioOverlay,
+)
 from server.src.services.spend_service import SpendService
 
 
@@ -147,6 +152,23 @@ class TestComponents:
         assert out["breakdown"]["goal_earmarks"] == 0.0
         assert out["available"] == 1000.0
 
+    def test_probabilistic_fields_are_additive(self, db_session, s2s_user):
+        """Safe-to-spend gains overdraft_probability + trough_band without
+        touching the existing available/daily_plan/breakdown values."""
+        user, _ = s2s_user
+        user.s2s_horizon = "month"
+        db_session.flush()
+        out = SpendService(db_session).safe_to_spend(
+            _as_user_in_db(user), AS_OF, rng=random.Random(0)
+        )
+        # New fields present and well-formed.
+        assert 0.0 <= out["overdraft_probability"] <= 1.0
+        band = out["trough_band"]
+        assert band["low"] <= band["median"] <= band["high"]
+        # Existing contract untouched: plain $1,000 balance, no bills/income/goals.
+        assert out["available"] == 1000.0
+        assert out["breakdown"]["current_balance"] == 1000.0
+
     def test_buffer_subtracts(self, db_session, s2s_user):
         user, _ = s2s_user
         user.s2s_horizon = "month"
@@ -155,6 +177,29 @@ class TestComponents:
         out = SpendService(db_session).safe_to_spend(_as_user_in_db(user), AS_OF)
         assert out["breakdown"]["buffer"] == 100.0
         assert out["available"] == 900.0
+
+    def test_goal_contribution_uses_bankers_rounding(self, db_session, s2s_user):
+        """The per-horizon goal contribution rounds fractional cents the same way
+        as the rest of the money layer (ROUND_HALF_EVEN), not int() truncation.
+
+        amount=$100, progress=0, deadline 3/23 → days_to_goal=13; horizon=month →
+        days_remaining=21. daily = 10000/13 = 769.23…; daily*21 = 16153.846…,
+        which truncates to 16153 but banker-rounds to 16154 ($161.54)."""
+        user, _ = s2s_user
+        user.s2s_horizon = "month"  # fixed horizon end 3/31 → days_remaining 21
+        db_session.add(
+            Goal(
+                name="Fractional",
+                amount=10_000,  # $100
+                date="2026-03-23",
+                user_id=user.id,
+                progress=0,
+            )
+        )
+        db_session.flush()
+        out = SpendService(db_session).safe_to_spend(_as_user_in_db(user), AS_OF)
+        # $161.54, the banker's-rounded contribution (truncation would give 161.53).
+        assert out["breakdown"]["goal_contributions"] == 161.54
 
     def test_daily_plan_is_available_over_days(self, db_session, s2s_user):
         user, account = s2s_user
@@ -182,6 +227,35 @@ class TestComponents:
         assert out["breakdown"]["projected_income"] == 0.0
         # Available is the plain balance (no phantom pay-period of income).
         assert out["available"] == 1000.0
+
+    def test_only_anchor_paycheck_excluded_not_all_same_day_income(
+        self, db_session, s2s_user
+    ):
+        """When TWO income streams land on the anchoring paycheck date, only the
+        single anchoring paycheck is excluded — the second deposit still counts.
+
+        Bug before the fix: ``item['date'] == horizon_end_iso`` dropped *all*
+        boundary income, so a same-day second income vanished. Both streams here
+        are $2,000, so the bug yields projected_income=$0 and the fix yields
+        $2,000 (exactly one excluded), independent of emit order."""
+        user, account = s2s_user
+        _seed_paycheck(db_session, account)  # bi-weekly from 3/1 → anchors 3/15
+        # A second recurring income (weekly from 3/8) also lands on 3/15.
+        db_session.add(
+            Income(
+                title="Side gig",
+                amount=200_000,  # $2,000, same as the paycheck
+                date="2026-03-08",
+                category="Work",
+                recurrence="weekly",
+                account_id=account.id,
+            )
+        )
+        db_session.flush()
+        out = SpendService(db_session).safe_to_spend(_as_user_in_db(user), AS_OF)
+        assert out["horizon_end"] == "2026-03-15"
+        # Exactly ONE $2,000 stream excluded; the other still counts.
+        assert out["breakdown"]["projected_income"] == 2000.0
 
     def test_paycheck_strictly_inside_horizon_still_counts(self, db_session, s2s_user):
         """Sanity: a paycheck landing strictly BEFORE the horizon end is still
@@ -245,3 +319,137 @@ class TestEndpointAndSettings:
             headers=headers,
         )
         assert resp.status_code == 422
+
+
+class TestOverlay:
+    """Scenario overlay threading through safe_to_spend (v6 doc 02). R1: an
+    omitted / empty overlay changes nothing; populated overlays reshape the
+    number without writing to the DB."""
+
+    def test_overlay_none_is_identical(self, db_session, s2s_user):
+        user, account = s2s_user
+        user.s2s_horizon = "month"
+        db_session.add(
+            Expense(
+                title="Rent", amount=40_000, date="2026-02-20",
+                category="Housing", recurrence="monthly", account_id=account.id,
+            )
+        )
+        _seed_paycheck(db_session, account)
+        db_session.add(
+            Goal(name="Trip", amount=100_000, date="2027-01-01",
+                 user_id=user.id, progress=25_000)
+        )
+        db_session.flush()
+        svc = SpendService(db_session)
+        plain = svc.safe_to_spend(
+            _as_user_in_db(user), AS_OF, rng=random.Random(0)
+        )
+        empty = svc.safe_to_spend(
+            _as_user_in_db(user), AS_OF, rng=random.Random(0),
+            overlay=ScenarioOverlay(),
+        )
+        assert plain == empty
+
+    def test_config_overrides_flip_income_and_buffer(self, db_session, s2s_user):
+        """``config_overrides`` layer over the stored s2s_* rules: flip income
+        off and add a buffer without touching the DB row."""
+        user, account = s2s_user
+        user.s2s_horizon = "month"  # 3/31
+        _seed_paycheck(db_session, account)  # +$2,000 on 3/15 and 3/29
+        db_session.flush()
+        svc = SpendService(db_session)
+
+        # Baseline: income on, no buffer → 1000 + 4000 = 5000.
+        base = svc.safe_to_spend(_as_user_in_db(user), AS_OF)
+        assert base["breakdown"]["projected_income"] == 4000.0
+        assert base["available"] == 5000.0
+
+        out = svc.safe_to_spend(
+            _as_user_in_db(user), AS_OF,
+            overlay=ScenarioOverlay(
+                config_overrides={"s2s_include_income": 0, "s2s_buffer": 10_000},
+            ),
+        )
+        # Income suppressed, $100 buffer bites → 1000 - 100 = 900.
+        assert out["breakdown"]["projected_income"] == 0.0
+        assert out["breakdown"]["buffer"] == 100.0
+        assert out["available"] == 900.0
+        # The stored config is untouched (hypothetical only).
+        assert out["config"]["include_income"] is False
+        assert user.s2s_include_income != 0
+
+    def test_config_override_horizon_moves_window(self, db_session, s2s_user):
+        """A ``s2s_horizon`` override changes the measured window."""
+        user, _ = s2s_user  # default stored horizon is paycheck/fallback
+        db_session.flush()
+        out = SpendService(db_session).safe_to_spend(
+            _as_user_in_db(user), AS_OF,
+            overlay=ScenarioOverlay(config_overrides={"s2s_horizon": "week"}),
+        )
+        assert out["horizon_end"] == "2026-03-17"
+        assert out["config"]["horizon"] == "week"
+
+    def test_goal_mutation_changes_earmarks_and_contributions(
+        self, db_session, s2s_user
+    ):
+        """A ``goal_mutation`` reshapes a goal's progress (earmark) and amount
+        (remaining contribution) hypothetically."""
+        user, _ = s2s_user
+        user.s2s_horizon = "month"
+        goal = Goal(name="Japan", amount=100_000, date="2027-01-01",
+                    user_id=user.id, progress=25_000)
+        db_session.add(goal)
+        db_session.flush()
+        svc = SpendService(db_session)
+
+        base = svc.safe_to_spend(_as_user_in_db(user), AS_OF)
+        assert base["breakdown"]["goal_earmarks"] == 250.0
+
+        # Hypothetically bump the earmarked progress to $400.
+        out = svc.safe_to_spend(
+            _as_user_in_db(user), AS_OF,
+            overlay=ScenarioOverlay(
+                goal_mutations=(
+                    GoalMutation(goal_id=goal.id, progress_cents=40_000),
+                ),
+            ),
+        )
+        assert out["breakdown"]["goal_earmarks"] == 400.0
+        # Higher earmark → lower available than the baseline.
+        assert out["available"] < base["available"]
+        # The stored goal progress is unchanged.
+        assert goal.progress == 25_000
+
+    def test_balance_override_replaces_summed_balance(self, db_session, s2s_user):
+        user, _ = s2s_user  # real balance $1,000
+        user.s2s_horizon = "month"
+        db_session.flush()
+        out = SpendService(db_session).safe_to_spend(
+            _as_user_in_db(user), AS_OF,
+            overlay=ScenarioOverlay(balance_override_cents=500_00),  # $500...
+        )
+        assert out["breakdown"]["current_balance"] == 500.0
+        assert out["available"] == 500.0
+
+    def test_added_expense_overlay_reduces_available(self, db_session, s2s_user):
+        """An overlay that injects a one-off expense lowers spendable, proving the
+        overlay threads all the way into project_cashflows."""
+        from server.src.services.scenario_overlay import DiscreteFlow
+
+        user, _ = s2s_user
+        user.s2s_horizon = "month"  # horizon 3/31
+        db_session.flush()
+        svc = SpendService(db_session)
+        base = svc.safe_to_spend(_as_user_in_db(user), AS_OF)
+        out = svc.safe_to_spend(
+            _as_user_in_db(user), AS_OF,
+            overlay=ScenarioOverlay(
+                discrete_flows=(
+                    DiscreteFlow(date="2026-03-20", amount_cents=15_000,
+                                 kind="expense"),  # $150 surprise bill
+                ),
+            ),
+        )
+        assert out["breakdown"]["upcoming_bills"] == base["breakdown"]["upcoming_bills"] + 150.0
+        assert out["available"] == base["available"] - 150.0
