@@ -10,6 +10,7 @@ import Goals from "./pages/Goals/Goals.tsx";
 import Budgets from "./pages/Budgets/Budgets.tsx";
 import Subscriptions from "./pages/Subscriptions/Subscriptions.tsx";
 import Forecast from "./pages/Forecast/Forecast.tsx";
+import Reconcile from "./pages/Reconcile/Reconcile.tsx";
 import Login from "./pages/Login/Login.tsx";
 import Settings from "./pages/Settings/Settings.tsx";
 import Keeper from "./pages/Keeper/Keeper.tsx";
@@ -56,6 +57,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/budgets" element={<Budgets />} />
               <Route path="/subscriptions" element={<Subscriptions />} />
               <Route path="/forecast" element={<Forecast />} />
+              <Route path="/reconcile" element={<Reconcile />} />
               <Route path="/settings" element={<Settings />} />
               {/* The Keeper route renders in every mode (off redirects to
                   Settings) so the no-mode-only-pages rule holds; its presence in

@@ -13,6 +13,8 @@ import {
   ScenarioCompareResult,
   ScenarioMutationPayload,
   CommittedPlan,
+  ImportSession,
+  ImportRow,
 } from "../types";
 import api from "../lib/api";
 import { currentWeekRange, toLocalISODate, parseLocalISODate } from "../lib/dates";
@@ -219,6 +221,17 @@ interface StoreState {
     recurrence?: Frequency;
   }) => Promise<void>;
   scanReceipt: (file: File) => Promise<ReceiptDraft>;
+  // Messy-data ingestion (Reconciliation Desk / Import Anything).
+  importDocument: (file: File, accountId: number) => Promise<ImportSession>;
+  importText: (text: string, accountId: number) => Promise<ImportSession>;
+  fetchImportSession: (sessionId: number) => Promise<ImportSession>;
+  patchImportRow: (
+    sessionId: number,
+    rowId: number,
+    patch: Partial<Pick<ImportRow, "title" | "amount" | "date" | "category" | "included">>
+  ) => Promise<ImportSession>;
+  discardImportSession: (sessionId: number) => Promise<void>;
+  runDetangle: () => Promise<number>;
   deleteTransaction: (
     transactionId: number,
     type: "income" | "expense"
@@ -577,6 +590,53 @@ export const useStore = create<StoreState>((set, get) => ({
       headers: { "Content-Type": "multipart/form-data" },
     });
     return data as ReceiptDraft;
+  },
+
+  importDocument: async (file: File, accountId: number) => {
+    // Multipart upload to the Import Anything endpoint. Like scanReceipt, errors
+    // propagate so the UI can surface the server `detail`.
+    const form = new FormData();
+    form.append("file", file);
+    form.append("account_id", String(accountId));
+    const { data } = await api.post("/imports/extract", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data as ImportSession;
+  },
+
+  importText: async (text: string, accountId: number) => {
+    const { data } = await api.post("/imports/extract/text", {
+      account_id: accountId,
+      text,
+    });
+    return data as ImportSession;
+  },
+
+  fetchImportSession: async (sessionId: number) => {
+    const { data } = await api.get(`/imports/sessions/${sessionId}`);
+    return data as ImportSession;
+  },
+
+  patchImportRow: async (sessionId, rowId, patch) => {
+    // Returns the refreshed (re-reconciled) session payload.
+    const { data } = await api.patch(
+      `/imports/sessions/${sessionId}/rows/${rowId}`,
+      patch
+    );
+    return data as ImportSession;
+  },
+
+  discardImportSession: async (sessionId: number) => {
+    await api.post(`/imports/sessions/${sessionId}/discard`);
+  },
+
+  runDetangle: async () => {
+    // Flags transfer/refund/duplicate pairs; returns how many NEW pairings were
+    // surfaced (notifications are deduped server-side). Refresh notifications so
+    // the bell reflects the new nudges.
+    const { data } = await api.post("/imports/detangle/run");
+    await get().fetchNotifications?.();
+    return (data?.flagged ?? 0) as number;
   },
 
   deleteTransaction: async (

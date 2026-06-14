@@ -302,3 +302,52 @@ export interface AssistantProposal {
     timeline?: ForecastPoint[];
   };
 }
+
+// ── Messy-data ingestion (Reconciliation Desk / Import Anything) ────────────
+// Mirror the backend Pydantic ImportSessionOut / ImportRowOut / BalanceCheckOut.
+// Money is dollar floats; ``amount`` is signed (+ in / − out).
+
+/** A row's review verdict, set by the extractor and editable by the user. */
+export type ImportRowStatus =
+  | "ok"
+  | "duplicate"
+  | "exception"
+  | "needs_category"
+  | "transfer_candidate";
+
+/** One parsed line of an import session. */
+export interface ImportRow {
+  id: number;
+  title: string;
+  amount: number; // signed dollars
+  date: string;
+  category: string;
+  running_balance?: number | null;
+  status: ImportRowStatus;
+  reason?: string | null;
+  included: boolean;
+  match_ref?: number | null;
+}
+
+/** The reconcile headline: does opening + Σtxns equal closing? */
+export interface BalanceCheck {
+  opening?: number | null;
+  closing?: number | null;
+  expected_delta?: number | null;
+  actual_delta: number;
+  discrepancy?: number | null;
+  reconciled: boolean;
+  exception_count: number;
+}
+
+/** A session plus its rows and balance check — the review payload. */
+export interface ImportSession {
+  id: number;
+  account_id: number;
+  source_kind: string; // pdf | image | text
+  detected_kind?: string | null; // statement | feed | receipt | unknown
+  status: "pending_review" | "committed" | "discarded";
+  statement_period?: string | null;
+  balance_check: BalanceCheck;
+  rows: ImportRow[];
+}
