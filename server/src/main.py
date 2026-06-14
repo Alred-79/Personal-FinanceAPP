@@ -35,6 +35,7 @@ from server.src.routers.memory import router as memory_router
 from server.src.routers.subscriptions import router as subscriptions_router
 from server.src.routers.receipts import router as receipts_router
 from server.src.routers.imports import router as imports_router
+from server.src.routers.tax import router as tax_router
 from server.src.routers.forecast import router as forecast_router
 from server.src.routers.settings import router as settings_router
 from server.src.routers.mcp_keys import router as mcp_keys_router
@@ -42,6 +43,7 @@ from server.src.routers.rules import router as rules_router
 from server.src.routers.scenarios import router as scenarios_router
 from server.src.routers.analytics import router as analytics_router
 from server.src.routers.game import router as game_router
+from server.src.routers.assisted_actions import router as assisted_actions_router
 
 # ---------------------------------------------------------------------------
 # MCP surface (ships dark by default: settings.mcp_enabled = False)
@@ -171,6 +173,7 @@ primary.include_router(memory_router)
 primary.include_router(subscriptions_router)
 primary.include_router(receipts_router)
 primary.include_router(imports_router)
+primary.include_router(tax_router)
 primary.include_router(forecast_router)
 primary.include_router(settings_router)
 primary.include_router(mcp_keys_router)
@@ -178,6 +181,7 @@ primary.include_router(rules_router)
 primary.include_router(scenarios_router)
 primary.include_router(analytics_router)
 primary.include_router(game_router)
+primary.include_router(assisted_actions_router)
 app.include_router(primary)
 
 

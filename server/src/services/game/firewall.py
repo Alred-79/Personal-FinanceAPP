@@ -220,3 +220,52 @@ def is_dispute(user_text: str) -> bool:
     """True if user input signals dispute/complaint intent → static resource, no LLM."""
     probe = normalize_for_matching(user_text)
     return any(pat.search(probe) for pat in _DISPUTE)
+
+
+# ── tax filing-advice routing — a screen on USER INPUT (Pillar 3) ────────────
+# The app ORGANIZES, SUMMARIZES, and ESTIMATES the user's own tax tags/totals —
+# it never gives tax advice. A filing-ADVICE question ("should I deduct…", "can I
+# write off…", "is X deductible", "how do I file", "what can I claim") asks for
+# an eligibility / strategy judgment we must not improvise. A hit short-circuits
+# to a static resource (organize-only + consult a professional), bypassing the
+# model entirely — the same shape as ``is_dispute``.
+#
+# Precision over recall: a FACTUAL summary question ("how much did I tag to
+# office?", "what's my tagged business income?") is NOT advice and must still
+# reach the assistant's tax tools. The patterns target explicit eligibility /
+# filing-advice INTENT, not "how much" organization questions.
+_TAX_ADVICE_PATTERNS = [
+    r"\bshould\s+i\s+(deduct|claim|write[- ]off|itemize|file)\b",
+    r"\bcan\s+i\s+(deduct|claim|write[- ]off)\b",
+    r"\bis\s+(this|that|it|my|the)\b[^.?!]*\bdeductible\b",
+    r"\bare\s+(these|those|my)\b[^.?!]*\bdeductible\b",
+    r"\bhow\s+(do|should)\s+i\s+file\b",
+    r"\bwhat\s+can\s+i\s+(deduct|claim|write[- ]off)\b",
+    r"\bwhat'?s\s+deductible\b",
+    r"\bhow\s+much\s+(can|should)\s+i\s+(deduct|claim)\b",
+    r"\bdo\s+i\s+(qualify|owe)\b[^.?!]*\b(deduction|tax|taxes)\b",
+    r"\bshould\s+i\s+pay\b[^.?!]*\b(estimated\s+tax|taxes)\b",
+]
+_TAX_ADVICE = [re.compile(p, re.IGNORECASE) for p in _TAX_ADVICE_PATTERNS]
+
+TAX_RESOURCE = {
+    "type": "tax_resource",
+    "title": "Tax organization, not tax advice",
+    "body": (
+        "I can organize your tagged income, deductions, and a rough estimate from "
+        "your own numbers, but I can't tell you what qualifies or what to claim — "
+        "that's tax advice. For filing or eligibility questions, consult a tax "
+        "professional or see irs.gov. Ask me things like \"how much did I tag to "
+        "the office bucket?\" and I'll total it for you."
+    ),
+}
+
+
+def is_tax_advice_request(user_text: str) -> bool:
+    """True if user input asks for tax FILING/ELIGIBILITY advice → static resource.
+
+    Factual organization questions ("how much did I tag to office?") return False
+    and still flow to the tax tools.
+    """
+    probe = normalize_for_matching(user_text)
+    return any(pat.search(probe) for pat in _TAX_ADVICE)

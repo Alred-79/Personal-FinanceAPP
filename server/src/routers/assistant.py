@@ -16,6 +16,7 @@ from ..services.assistant_service import (
     ActionService,
     ActionError,
     PlaidAccountError,
+    _MEMORY_MUTATING_ACTIONS,
 )
 from ..services.speech_service import (
     ALLOWED_CONTENT_TYPES,
@@ -263,10 +264,12 @@ def confirm_action(
     except ActionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # A confirmed action may have taught the assistant something new about the
-    # user (Pillar 1A — e.g. a recategorize writes a category preference). The
-    # learned memory is baked into the cached executor's system prompt, so evict
-    # it; the next chat turn rebuilds with the updated memory.
-    assistant_service.invalidate_agent(current_user.id)
+    # Only a memory-mutating confirm (e.g. a recategorize, which writes a
+    # category preference) need evict the cached executor so the next turn
+    # rebuilds its prompt with the new fact. Confirming anything else (adding a
+    # transaction, a goal, a rule) must NOT evict — that would wipe the live
+    # conversation buffer mid-chat for no reason. (Pillar 1A; review fix #4.)
+    if claims["action"] in _MEMORY_MUTATING_ACTIONS:
+        assistant_service.invalidate_agent(current_user.id)
 
     return {"status": "confirmed", "action": claims["action"], "result": result}

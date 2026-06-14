@@ -4,6 +4,8 @@ import { useState } from "react";
 import { categoryIcon } from "@/lib/categoryIcon";
 import { categoryColor } from "@/lib/format";
 import { useIsMobile } from "@/hooks/responsive";
+import { useStore } from "@/store/store";
+import { TaxTagControl } from "@/components/custom/TaxTagBadge/TaxTagControl";
 
 /**
  * A single posting in the ledger: an engraved category glyph, the entry's
@@ -22,6 +24,7 @@ function TransactionItem({
 }) {
   const isMobile = useIsMobile();
   const [isSelected, setIsSelected] = useState(false);
+  const taxEnabled = useStore((s) => s.taxFeaturesEnabled);
   const Icon = categoryIcon(transaction.category);
   const isIncome = transaction.type === "income";
   const tint = transaction.backgroundColor || categoryColor(transaction.category);
@@ -52,6 +55,12 @@ function TransactionItem({
           <span className="uppercase tracking-[0.1em]">{transaction.category}</span>
         </p>
       </div>
+
+      {taxEnabled && (
+        <span className="mr-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+          <TaxTagControl txType={transaction.type} txId={transaction.id} />
+        </span>
+      )}
 
       <span className="manicule mr-1 hidden text-sm sm:inline" aria-hidden="true">
         ☞

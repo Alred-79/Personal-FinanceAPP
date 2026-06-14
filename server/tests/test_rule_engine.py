@@ -244,6 +244,145 @@ class TestIdempotencyAndOrdering:
         assert [e.rule_id for e in execs] == [high.id, low.id]
 
 
+class TestAutoExecuteThreshold:
+    """Pillar 2B — the bounded auto-execute lane.
+
+    An allocate firing at or below the user's ``auto_execute_threshold_cents``
+    earmarks silently (today's behavior). Above it the engine does NOT mutate
+    ``Goal.progress``; it logs a ``needs_confirmation`` RuleExecution and writes a
+    durable ``rule_proposal`` Notification, and a re-sync of the same tx mints
+    exactly one pending proposal (the ``uq_rule_exec_tx`` row is the dedup key).
+    No real money moves either way — the threshold only gates silent-vs-propose.
+    """
+
+    def _set_threshold(self, db_session, user, cents):
+        user.auto_execute_threshold_cents = cents
+        db_session.flush()
+
+    def test_below_threshold_earmarks_silently(self, db_session, rule_user):
+        user, _, goal = rule_user
+        self._set_threshold(db_session, user, 10000)  # $100
+        _mk_rule(
+            db_session, user, "allocate", {"amount": 50.0}, goal=goal,
+            conditions=[{"field": "type", "op": "eq", "value": "income"}],
+        )
+        execs = RuleEngine(db_session).run_on_transaction(
+            user.id, "income", 20, TX(id=20, type="income", amount=2000.0)
+        )
+        assert len(execs) == 1
+        assert execs[0].result == "ok"
+        assert goal.progress == 5000  # $50 earmarked silently
+        # No proposal notification for a below-threshold firing.
+        assert (
+            db_session.query(Notification)
+            .filter_by(user_id=user.id, type="rule_proposal")
+            .count()
+            == 0
+        )
+
+    def test_above_threshold_proposes_not_earmarks(self, db_session, rule_user):
+        user, _, goal = rule_user
+        self._set_threshold(db_session, user, 10000)  # $100
+        _mk_rule(
+            db_session, user, "allocate", {"amount": 250.0}, goal=goal,
+            conditions=[{"field": "type", "op": "eq", "value": "income"}],
+        )
+        execs = RuleEngine(db_session).run_on_transaction(
+            user.id, "income", 21, TX(id=21, type="income", amount=5000.0)
+        )
+        assert len(execs) == 1
+        assert execs[0].result == "needs_confirmation"
+        assert execs[0].amount_cents == 25000  # logged, but...
+        assert goal.progress == 0  # ...NOT applied — money didn't move
+        notes = (
+            db_session.query(Notification)
+            .filter_by(user_id=user.id, type="rule_proposal")
+            .all()
+        )
+        assert len(notes) == 1
+        assert "$250.00" in notes[0].message
+        assert notes[0].ref == f"rule_proposal:{execs[0].rule_id}:{goal.id}:25000"
+
+    def test_resync_mints_exactly_one_pending_proposal(self, db_session, rule_user):
+        """The uq_rule_exec_tx row dedups: syncing the same tx twice → one proposal."""
+        user, _, goal = rule_user
+        self._set_threshold(db_session, user, 10000)
+        _mk_rule(
+            db_session, user, "allocate", {"amount": 250.0}, goal=goal,
+            conditions=[{"field": "type", "op": "eq", "value": "income"}],
+        )
+        engine = RuleEngine(db_session)
+        engine.run_on_transaction(user.id, "income", 22, TX(id=22, type="income", amount=5000.0))
+        engine.run_on_transaction(user.id, "income", 22, TX(id=22, type="income", amount=5000.0))  # re-sync
+        assert (
+            db_session.query(RuleExecution)
+            .filter_by(result="needs_confirmation")
+            .count()
+            == 1
+        )
+        assert (
+            db_session.query(Notification)
+            .filter_by(user_id=user.id, type="rule_proposal")
+            .count()
+            == 1
+        )
+        assert goal.progress == 0
+
+    def test_at_threshold_boundary_earmarks(self, db_session, rule_user):
+        """Exactly == threshold is auto (≤ is the rule); just-over proposes."""
+        user, _, goal = rule_user
+        self._set_threshold(db_session, user, 10000)  # $100
+        _mk_rule(
+            db_session, user, "allocate", {"amount": 100.0}, goal=goal,
+            conditions=[{"field": "type", "op": "eq", "value": "income"}],
+        )
+        execs = RuleEngine(db_session).run_on_transaction(
+            user.id, "income", 23, TX(id=23, type="income", amount=3000.0)
+        )
+        assert execs[0].result == "ok"
+        assert goal.progress == 10000  # exactly at the limit → still auto
+
+    def test_just_over_threshold_proposes(self, db_session, rule_user):
+        user, _, goal = rule_user
+        self._set_threshold(db_session, user, 10000)
+        _mk_rule(
+            db_session, user, "allocate", {"amount": 100.01}, goal=goal,
+            conditions=[{"field": "type", "op": "eq", "value": "income"}],
+        )
+        execs = RuleEngine(db_session).run_on_transaction(
+            user.id, "income", 24, TX(id=24, type="income", amount=3000.0)
+        )
+        assert execs[0].result == "needs_confirmation"
+        assert goal.progress == 0
+
+    def test_two_txns_same_rule_amount_dont_stack_notifications(self, db_session, rule_user):
+        """Two DIFFERENT income txns trip the same above-threshold rule for the
+        same amount → one proposal notification, not two (check-before-add)."""
+        user, _, goal = rule_user
+        self._set_threshold(db_session, user, 10000)
+        _mk_rule(
+            db_session, user, "allocate", {"amount": 250.0}, goal=goal,
+            conditions=[{"field": "type", "op": "eq", "value": "income"}],
+        )
+        engine = RuleEngine(db_session)
+        engine.run_on_transaction(user.id, "income", 30, TX(id=30, type="income", amount=5000.0))
+        engine.run_on_transaction(user.id, "income", 31, TX(id=31, type="income", amount=6000.0))
+        # Two distinct firings (different tx ids) → two RuleExecution rows...
+        assert (
+            db_session.query(RuleExecution)
+            .filter_by(result="needs_confirmation")
+            .count()
+            == 2
+        )
+        # ...but one de-duplicated proposal notification (same rule + goal + amount).
+        assert (
+            db_session.query(Notification)
+            .filter_by(user_id=user.id, type="rule_proposal")
+            .count()
+            == 1
+        )
+
+
 class TestCreationHookAndEarmarks:
     """End-to-end through the API: the single creation path runs the engine."""
 

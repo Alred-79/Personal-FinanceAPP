@@ -35,10 +35,14 @@ export default function Header({
 }: HeaderProps) {
   const { theme, toggleTheme } = useTheme();
   const { gameLayer } = useFlags();
+  const taxEnabled = useStore((s) => s.taxFeaturesEnabled);
   const [mobileOpen, setMobileOpen] = useState(false);
   // gameOnly nav entries (e.g. the Keeper) appear only when the game layer is
-  // on; in off mode the nav is exactly today's set (pixel-identity contract).
-  const navItems = NAV_ITEMS.filter((i) => !i.gameOnly || gameLayer);
+  // on; taxOnly entries only when the server tax flag is on; in off mode the
+  // nav is exactly today's set (pixel-identity contract).
+  const navItems = NAV_ITEMS.filter(
+    (i) => (!i.gameOnly || gameLayer) && (!i.taxOnly || taxEnabled)
+  );
   const user = useStore((s) => s.user);
   const initial = (user?.full_name || user?.username || "?")
     .charAt(0)

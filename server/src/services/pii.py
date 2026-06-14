@@ -64,6 +64,15 @@ def normalize_for_matching(text: str) -> str:
 _REDACTION_RULES: list[tuple[re.Pattern[str], str]] = [
     # US SSN (with or without dashes), avoiding matches inside longer digit runs
     (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[REDACTED_SSN]"),
+    # US EIN (employer/payer TIN), dashed form XX-XXXXXXX. Placed BEFORE the
+    # card/account rules: the account rule (\b\d{8,17}\b) needs 8+ CONTIGUOUS
+    # digits so it can't match the dashed EIN, but the card rule ((?:\d[ -]?)…)
+    # tolerates separators — so the EIN must be tagged here first to guarantee a
+    # tax-doc EIN reads as [REDACTED_EIN], never swallowed as a partial card/acct
+    # run. (Pillar 3: tax-document PII gets a stricter stance than receipts.) A
+    # bare 9-digit run with no dash is still handled by the account rule below,
+    # unchanged.
+    (re.compile(r"\b\d{2}-\d{7}\b"), "[REDACTED_EIN]"),
     # email addresses
     (re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b"), "[REDACTED_EMAIL]"),
     # 13–19 digit card / 8–17 digit account/routing runs (allow spaces/dashes as

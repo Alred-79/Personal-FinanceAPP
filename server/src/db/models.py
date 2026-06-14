@@ -68,6 +68,15 @@ class User(Base):
     # (stable hash bucket). 'holdout' users get the full Money Spine with the
     # game layer locked off — the evidenced features are never withheld.
     experiment_cohort: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Pillar 2B — bounded auto-execute lane. A rule whose per-firing earmark is
+    # provably ≤ this threshold fires unattended (virtual Goal.progress only); one
+    # whose amount is above it (or unbounded, e.g. a pct allocation) instead surfaces
+    # a one-tap proposal at firing time. Integer cents like every money column;
+    # default 10000 = $100 (the market-canonical human-in-the-loop default). NEVER
+    # gates real money — only silent-earmark vs surface-a-proposal (see rule_engine).
+    auto_execute_threshold_cents: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=10000, server_default="10000"
+    )
 
     accounts = relationship(
         "Account", back_populates="user", cascade="all, delete-orphan"
@@ -104,6 +113,22 @@ class User(Base):
     )
     import_sessions = relationship(
         "ImportSession", back_populates="user", cascade="all, delete-orphan"
+    )
+    assisted_actions = relationship(
+        "AssistedAction", back_populates="user", cascade="all, delete-orphan"
+    )
+    # Pillar 3 — tax & messy-data layer.
+    tax_tags = relationship(
+        "TaxTag", back_populates="user", cascade="all, delete-orphan"
+    )
+    merchant_tax_buckets = relationship(
+        "MerchantTaxBucket", back_populates="user", cascade="all, delete-orphan"
+    )
+    tax_documents = relationship(
+        "TaxDocument", back_populates="user", cascade="all, delete-orphan"
+    )
+    mileage_logs = relationship(
+        "MileageLog", back_populates="user", cascade="all, delete-orphan"
     )
 
 
@@ -431,6 +456,53 @@ class UsedActionToken(Base):
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
 
     user = relationship("User", back_populates="used_action_tokens")
+
+
+class AssistedAction(Base):
+    """The Assisted Action Bridge (Pillar 2C) — a deduced real-world action.
+
+    The agent computes the EXACT action a user should take in their real bank
+    (transfer $X from A→B, pay $Y to the IRS, …), hands them a frictionless
+    one-tap path to do it, and the app reconciles against the next Plaid sync to
+    confirm it actually happened. The virtual action *leads to something real*
+    without the app ever pulling the irreversible trigger — the human does.
+
+    Two status columns ON PURPOSE (see the real-money appendix): ``status`` is the
+    HUMAN-action lifecycle (did the user acknowledge / mark done / did we verify),
+    while ``settlement_status`` is RESERVED for a future originated-transfer state
+    machine and stays NULL until origination is ever built. Keeping them separate
+    avoids a live-row status migration if the Bridge ever graduates to moving
+    money itself.
+    """
+
+    __tablename__ = "assisted_actions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # transfer | bill_payment | goal_funding | tax_payment | debt_payment
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)  # exact deduced amount
+    # account ids or external labels ("irs.gov/payments", "your bank")
+    source_ref: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    dest_ref: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    rationale: Mapped[str] = mapped_column(String, nullable=False)  # the "why" (factual; screened)
+    how_json: Mapped[str] = mapped_column(String, nullable=False, default="{}")  # execution affordance JSON
+    # proposed | acknowledged | confirmed_done | verified | dismissed | expired
+    status: Mapped[str] = mapped_column(String, nullable=False, default="proposed")
+    # RESERVED (real-money appendix): authorized|submitted|pending|settled|
+    # returned|failed. NULL until origination exists — do not populate in 2C.
+    settlement_status: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # dedup/match key used to reconcile against synced transactions
+    verify_ref: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    resolved_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    user = relationship("User", back_populates="assisted_actions")
 
 
 class Rule(Base):
@@ -1174,3 +1246,177 @@ class ImportRow(Base):
     committed_income_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     session = relationship("ImportSession", back_populates="rows")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pillar 3 — tax & messy-data layer. The tax bucket is an ORTHOGONAL axis to the
+# 12 spend categories: a $60 "Staples" charge is spend-category ``Shops`` AND
+# (optionally) tax-bucket ``sch_c_18_office``. Separate tables, separate code
+# paths — they never collide. This ORGANIZES and SUMMARIZES; it never advises.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TaxTag(Base):
+    """A Schedule-C tax bucket applied to one transaction (sidecar, not a column).
+
+    Most transactions are never tax-relevant, so NULL columns on the two hottest
+    tables (``expenses`` / ``income``) would be pure bloat; a tag also carries
+    several fields and a learned source-precedence — it mirrors
+    ``MerchantCategory`` (a sidecar learned axis), not an Expense column.
+
+    ``(tx_type, tx_id)`` is the transaction reference and is DELIBERATELY NOT a
+    foreign key: the id spaces of ``expenses`` and ``income`` overlap, exactly as
+    ``RuleExecution`` handles it. The unique constraint gives one tag per
+    transaction (re-tag upserts). Because there is no FK cascade, two guards keep
+    tags honest: (1) ``TransactionService.delete`` drops the matching tag, and
+    (2) the summary engine INNER-joins ``TaxTag → Expense/Income`` so any tag
+    whose transaction is gone is silently excluded (never mis-attributed to a
+    reused autoincrement id).
+
+    ``deductible_bps`` is basis points 0–10000 so 50%-meals / home-office % are
+    exact in cents. ``tax_year`` is denormalized ``int(date[:4])`` AT TAG TIME so
+    a later date edit doesn't silently move a tag across years (re-tag recomputes).
+    """
+
+    __tablename__ = "tax_tags"
+    __table_args__ = (
+        UniqueConstraint("tx_type", "tx_id", name="uq_tax_tag_tx"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    tx_type: Mapped[str] = mapped_column(String, nullable=False)  # 'expense' | 'income'
+    tx_id: Mapped[int] = mapped_column(Integer, nullable=False)  # NOT an FK (overlapping id space)
+    tax_year: Mapped[int] = mapped_column(Integer, nullable=False)  # denormalized int(date[:4])
+    bucket: Mapped[str] = mapped_column(String, nullable=False)  # Schedule-C key (registry in code)
+    business_personal: Mapped[str] = mapped_column(
+        String, nullable=False, default="business"
+    )  # 'business' | 'personal'
+    deductible_bps: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=10000
+    )  # 0–10000 basis points
+    source: Mapped[str] = mapped_column(
+        String, nullable=False, default="user"
+    )  # 'user' | 'rule' | 'llm' — mirrors MerchantCategory.source precedence
+    note: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+    )
+
+    user = relationship("User", back_populates="tax_tags")
+
+
+class MerchantTaxBucket(Base):
+    """Learned merchant → tax-bucket mapping. Mirrors ``MerchantCategory``.
+
+    One row per ``(user, merchant_key)``; ``source`` carries the same precedence
+    (``"user"`` is never clobbered by ``"rule"``/``"llm"``). This is the learned
+    tier of the 2-tier bucket suggester (learned → keyword; no Groq tier — the
+    agent's propose tool is the LLM path and always goes through confirm).
+    """
+
+    __tablename__ = "merchant_tax_buckets"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "merchant", name="uq_merchant_tax_user_merchant"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    merchant: Mapped[str] = mapped_column(String, nullable=False)  # normalized merchant key
+    bucket: Mapped[str] = mapped_column(String, nullable=False)
+    source: Mapped[str] = mapped_column(String, nullable=False, default="user")
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+    )
+
+    user = relationship("User", back_populates="merchant_tax_buckets")
+
+
+class TaxDocument(Base):
+    """A reviewed tax form (W-2 / 1099-* / 1098), confirm-then-write.
+
+    A form isn't transaction rows, so it gets its own holding table — but the
+    same confirm discipline as an import: extraction writes a ``pending_review``
+    row; a ``confirm_tax_document`` action flips it to ``confirmed``.
+
+    PII stance is STRICTER than receipts: the document bytes are never persisted
+    (receipt precedent), AND the full SSN/EIN/TIN never reaches storage — only a
+    masked ``issuer_tin_last4`` is kept, scrubbed at extraction time, never
+    trusted to the LLM to redact. ``fields_json`` holds money boxes (integer
+    cents) + non-PII labels ONLY, and is validated against the scrubber before
+    write.
+    """
+
+    __tablename__ = "tax_documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    tax_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    form_type: Mapped[str] = mapped_column(
+        String, nullable=False
+    )  # 'W-2'|'1099-NEC'|'1099-MISC'|'1099-K'|'1098'|'1099-B'
+    issuer_name: Mapped[str] = mapped_column(
+        String, nullable=False, default=""
+    )  # employer/payer business name (not a personal identifier)
+    issuer_tin_last4: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )  # ONLY last 4, masked at extraction — never the full EIN/TIN
+    fields_json: Mapped[str] = mapped_column(
+        String, nullable=False, default="{}"
+    )  # money boxes (integer cents) + non-PII labels ONLY (JSON text)
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="pending_review"
+    )  # 'pending_review' | 'confirmed' | 'discarded'
+    source_kind: Mapped[str] = mapped_column(
+        String, nullable=False, default="image"
+    )  # 'image' | 'pdf'
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    user = relationship("User", back_populates="tax_documents")
+
+
+class MileageLog(Base):
+    """A business-mileage trip → IRS-rate deduction (integer-only discipline).
+
+    ``miles_milli`` stores miles×1000 as an INTEGER so the standard-mileage
+    deduction stays integer math: ``miles_milli * rate_cents_per_mile // 1000``.
+    ``tax_year`` is denormalized like ``TaxTag`` so a date edit doesn't move the
+    trip across years.
+    """
+
+    __tablename__ = "mileage_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    trip_date: Mapped[str] = mapped_column(String, nullable=False)  # ISO YYYY-MM-DD
+    miles_milli: Mapped[int] = mapped_column(Integer, nullable=False)  # miles × 1000
+    purpose: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    business_personal: Mapped[str] = mapped_column(
+        String, nullable=False, default="business"
+    )
+    tax_year: Mapped[int] = mapped_column(Integer, nullable=False)  # denormalized int(date[:4])
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp()
+    )
+
+    user = relationship("User", back_populates="mileage_logs")

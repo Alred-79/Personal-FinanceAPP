@@ -16,6 +16,7 @@ import { useStore } from "@/store/store";
 import { IntensitySelector } from "@/components/custom/IntensitySelector/IntensitySelector";
 import { AgentKeys } from "@/components/custom/AgentKeys/AgentKeys";
 import { StandingOrders } from "@/components/custom/StandingOrders/StandingOrders";
+import { LearnedMemory } from "@/components/custom/LearnedMemory/LearnedMemory";
 import api from "@/lib/api";
 
 /**
@@ -85,6 +86,91 @@ function PercentSetting({
           />
           <span className="text-muted-foreground">%</span>
           <Button size="sm" onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Pillar 2B — the bounded auto-execute threshold. An auto-fund rule that earmarks
+ * at or below this dollar amount fires silently; above it the assistant surfaces a
+ * one-tap proposal instead. Self-contained (reads/writes `/settings/` directly,
+ * like the AI-model card) so it needs no store plumbing. Virtual money only.
+ */
+function AutoExecuteThreshold() {
+  const { toast } = useToast();
+  const [input, setInput] = useState<string>("");
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api
+      .get("/settings/")
+      .then((res) => {
+        const v = res.data?.preferences?.auto_execute_threshold;
+        setInput(v != null ? String(v) : "100");
+        setLoaded(true);
+      })
+      .catch(() => {
+        setInput("100");
+        setLoaded(true);
+      });
+  }, []);
+
+  const handleSave = async () => {
+    const val = parseFloat(input);
+    if (isNaN(val) || val < 0) {
+      toast({
+        title: "Invalid value",
+        description: "Enter a dollar amount of 0 or more.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.put("/settings/preferences/", {
+        auto_execute_threshold: val,
+      });
+      toast({ title: "Saved", description: "Auto-execute threshold updated." });
+    } catch {
+      toast({
+        title: "Failed to save",
+        description: "Could not update the threshold.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="mt-6">
+      <CardHeader>
+        <CardTitle>Auto-fund threshold</CardTitle>
+        <CardDescription>
+          Auto-fund rules at or below this amount set money aside silently. Above
+          it, the assistant asks you to approve each time. This only moves your
+          own virtual earmarks — never real bank money.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center gap-3">
+          <span className="text-muted-foreground">$</span>
+          <Input
+            type="number"
+            min={0}
+            step="1"
+            value={input}
+            disabled={!loaded}
+            onChange={(e) => setInput(e.target.value)}
+            className="w-32"
+            aria-label="Auto-fund threshold in dollars"
+          />
+          <Button size="sm" onClick={handleSave} disabled={saving || !loaded}>
             {saving ? "Saving…" : "Save"}
           </Button>
         </div>
@@ -186,6 +272,7 @@ export default function Settings() {
         <TabsList>
           <TabsTrigger value="preferences">Preferences</TabsTrigger>
           <TabsTrigger value="automation">Automation</TabsTrigger>
+          <TabsTrigger value="memory">Memory</TabsTrigger>
           <TabsTrigger value="accounts">Accounts</TabsTrigger>
           <TabsTrigger value="agent-keys">Agent Keys</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
@@ -273,6 +360,11 @@ export default function Settings() {
         {/* Automation — standing-order rules (categorize / notify) */}
         <TabsContent value="automation">
           <StandingOrders />
+          <AutoExecuteThreshold />
+        </TabsContent>
+
+        <TabsContent value="memory">
+          <LearnedMemory />
         </TabsContent>
 
         {/* Agent Keys — MCP capability key management */}

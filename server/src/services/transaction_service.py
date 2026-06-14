@@ -16,13 +16,14 @@ from datetime import date
 from typing import Any, Literal, Type, Union
 
 from fastapi import HTTPException
-from sqlalchemy import select, func, update
+from sqlalchemy import select, func, update, delete
 from sqlalchemy.orm import Session
 
 from server.src.db.models import (
     Account as AccountORM,
     Expense as ExpenseORM,
     Income as IncomeORM,
+    TaxTag as TaxTagORM,
 )
 from server.src.money import dollars_to_cents, cents_to_dollars
 from server.src.services.categorization_service import (
@@ -324,6 +325,21 @@ class TransactionService:
         # Reverse: income was +, so delete is -.  Expense was -, so delete is +.
         self.db.delete(row)
         self.db.flush()
+
+        # Pillar 3 orphan-integrity guard: a TaxTag references the transaction by
+        # ``(tx_type, tx_id)`` WITHOUT an FK (the expense/income id spaces overlap,
+        # so it mirrors ``RuleExecution``). No FK ⇒ no cascade, and with
+        # autoincrement id reuse a stale tag could later mis-attribute to a
+        # different transaction. So we drop the matching tag here, on the single
+        # delete path. (The summary engine also INNER-joins as a second guard.)
+        tx_type = "expense" if model is ExpenseORM else "income"
+        self.db.execute(
+            delete(TaxTagORM).where(
+                TaxTagORM.tx_type == tx_type,
+                TaxTagORM.tx_id == tx_id,
+                TaxTagORM.user_id == user_id,
+            )
+        )
 
         self._adjust_balance(account_id, -balance_sign * row_amount)
         self.db.expire(account)

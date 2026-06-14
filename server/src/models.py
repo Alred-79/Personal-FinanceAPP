@@ -316,3 +316,86 @@ class ImportRowPatchIn(BaseModel):
     category: Optional[str] = Field(default=None, max_length=200)
     included: Optional[bool] = None
 
+
+# ── Pillar 3 — tax & messy-data layer ────────────────────────────────────────
+
+
+class TaxTagIn(BaseModel):
+    """Manual tax-bucket tag (the non-agent path). The tx_type/tx_id come from
+    the URL; this is the body. ``bucket`` is canonicalized server-side and a
+    ghost bucket is rejected."""
+
+    bucket: str = Field(min_length=1, max_length=100)
+    business_personal: str = Field(default="business")
+    deductible_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class TaxTagOut(BaseModel):
+    """A tax tag as stored (organization only — never an eligibility claim)."""
+
+    id: int
+    tx_type: str
+    tx_id: int
+    tax_year: int
+    bucket: str
+    bucket_label: str  # human label, e.g. "Office expense (Sch C line 18)"
+    irs_line: str
+    business_personal: str
+    deductible_bps: int
+    source: str
+    note: Optional[str] = None
+
+
+class TaxBucketOut(BaseModel):
+    """One entry of the Schedule-C bucket registry, for the UI dropdown."""
+
+    key: str
+    label: str
+    irs_line: str
+    default_deductible_bps: int
+    kind: str  # 'expense' | 'income'
+
+
+class MileageLogIn(BaseModel):
+    """A business-mileage trip. Miles is a dollar-free float; stored ×1000 as an
+    integer server-side to keep integer-only money discipline."""
+
+    trip_date: str
+    miles: float = Field(gt=0, le=1_000_000)
+    purpose: Optional[str] = Field(default=None, max_length=500)
+    business_personal: str = Field(default="business")
+
+
+class MileageLogOut(BaseModel):
+    id: int
+    trip_date: str
+    miles: float
+    purpose: Optional[str] = None
+    business_personal: str
+    tax_year: int
+
+
+class TaxDocumentOut(BaseModel):
+    """A reviewed tax form. ``fields`` holds money boxes (DOLLARS at the API
+    boundary) + non-PII labels ONLY; the full SSN/EIN is never present —
+    ``issuer_tin_last4`` is the only identifier echoed."""
+
+    id: int
+    tax_year: int
+    form_type: str
+    issuer_name: str
+    issuer_tin_last4: Optional[str] = None
+    fields: dict  # money boxes (dollars) + non-PII labels only
+    status: str
+    source_kind: str
+
+
+class TaxDocumentPatchIn(BaseModel):
+    """Fix a misread box before confirming. Money values are DOLLARS; the server
+    re-validates against the PII scrubber before write."""
+
+    tax_year: Optional[int] = Field(default=None, ge=1900, le=2200)
+    issuer_name: Optional[str] = Field(default=None, max_length=200)
+    fields: Optional[dict] = None  # partial money-box overrides (dollars)
+

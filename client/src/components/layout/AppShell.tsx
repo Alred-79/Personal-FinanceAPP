@@ -27,7 +27,15 @@ export default function AppShell() {
     logout,
     fetchLinkToken,
     exchangePublicToken,
+    fetchUserSettings,
+    settingsLoaded,
   } = useStore();
+
+  // Load instance settings once so app-wide flags (e.g. the tax-feature nav
+  // gate) are populated before the nav renders.
+  useEffect(() => {
+    if (user && !settingsLoaded) fetchUserSettings();
+  }, [user, settingsLoaded, fetchUserSettings]);
 
   // Keep the latest exchange handler in a ref so the create() effect depends
   // only on the token + script readiness — not on closures that change each

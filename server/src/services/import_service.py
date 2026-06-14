@@ -37,14 +37,35 @@ from .reconciliation_service import ReconciliationService
 # DOC_KINDS labels. Injected for tests.
 ClassifyFn = Callable[[Optional[str], Optional[str], Optional[str]], str]
 
-DOC_KINDS = ("statement", "feed", "receipt", "unknown")
+
+class TaxFormDetected(Exception):
+    """Raised when ``ingest_any`` classifies a dropped document as a US tax form.
+
+    A tax form is NOT transaction rows — it yields a ``TaxDocument`` via the
+    dedicated tax-document path (``/tax/documents/extract/``), which has stricter
+    PII handling (last-4-only TIN) and a different review shape than an
+    ``ImportSession``. Rather than mangle ``ingest_any``'s ``(session, kind)``
+    return contract, the import front door detects-and-redirects: the imports
+    router catches this and tells the user to use the tax-document upload. The
+    raw bytes are never persisted on this path.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "This looks like a tax form. Upload it under Tax documents instead — "
+            "it's handled with stricter privacy than a statement."
+        )
+
+DOC_KINDS = ("statement", "feed", "receipt", "tax_form", "unknown")
 
 _CLASSIFY_PROMPT = (
     "Classify this financial document into exactly one of: "
     "statement (a bank/card statement with many transactions and balances), "
     "feed (a screenshot or list of payments like Venmo/Apple Pay/PayPal, no "
-    "running balance), receipt (a single store purchase), or unknown. "
-    "Respond with ONLY a JSON object: {\"kind\": \"statement|feed|receipt|unknown\"}."
+    "running balance), receipt (a single store purchase), tax_form (a US tax "
+    "form such as a W-2, 1099-NEC/MISC/K, 1098, or 1099-B), or unknown. "
+    "Respond with ONLY a JSON object: "
+    "{\"kind\": \"statement|feed|receipt|tax_form|unknown\"}."
 )
 
 
@@ -136,6 +157,12 @@ class ImportService:
             base64.b64encode(raw_bytes).decode("ascii") if raw_bytes else None
         )
         kind = self.classify_fn(raw_text, image_b64, content_type)
+
+        if kind == "tax_form":
+            # A tax form goes to the dedicated tax-document path (stricter PII,
+            # different review shape). Detect-and-redirect — never route it
+            # through the transaction-row pipeline. Bytes are dropped here.
+            raise TaxFormDetected()
 
         if kind == "receipt" and raw_bytes is not None:
             session = self._ingest_receipt(

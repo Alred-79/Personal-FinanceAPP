@@ -38,6 +38,11 @@ class Preferences(BaseModel):
     birth_year: Optional[int] = None
     # v4 package 02: 'off' | 'ambient' | 'full'. Off = today's app exactly.
     game_mode: str = "off"
+    # Pillar 2B: the bounded auto-execute threshold, in DOLLARS at the boundary
+    # (stored as cents). An auto-fund rule firing at or below this earmarks
+    # silently; above it the agent surfaces a one-tap proposal instead. $100
+    # default. Virtual money only — never gates a real transfer.
+    auto_execute_threshold: float = 100.0
 
 
 class AIConfig(BaseModel):
@@ -45,9 +50,20 @@ class AIConfig(BaseModel):
     available_models: list[str]
 
 
+class FeatureFlags(BaseModel):
+    """Server-side feature flags the client needs to gate UI (e.g. the tax nav).
+
+    Distinct from user preferences: these are instance-level toggles the user
+    cannot change — the client only reads them to decide what surfaces to show.
+    """
+
+    tax_features_enabled: bool
+
+
 class SettingsResponse(BaseModel):
     preferences: Preferences
     ai: AIConfig
+    features: FeatureFlags
 
 
 class PreferencesUpdate(BaseModel):
@@ -63,6 +79,9 @@ class PreferencesUpdate(BaseModel):
     )
     birth_year: Optional[int] = Field(default=None, ge=1900, le=2100)
     game_mode: Optional[str] = Field(default=None)
+    auto_execute_threshold: Optional[float] = Field(
+        default=None, ge=0, le=1_000_000_000, allow_inf_nan=False
+    )
 
 
 def _to_preferences(user_row: UserORM) -> Preferences:
@@ -75,6 +94,11 @@ def _to_preferences(user_row: UserORM) -> Preferences:
         s2s_buffer=cents_to_dollars(user_row.s2s_buffer or 0),
         birth_year=user_row.birth_year,
         game_mode=user_row.game_mode or "off",
+        auto_execute_threshold=cents_to_dollars(
+            user_row.auto_execute_threshold_cents
+            if user_row.auto_execute_threshold_cents is not None
+            else 10000
+        ),
     )
 
 
@@ -93,6 +117,9 @@ async def get_settings(
         ai=AIConfig(
             model=app_settings.groq_chat_model,
             available_models=app_settings.assistant_available_models,
+        ),
+        features=FeatureFlags(
+            tax_features_enabled=app_settings.tax_features_enabled,
         ),
     )
 
@@ -133,6 +160,10 @@ async def update_preferences(
         user_row.s2s_include_goals = int(payload.s2s_include_goals)
     if payload.s2s_buffer is not None:
         user_row.s2s_buffer = dollars_to_cents(payload.s2s_buffer)
+    if payload.auto_execute_threshold is not None:
+        user_row.auto_execute_threshold_cents = dollars_to_cents(
+            payload.auto_execute_threshold
+        )
     if "birth_year" in payload.model_fields_set:
         user_row.birth_year = payload.birth_year
     if payload.game_mode is not None:

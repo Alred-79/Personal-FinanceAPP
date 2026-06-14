@@ -43,12 +43,17 @@ from server.src.db.models import (
     Notification as NotificationORM,
     Rule as RuleORM,
     RuleExecution as RuleExecutionORM,
+    User as UserORM,
 )
 from server.src.money import cents_to_dollars, dollars_to_cents
 from server.src.services.categorization_service import (
     CategorizationService,
     canonicalize_category,
 )
+
+# Pillar 2B — the bounded auto-execute default if a user row carries no explicit
+# threshold (older rows pre-migration). $100, the market-canonical HITL default.
+DEFAULT_AUTO_EXECUTE_THRESHOLD_CENTS = 10000
 
 log = logging.getLogger(__name__)
 
@@ -127,6 +132,10 @@ def roundup_cents(amount_cents: int, step_cents: int) -> int:
 class RuleEngine:
     def __init__(self, db: Session) -> None:
         self.db = db
+        # Per-user auto-execute threshold cache (Pillar 2B). One engine instance
+        # processes one transaction's rules, but a batch sync re-uses the same
+        # instance across many transactions for one user, so cache the lookup.
+        self._threshold_cache: dict[int, int] = {}
 
     # ── evaluation ────────────────────────────────────────────────────────
 
@@ -248,12 +257,43 @@ class RuleEngine:
             return int(tx_amount_cents * pct / 100)
         return 0
 
+    def _auto_execute_threshold_cents(self, user_id: int) -> int:
+        """The user's bounded auto-execute threshold in cents (Pillar 2B), cached.
+
+        A firing whose amount is at or below this earmarks silently; above it the
+        engine proposes instead (HITL). Missing/NULL (older rows) falls back to
+        the $100 default.
+        """
+        cached = self._threshold_cache.get(user_id)
+        if cached is not None:
+            return cached
+        value = self.db.execute(
+            select(UserORM.auto_execute_threshold_cents).where(
+                UserORM.id == user_id
+            )
+        ).scalar_one_or_none()
+        threshold = (
+            int(value) if value is not None else DEFAULT_AUTO_EXECUTE_THRESHOLD_CENTS
+        )
+        self._threshold_cache[user_id] = threshold
+        return threshold
+
     def _fund_target(self, rule: RuleORM, cents: int) -> tuple[int, str]:
-        """Move *cents* into the rule's virtual target.
+        """Move *cents* into the rule's virtual target — or PROPOSE it (2B).
 
         v1: ``target_kind='goal'`` → ``Goal.progress`` (the earmark bucket that
         reduces Safe-to-Spend). The kind switch is where v4 plugs in
         ``'liability'`` with no schema change.
+
+        Pillar 2B (bounded auto-execute): a firing whose ``cents`` exceeds the
+        user's auto-execute threshold does NOT mutate ``Goal.progress``. Instead
+        the engine mints a one-tap confirm token and a ``Notification`` carrying
+        it, and reports ``result="needs_confirmation"`` so the ``RuleExecution``
+        row is logged. The ``uq_rule_exec_tx`` row is the dedup key, so re-syncing
+        the same transaction does NOT mint a second proposal (the caller's
+        ``_already_fired`` short-circuits first). Below-threshold firings are
+        unchanged — they earmark silently exactly as before. Either way no REAL
+        money ever moves; the threshold only decides silent-earmark vs propose.
         """
         if cents <= 0:
             return 0, "noop"
@@ -266,11 +306,65 @@ class RuleEngine:
             ).scalar_one_or_none()
             if goal is None:
                 return 0, "target_missing"
+            # Above the threshold → propose instead of silently earmarking.
+            if cents > self._auto_execute_threshold_cents(rule.user_id):
+                self._propose_funding(rule, goal, cents)
+                return cents, "needs_confirmation"
             goal.progress = (goal.progress or 0) + cents
             if goal.progress >= goal.amount:
                 goal.completed = 1
             return cents, "ok"
         return 0, f"unsupported_target:{rule.target_kind}"
+
+    def _propose_funding(self, rule: RuleORM, goal: GoalORM, cents: int) -> None:
+        """Write a Notification proposing an above-threshold earmark (2B / R7).
+
+        Above the auto-execute threshold the engine never moves money — it asks.
+        We persist a durable ``Notification`` with a STABLE ``ref`` (the dedup
+        key) describing the exact proposed earmark; the matching one-tap confirm
+        token is **re-minted on demand** when the user acts on it (the documented
+        re-propose policy: "notification persists, token re-minted on demand").
+        Re-minting on demand — rather than baking a 10-minute JWT into a durable
+        row — means a proposal the user gets to days later still works, and a
+        unique-per-mint token never defeats the ref-based dedup.
+
+        Idempotency is layered: the caller logs a ``RuleExecution`` with
+        ``result="needs_confirmation"`` whose ``uq_rule_exec_tx`` key makes a
+        re-synced transaction a no-op (``_already_fired`` short-circuits before we
+        get here), and the stable ``ref`` keeps the bell from stacking dupes even
+        if a proposal is regenerated by a different signal. Re-minting itself goes
+        through the dependency-free ``action_tokens`` leaf (no assistant import,
+        no cycle) — this method doesn't mint, but the confirm path will.
+        """
+        # Stable dedup key: rule + goal + exact amount. NOT the token (a fresh JWT
+        # each mint would make every ref unique and defeat dedup). Check-before-add
+        # (like the Bridge nudge): two DIFFERENT transactions in one sync can trip
+        # the same rule for the same amount — without this guard each would add a
+        # duplicate notification (and, under a unique (user_id, ref) index, the
+        # second add would raise an uncaught IntegrityError mid-_execute_action).
+        ref = f"rule_proposal:{rule.id}:{goal.id}:{cents}"
+        exists = self.db.execute(
+            select(NotificationORM.id).where(
+                NotificationORM.user_id == rule.user_id,
+                NotificationORM.ref == ref,
+            )
+        ).scalar_one_or_none()
+        if exists is not None:
+            return
+        dollars = cents_to_dollars(cents)
+        self.db.add(
+            NotificationORM(
+                user_id=rule.user_id,
+                type="rule_proposal",
+                title=rule.name,
+                message=(
+                    f"Auto-fund rule “{rule.name}” wants to set aside "
+                    f"${dollars:,.2f} toward “{goal.name}”. That's above your "
+                    f"auto-fund limit, so it needs your approval."
+                ),
+                ref=ref,
+            )
+        )
 
     def _notify(self, rule: RuleORM, params: dict[str, Any], tx: dict[str, Any]) -> None:
         message = params.get("message") or (

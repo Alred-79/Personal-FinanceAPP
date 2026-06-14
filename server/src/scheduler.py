@@ -223,6 +223,83 @@ def job_detangle(db: Session, now: Optional[datetime | date] = None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Pillar 3 — quarterly estimated-tax reminder. Clones the drift/detangle shape:
+# pure, idempotent per ``ref``, self-gated on ``settings.tax_features_enabled``.
+# FACTUAL and NON-DIRECTIVE — it states the approaching due date and the user's
+# own tagged YTD numbers, never "you should pay". Carries a Pillar-2 Bridge hook
+# in spirit ("pay $X at irs.gov/payments") but the notification itself is just a
+# factual nudge.
+# ---------------------------------------------------------------------------
+
+# Fire the reminder when a due date is within this many days.
+_TAX_REMINDER_WINDOW_DAYS = 14
+
+
+def job_tax_quarterly_reminder(
+    db: Session, now: Optional[datetime | date] = None
+) -> int:
+    """Notify each user when a quarterly estimated-tax due date is approaching.
+
+    Idempotent per ``ref`` (``tax_estimate:{user}:{year}:{quarter}``) so a re-fire
+    within the window adds no duplicate. Self-gates on ``tax_features_enabled``.
+    Returns the number of reminder notifications created across all users. The
+    message is factual and non-directive (it never tells the user to pay).
+    """
+    if not settings.tax_features_enabled:
+        return 0
+
+    from .money import cents_to_dollars
+    from .services.notification_service import NotificationService
+    from .services.tax.rates import quarterly_due_dates
+    from .services.tax.summary_service import TaxSummaryService
+
+    now = now or datetime.now()
+    today = now.date() if isinstance(now, datetime) else now
+
+    created = 0
+    notif = NotificationService(db)
+    for user in _users(db):
+        # Look at the due dates for both the current and prior calendar year (Q4
+        # of a tax year falls in January of the next year).
+        for tax_year in (today.year, today.year - 1):
+            summary = None  # computed lazily only when a due date is in window
+            for quarter, iso in quarterly_due_dates(tax_year):
+                due = date.fromisoformat(iso)
+                delta = (due - today).days
+                if 0 <= delta <= _TAX_REMINDER_WINDOW_DAYS:
+                    if summary is None:
+                        summary = TaxSummaryService(db).get_tax_summary(
+                            user.id, tax_year
+                        )
+                    income = cents_to_dollars(
+                        summary["income_by_source"]["total_income_cents"]
+                    )
+                    deductible = cents_to_dollars(
+                        sum(
+                            d["deductible_cents"]
+                            for d in summary["deductions_by_bucket"]
+                        )
+                    )
+                    row = notif._add_if_new(
+                        user.id,
+                        type="tax_estimate_reminder",
+                        title=f"Estimated-tax due date {due:%b %d} is approaching",
+                        message=(
+                            f"Quarterly estimated-tax due date {due:%b %d} is "
+                            f"approaching. Your tagged YTD business income is "
+                            f"${income:,.2f}, deductions ${deductible:,.2f}. "
+                            "Estimate for organization only — consult a tax "
+                            "professional. You can pay at irs.gov/payments."
+                        ),
+                        ref=f"tax_estimate:{user.id}:{tax_year}:{quarter}",
+                    )
+                    if row is not None:
+                        created += 1
+    db.flush()
+    return created
+
+
+# ---------------------------------------------------------------------------
 # The scheduled wrappers — own-session, commit, close (no request context).
 # ---------------------------------------------------------------------------
 
@@ -265,6 +342,14 @@ async def _detangle_tick() -> None:
     if not settings.detangle_enabled:
         return
     _run_in_own_session(lambda db: job_detangle(db, datetime.now()))
+
+
+async def _tax_reminder_tick() -> None:
+    """Daily cron: quarterly estimated-tax reminders. Gated by
+    ``tax_features_enabled`` (the job self-checks too); idempotent per ``ref``."""
+    if not settings.tax_features_enabled:
+        return
+    _run_in_own_session(lambda db: job_tax_quarterly_reminder(db, datetime.now()))
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +400,17 @@ def build_scheduler():
         _detangle_tick,
         CronTrigger(hour=0, minute=30),
         id="detangle",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+    # Pillar 3: quarterly estimated-tax reminders. The tick self-gates on
+    # ``tax_features_enabled``; ref dedup keeps a daily re-fire within the window
+    # harmless (one reminder per user/year/quarter).
+    scheduler.add_job(
+        _tax_reminder_tick,
+        CronTrigger(hour=0, minute=40),
+        id="tax_quarterly_reminder",
         replace_existing=True,
         misfire_grace_time=3600,
         coalesce=True,

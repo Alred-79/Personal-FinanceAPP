@@ -40,7 +40,7 @@ from server.src.models import ImportRowPatchIn, ImportSessionOut, ImportTextIn, 
 from server.src.services import llm_budget
 from server.src.services.auth_service import AuthService
 from server.src.services.detangle_service import DetangleService
-from server.src.services.import_service import ImportService
+from server.src.services.import_service import ImportService, TaxFormDetected
 from server.src.services.reconciliation_service import ReconciliationService
 from server.src.settings import settings
 
@@ -143,6 +143,13 @@ def _run_extract(
             raw_bytes=raw_bytes,
             content_type=content_type,
             raw_text=raw_text,
+        )
+    except TaxFormDetected as exc:
+        # A tax form was dropped on the statement door: redirect to the tax-doc
+        # upload (stricter PII). Refund the reserved unit — no rows were written.
+        llm_budget.release_request(db, user_id)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         )
     except ValueError as exc:
         llm_budget.release_request(db, user_id)

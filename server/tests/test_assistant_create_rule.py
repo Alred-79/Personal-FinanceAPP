@@ -103,6 +103,63 @@ def test_validate_rejects_nonpositive_allocate_amount():
         )
 
 
+def test_validate_rejects_allocate_with_no_conditions():
+    """An allocate rule with no trigger would fire on every transaction."""
+    with pytest.raises(ActionError):
+        ActionService.validate(
+            "create_rule",
+            {"action_type": "allocate", "name": "x", "target_id": 1, "amount": 50, "conditions": []},
+        )
+
+
+def test_validate_rejects_null_amount_value():
+    with pytest.raises(ActionError):
+        ActionService.validate(
+            "create_rule",
+            {
+                "action_type": "notify",
+                "name": "x",
+                "conditions": [{"field": "amount", "op": "gt", "value": None}],
+            },
+        )
+
+
+def test_validate_rejects_string_for_in_list():
+    with pytest.raises(ActionError):
+        ActionService.validate(
+            "create_rule",
+            {
+                "action_type": "notify",
+                "name": "x",
+                "conditions": [{"field": "category", "op": "in", "value": "Food"}],
+            },
+        )
+
+
+def test_validate_accepts_in_list():
+    norm, _ = ActionService.validate(
+        "create_rule",
+        {
+            "action_type": "notify",
+            "name": "x",
+            "conditions": [{"field": "category", "op": "in", "value": ["Food", "Travel"]}],
+        },
+    )
+    assert norm["conditions"][0]["value"] == ["Food", "Travel"]
+
+
+def test_validate_rejects_bad_type_value():
+    with pytest.raises(ActionError):
+        ActionService.validate(
+            "create_rule",
+            {
+                "action_type": "notify",
+                "name": "x",
+                "conditions": [{"field": "type", "op": "eq", "value": "transfer"}],
+            },
+        )
+
+
 # ── Propose → confirm end to end ─────────────────────────────────────────────
 
 
@@ -203,7 +260,7 @@ def test_confirm_replay_is_rejected(client, db_session):
                 "name": "Payday savings",
                 "target_id": goal_id,
                 "amount": 50,
-                "conditions": [],
+                "conditions": [{"field": "type", "op": "eq", "value": "income"}],
             },
         },
         headers=headers,
@@ -235,7 +292,7 @@ def test_confirm_rejects_foreign_goal(client, db_session):
                 "name": "Payday savings",
                 "target_id": goal_id,
                 "amount": 50,
-                "conditions": [],
+                "conditions": [{"field": "type", "op": "eq", "value": "income"}],
             },
         },
         headers=headers,

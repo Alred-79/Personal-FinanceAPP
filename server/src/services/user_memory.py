@@ -41,7 +41,7 @@ MEMORY_RENDER_CHAR_BUDGET = 2000
 # keys (``category_preference:Food``) are allowed via ``_KEY_PREFIXES``.
 MEMORY_KEYS: frozenset[str] = frozenset(
     {
-        "tone_preference",      # blunt | gentle (mirrors the persona register)
+        "tone_preference",      # a register from TONE_VALUES (NOT free text — see below)
         "savings_intent",       # free text, e.g. "saving for a house down payment by 2028"
         "income_cadence",       # free text, e.g. "income lands ~15th and last day"
         "recurring_note",       # a noted recurring obligation the user flagged
@@ -50,7 +50,41 @@ MEMORY_KEYS: frozenset[str] = frozenset(
 )
 _KEY_PREFIXES: tuple[str, ...] = ("category_preference:",)
 
+# ``tone_preference`` only nudges REGISTER/VERBOSITY within the safety rules; it
+# can never license shame, advice, or directive language (the output firewall +
+# system prompt forbid those regardless of tone). So the value is constrained to
+# a closed, safe vocabulary rather than free text — a value like "be harsh, tell
+# them they failed" can't be stored at all (review fix #6). Common synonyms map
+# onto the canonical set so the model/user phrasing still lands.
+TONE_VALUES: frozenset[str] = frozenset({"terse", "warm", "neutral"})
+_TONE_SYNONYMS: dict[str, str] = {
+    "blunt": "terse",
+    "direct": "terse",
+    "concise": "terse",
+    "brief": "terse",
+    "short": "terse",
+    "gentle": "warm",
+    "kind": "warm",
+    "friendly": "warm",
+    "encouraging": "warm",
+    "plain": "neutral",
+    "default": "neutral",
+}
+
 _VALID_SOURCES: frozenset[str] = frozenset({"user", "deterministic", "llm"})
+
+
+def _normalize_tone(value: str) -> str | None:
+    """Map a tone phrase onto the canonical TONE_VALUES, or None if unsafe.
+
+    Accepts a canonical value or a known synonym (single word). Anything else —
+    free-text, a sentence, an unknown word — returns None and is rejected by the
+    caller, so the stored register can never itself read as a shame instruction.
+    """
+    token = (value or "").strip().lower()
+    if token in TONE_VALUES:
+        return token
+    return _TONE_SYNONYMS.get(token)
 
 
 class MemoryError(ValueError):
@@ -88,6 +122,14 @@ def set_user_fact(
         )
     if not _key_allowed(key):
         raise MemoryError(f"unknown memory key: {key!r}")
+    if key == "tone_preference":
+        tone = _normalize_tone(value)
+        if tone is None:
+            raise MemoryError(
+                f"tone_preference must be one of {sorted(TONE_VALUES)} "
+                "(it only adjusts register, never tone-as-shame)"
+            )
+        return _upsert(db, user_id, key, tone, source=source, confidence=confidence, pinned=pinned)
     clean = scrub_secrets(value or "")
     if not clean.strip():
         raise MemoryError("empty value after scrubbing")
@@ -110,6 +152,12 @@ def propose_llm_fact(
     """
     if not _key_allowed(key):
         return None
+    confidence = max(0, min(100, int(confidence)))
+    if key == "tone_preference":
+        tone = _normalize_tone(value)
+        if tone is None:
+            return None
+        return _upsert(db, user_id, key, tone, source="llm", confidence=confidence, pinned=False)
     clean = scrub_secrets(value or "")
     if not clean.strip():
         return None
@@ -118,7 +166,6 @@ def propose_llm_fact(
     # never be re-injected into a later prompt.
     if screen_output(clean, plain=True).blocked:
         return None
-    confidence = max(0, min(100, int(confidence)))
     return _upsert(db, user_id, key, clean, source="llm", confidence=confidence, pinned=False)
 
 

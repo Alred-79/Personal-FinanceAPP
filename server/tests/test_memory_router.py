@@ -121,6 +121,10 @@ def test_recategorize_teaches_a_category_preference(client):
     )
     assert confirm.status_code == 200, confirm.text
 
-    keys = {f["key"] for f in client.get("/api/memory/", headers=headers).json()["items"]}
-    assert "category_preference:Food" in keys
+    items = client.get("/api/memory/", headers=headers).json()["items"]
+    fact = next(f for f in items if f["key"] == "category_preference:Food")
+    # The stored fact must NOT leak the merchant name into memory (review fix #5):
+    # the merchant→category mapping lives in MerchantCategory, not here.
+    assert "Trader Joes" not in fact["value"]
+    assert "Food" in fact["value"]
 

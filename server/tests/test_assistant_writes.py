@@ -451,17 +451,29 @@ def test_write_tool_only_proposes(client, db_session):
 
 
 def test_validate_rejects_unlisted_actions():
-    """The two money-moving extras must NOT be reachable through validate.
+    """A still-disabled money-moving extra must NOT be reachable through validate.
 
-    ``create_allocation`` / ``whatif_commit`` have handler branches in the code
-    but are deliberately out of ``SUPPORTED_ACTIONS``/``_HANDLED``: the top-of-
-    ``validate`` allowlist guard rejects them before any param coercion.
+    ``whatif_commit`` has a handler branch in the code but is deliberately out of
+    ``SUPPORTED_ACTIONS``/``_HANDLED``: the top-of-``validate`` allowlist guard
+    rejects it before any param coercion. (``create_allocation`` USED to be in
+    this list too, but Pillar 2B made it reachable — the unattended above-
+    threshold lane mints it — so it moved into both sets; see the positive case
+    below.)
     """
-    for action in ("create_allocation", "whatif_commit"):
-        with pytest.raises(ActionError) as exc:
-            ActionService.validate(action, {"goal_id": 1, "amount": 10.0})
-        assert "Unsupported action" in str(exc.value)
-        assert action in str(exc.value)
+    with pytest.raises(ActionError) as exc:
+        ActionService.validate("whatif_commit", {"goal_id": 1, "amount": 10.0})
+    assert "Unsupported action" in str(exc.value)
+    assert "whatif_commit" in str(exc.value)
+
+
+def test_create_allocation_now_validates():
+    """Pillar 2B: create_allocation is listed, so validate accepts it (and the
+    pinned-equality test guards both sets moved together)."""
+    norm, summary = ActionService.validate(
+        "create_allocation", {"goal_id": 5, "amount": 250.0}
+    )
+    assert norm == {"goal_id": 5, "amount": 250.0}
+    assert "$250.00" in summary
 
 
 def test_supported_actions_matches_handlers():

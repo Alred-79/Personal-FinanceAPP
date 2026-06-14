@@ -45,7 +45,47 @@ def test_upsert_overwrites_same_key(db_session):
     user_memory.set_user_fact(db_session, uid, "tone_preference", "blunt", source="user")
     facts = user_memory.get_facts(db_session, uid)
     assert len([f for f in facts if f.key == "tone_preference"]) == 1
-    assert facts[0].value == "blunt"
+    # 'blunt' normalizes onto the canonical safe register 'terse' (review fix #6).
+    assert facts[0].value == "terse"
+
+
+def test_tone_synonym_normalized(db_session):
+    uid = _make_user(db_session)
+    fact = user_memory.set_user_fact(
+        db_session, uid, "tone_preference", "Direct", source="user"
+    )
+    assert fact.value == "terse"
+
+
+def test_tone_canonical_accepted(db_session):
+    uid = _make_user(db_session)
+    fact = user_memory.set_user_fact(
+        db_session, uid, "tone_preference", "warm", source="user"
+    )
+    assert fact.value == "warm"
+
+
+def test_tone_freetext_rejected_trusted_lane(db_session):
+    """A shame-shaped / free-text tone value can't be stored as a register."""
+    uid = _make_user(db_session)
+    with pytest.raises(user_memory.MemoryError):
+        user_memory.set_user_fact(
+            db_session,
+            uid,
+            "tone_preference",
+            "be harsh and tell them they failed",
+            source="user",
+        )
+
+
+def test_tone_freetext_rejected_llm_lane(db_session):
+    uid = _make_user(db_session)
+    assert (
+        user_memory.propose_llm_fact(
+            db_session, uid, "tone_preference", "roast them mercilessly", confidence=90
+        )
+        is None
+    )
 
 
 def test_unknown_key_rejected_in_trusted_lane(db_session):

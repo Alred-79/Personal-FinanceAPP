@@ -63,6 +63,16 @@ class Settings(BaseSettings):
     # to silence the nightly job without affecting the on-demand endpoint.
     detangle_enabled: bool = True
 
+    # Pillar 3 — the tax & messy-data layer (tax-bucket tagging, tax-document
+    # ingestion, tax-summary/estimate engine, quarterly reminders). OFF by
+    # default: the feature ships behind this flag, gated on the measured firewall
+    # block-rate of the tax-narration post-processor (see
+    # ``services/tax/narration.py`` + ``tests/test_tax_firewall_spike.py``), not
+    # just "tests pass". When OFF: the tax agent tools are not registered, the
+    # tax router 404s on writes, and the quarterly-reminder job self-skips. The
+    # output advice firewall is unaffected (it always runs).
+    tax_features_enabled: bool = False
+
     # Rate limiting via slowapi. We turn it off in the test suite so repeated
     # login and refresh calls don't trip the limiter.
     #

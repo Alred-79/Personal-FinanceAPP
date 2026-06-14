@@ -20,13 +20,14 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import styles from "./AssistantInterface.module.css";
-import { Message, ActionMessage, AssistantProposal } from "@/types";
+import { Message, ActionMessage, AssistantProposal, AssistantBridge } from "@/types";
 import { apiBase } from "@/lib/apiBase";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { AnimatedNumber } from "@/components/engraving/AnimatedNumber";
 import { Sparkline } from "@/components/engraving/Sparkline";
 import { formatCurrency } from "@/lib/format";
 import ConfirmCard from "@/components/custom/ConfirmCard/ConfirmCard";
+import BridgeCard from "@/components/custom/BridgeCard/BridgeCard";
 
 const EXAMPLE_QUESTIONS = [
   "How much have I spent this week?",
@@ -56,6 +57,7 @@ export function AssistantInterface() {
   const [isLoading, setIsLoading] = useState(false);
   const [actionMessages, setActionMessages] = useState<ActionMessage[]>([]);
   const [proposal, setProposal] = useState<AssistantProposal | null>(null);
+  const [bridge, setBridge] = useState<AssistantBridge | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const voice = useVoiceInput();
 
@@ -158,6 +160,11 @@ export function AssistantInterface() {
           // ConfirmCard so the user can approve it without leaving the chat.
           setProposal(data as AssistantProposal);
           setIsLoading(false);
+        } else if (eventType === "assisted_action") {
+          // The Assisted Action Bridge (Pillar 2C): a deduced real-world action
+          // with its own richer card (amount, from→to, why, execute affordance).
+          setBridge(data as AssistantBridge);
+          setIsLoading(false);
         } else if (eventType === "token") {
           assistantMessage += data as string;
           if (!assistantStarted) {
@@ -173,11 +180,16 @@ export function AssistantInterface() {
             }
             return [...next, { role: "assistant", content: assistantMessage }];
           });
-        } else if (eventType === "crisis" || eventType === "dispute") {
+        } else if (
+          eventType === "crisis" ||
+          eventType === "dispute" ||
+          eventType === "tax_resource"
+        ) {
           // Safety/compliance short-circuits (988 crisis line, charge-dispute
-          // guidance). The server also emits the same text as a `token` frame,
-          // which renders the body; here we just make sure the spinner stops so
-          // the static resource shows immediately and no model reply is awaited.
+          // guidance, tax-organization-not-advice). The server also emits the
+          // same text as a `token` frame, which renders the body; here we just
+          // make sure the spinner stops so the static resource shows immediately
+          // and no model reply is awaited.
           setIsLoading(false);
         } else if (eventType === "done") {
           setIsLoading(false);
@@ -309,6 +321,9 @@ export function AssistantInterface() {
                   onView={(id) => navigate(`/forecast?scenario=${id}`)}
                 />
               )}
+              {bridge && (
+                <BridgeCard bridge={bridge} onDismiss={() => setBridge(null)} />
+              )}
               {isLoading && (
                 <div className={styles.loadingMessage}>
                   <div className={styles.loadingBubble}>
@@ -413,12 +428,22 @@ function ProposalCard({
   const spark = (diff?.timeline ?? []).map((p) => p.balance);
   const endingDelta = diff?.ending_balance ?? 0;
 
+  // The approve label fits the action: a what-if commits a plan, a rule is
+  // created, anything else just gets a neutral "Approve". The shared ConfirmCard
+  // handles every write tool's proposal (Pillar 2.0).
+  const approveLabel =
+    proposal.action === "create_rule"
+      ? "Create rule"
+      : proposal.action === "scenario_commit"
+        ? "Commit this plan"
+        : "Approve";
+
   return (
     <div className="my-2" data-testid="assistant-proposal">
       <ConfirmCard
         summary={proposal.summary}
         token={proposal.confirm_token}
-        approveLabel="Commit this plan"
+        approveLabel={approveLabel}
         onConfirmed={onDismiss}
         onDecline={onDismiss}
       >

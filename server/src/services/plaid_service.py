@@ -289,10 +289,95 @@ class PlaidService:
                     token.id,
                 )
 
+        # Pillar 2C — reconcile open Assisted Action Bridges against the now-synced
+        # ledger: an "I did it" transfer/payment the user marked done gets VERIFIED
+        # when its matching real transaction(s) appear. Best-effort like the game
+        # fold: a reconcile bug must never break the finance sync.
+        if added or modified:
+            try:
+                self._reconcile_bridges(token.user_id)
+            except Exception:  # noqa: BLE001 — Bridge reconcile is best-effort
+                logger.exception(
+                    "bridge reconciliation failed during sync for token %s",
+                    token.id,
+                )
+
         # Persist the cursor so the next sync is incremental.
         token.cursor = result.next_cursor
 
         return {"added": added, "modified": modified, "removed": removed}
+
+    def _reconcile_bridges(self, user_id: int | None) -> None:
+        """Feed the user's recent ledger to the Bridge reconciler (Pillar 2C).
+
+        Rather than thread a collector through the hot insertion path, we pass the
+        user's recent transactions (a small window) as signed ``amount_cents``
+        (+in / −out) rows. ``reconcile`` only touches OPEN Bridges and dedups by
+        status, so re-feeding rows on a later sync is idempotent — a Bridge already
+        ``verified`` is never re-counted. Lazy import keeps the engine/assistant
+        import graph clean.
+        """
+        if user_id is None:
+            return
+        from server.src.services.assisted_action_service import (
+            AssistedActionService,
+        )
+
+        # Only do work if there's an open Bridge to reconcile (cheap guard).
+        svc = AssistedActionService(self.db)
+        if not svc.list(user_id, open_only=True):
+            return
+
+        rows: list[dict] = []
+        for exp in (
+            self.db.execute(
+                select(
+                    ExpenseORM.id,
+                    ExpenseORM.title,
+                    ExpenseORM.amount,
+                    ExpenseORM.date,
+                    ExpenseORM.account_id,
+                )
+                .join(AccountORM, ExpenseORM.account_id == AccountORM.id)
+                .where(AccountORM.user_id == user_id)
+                .order_by(ExpenseORM.id.desc())
+                .limit(200)
+            ).all()
+        ):
+            rows.append(
+                {
+                    "id": exp.id,
+                    "title": exp.title,
+                    "amount_cents": -int(exp.amount or 0),  # out
+                    "date": exp.date,
+                    "account_id": exp.account_id,
+                }
+            )
+        for inc in (
+            self.db.execute(
+                select(
+                    IncomeORM.id,
+                    IncomeORM.title,
+                    IncomeORM.amount,
+                    IncomeORM.date,
+                    IncomeORM.account_id,
+                )
+                .join(AccountORM, IncomeORM.account_id == AccountORM.id)
+                .where(AccountORM.user_id == user_id)
+                .order_by(IncomeORM.id.desc())
+                .limit(200)
+            ).all()
+        ):
+            rows.append(
+                {
+                    "id": inc.id,
+                    "title": inc.title,
+                    "amount_cents": int(inc.amount or 0),  # in
+                    "date": inc.date,
+                    "account_id": inc.account_id,
+                }
+            )
+        svc.reconcile(user_id, rows)
 
     def sync_all_tokens(self, current_user: UserInDB) -> list[dict]:
         """Sync every Plaid token or item owned by *current_user*.

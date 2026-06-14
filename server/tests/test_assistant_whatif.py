@@ -22,7 +22,7 @@ from server.src.db.models import (
 from server.src.services.assistant_service import (
     ActionService,
     _propose_whatif,
-    _whatif_proposal_frame,
+    _proposal_frame,
 )
 
 
@@ -93,7 +93,7 @@ def test_whatif_proposal_frame_only_for_proposal_output():
             "diff": {"ending_balance": 500.0},
         }
     )
-    frame = _whatif_proposal_frame({"data": {"output": envelope}})
+    frame = _proposal_frame({"data": {"output": envelope}})
     assert frame is not None
     assert frame.startswith("event: proposal\n")
     body = json.loads(frame.split("data: ", 1)[1])
@@ -101,8 +101,31 @@ def test_whatif_proposal_frame_only_for_proposal_output():
     assert body["scenario_id"] == 3
 
     # Plain text or non-proposal JSON yields no frame.
-    assert _whatif_proposal_frame({"data": {"output": "ask a concrete question"}}) is None
-    assert _whatif_proposal_frame({"data": {"output": json.dumps({"kind": "x"})}}) is None
+    assert _proposal_frame({"data": {"output": "ask a concrete question"}}) is None
+    assert _proposal_frame({"data": {"output": json.dumps({"kind": "x"})}}) is None
+
+
+def test_proposal_frame_for_create_rule_has_no_diff():
+    """A create_rule proposal yields a ConfirmCard frame with a token and no diff
+    (review fix #1 / Pillar 2.0 generic frame path)."""
+    envelope = json.dumps(
+        {
+            "status": "needs_confirmation",
+            "kind": "proposal",
+            "action": "create_rule",
+            "summary": "Create rule 'Payday savings': set aside $50.00 ...",
+            "confirm_token": "rule-tok",
+        }
+    )
+    frame = _proposal_frame({"data": {"output": envelope}})
+    assert frame is not None
+    assert frame.startswith("event: proposal\n")
+    body = json.loads(frame.split("data: ", 1)[1])
+    assert body["action"] == "create_rule"
+    assert body["confirm_token"] == "rule-tok"
+    # No diff / scenario_id for a plain rule proposal.
+    assert "diff" not in body
+    assert "scenario_id" not in body
 
 
 def test_whatif_token_commits_into_a_real_plan(monkeypatch, db_session, _engine):

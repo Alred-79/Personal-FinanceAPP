@@ -42,12 +42,20 @@ from server.src.services.game.firewall import screen_output, is_crisis, is_dispu
         ("email me at bob@example.com", "bob@example.com"),    # email
         ("acct 123456789012 routing", "123456789012"),         # long acct number
         ("call (555) 123-4567 today", "555) 123-4567"),        # phone
+        ("employer EIN 12-3456789 on the W-2", "12-3456789"),  # EIN (Pillar 3)
     ],
 )
 def test_scrub_secrets_removes_high_risk_tokens(raw, must_not_contain):
     out = scrub_secrets(raw)
     assert must_not_contain not in out
     assert "REDACTED" in out
+
+
+def test_ein_rule_tags_ein_and_does_not_regress_account():
+    """Pillar 3: a dashed EIN tags as [REDACTED_EIN]; a bare 9-digit run still
+    tags as [REDACTED_ACCT] (the EIN rule's ordering must not regress accounts)."""
+    assert scrub_secrets("EIN 12-3456789") == "EIN [REDACTED_EIN]"
+    assert scrub_secrets("acct 123456789") == "acct [REDACTED_ACCT]"
 
 
 @pytest.mark.parametrize(

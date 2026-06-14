@@ -173,6 +173,9 @@ interface StoreState {
   linkToken: string | null;
   isLoggedIn: boolean;
   settingsLoaded: boolean;
+  /** Pillar 3: server-side feature flag for the tax layer (read-only; gates the
+   * tax nav entry). False until settings load. */
+  taxFeaturesEnabled: boolean;
   budgets: Budget[];
   budgetsLoaded: boolean;
   netWorth: NetWorthPoint[];
@@ -357,6 +360,7 @@ const initialState = {
   linkToken: null as string | null,
   isLoggedIn: false,
   settingsLoaded: false,
+  taxFeaturesEnabled: false,
   budgets: [] as Budget[],
   budgetsLoaded: false,
   netWorth: [] as NetWorthPoint[],
@@ -866,6 +870,7 @@ export const useStore = create<StoreState>((set, get) => ({
           s2s_include_goals: prefs.s2s_include_goals ?? true,
           s2s_buffer: prefs.s2s_buffer ?? 0,
         },
+        taxFeaturesEnabled: response.data.features?.tax_features_enabled ?? false,
         settingsLoaded: true,
       });
     } catch (error) {

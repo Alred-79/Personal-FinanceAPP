@@ -7,6 +7,7 @@ import {
   Repeat,
   TrendingUp,
   FileUp,
+  Receipt,
   Settings,
   Shield,
   Swords,
@@ -27,6 +28,10 @@ export interface NavItem {
   /** When true, this entry only appears in nav when the game layer is on
    * (ambient/full). The ROUTE always exists; this flags its nav PRESENCE. */
   gameOnly?: boolean;
+  /** When true, this entry only appears in nav when the server's tax feature
+   * flag is on. The ROUTE always exists (and self-handles the disabled state);
+   * this flags its nav PRESENCE. */
+  taxOnly?: boolean;
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -38,6 +43,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/forecast", label: "Forecast", termKey: "nav.forecast", icon: TrendingUp, folio: "VI" },
   { to: "/subscriptions", label: "Standing Orders", termKey: "nav.subscriptions", icon: Repeat, folio: "VII" },
   { to: "/reconcile", label: "Reconciliation Desk", termKey: "nav.reconcile", icon: FileUp, folio: "XII" },
+  { to: "/tax", label: "Tax Organizer", termKey: "nav.tax", icon: Receipt, folio: "XIII", taxOnly: true },
   { to: "/keeper", label: "Profile & Progress", termKey: "nav.keeper", icon: Shield, folio: "IX", gameOnly: true },
   { to: "/debts", label: "Debts", termKey: "nav.debts", icon: Swords, folio: "X", gameOnly: true },
   { to: "/campaigns", label: "Quarterly Review", termKey: "nav.campaigns", icon: Map, folio: "XI", gameOnly: true },
