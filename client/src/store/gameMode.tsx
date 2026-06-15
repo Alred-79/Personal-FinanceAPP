@@ -39,12 +39,41 @@ export interface ModeFlags {
   gameLayer: boolean;
   /** Full terminal styling: scanlines, amber accents, game vocabulary. */
   terminal: boolean;
+
+  /* ── frontend-elevation ("Cartographer's Desk") flags ──────────────────
+     Atlas/Deck surfaces. FINANCE tools (commandDeck, moodWatermark, the
+     guilloché SHAPE) are on in every mode incl. off; GAME surfaces and the
+     richer MOTION are ambient+ or full-only. As ever, components read these
+     flags — never branch on `mode` directly. */
+
+  /** The Command Deck (⌘K) — a finance tool; available in every mode. */
+  commandDeck: boolean;
+  /** Living-guilloché background MOTION (breathe). off = frozen static shape. */
+  guillocheMotion: boolean;
+  /** Full-only living-guilloché extras: cursor-warp + WebGL phosphor. */
+  guillocheWarp: boolean;
+  /** The engraver's-burin cursor + ink trail (ambient + full). */
+  burin: boolean;
+  /** Mood watermark present in every mode; time-of-day ink warming = full only. */
+  moodTimeOfDay: boolean;
+  /** Game collectibles: Cabinet, minted coins, bestiary (ambient + full). */
+  cabinet: boolean;
+  bestiary: boolean;
 }
 
 function flagsFor(mode: GameMode): ModeFlags {
+  const game = mode !== "off";
+  const full = mode === "full";
   return {
-    gameLayer: mode !== "off",
-    terminal: mode === "full",
+    gameLayer: game,
+    terminal: full,
+    commandDeck: true,      // finance tool — every mode
+    guillocheMotion: game,  // off = frozen static shape
+    guillocheWarp: full,
+    burin: game,
+    moodTimeOfDay: full,
+    cabinet: game,
+    bestiary: game,
   };
 }
 

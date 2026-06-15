@@ -47,6 +47,21 @@
 
     --radius: 0rem;
 
+    /* Motion tokens (frontend-elevation): stronger-than-built-in easings.
+       --ease-out is the existing shipped curve, now named for reuse. */
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --ease-stamp: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    /* Semantic z-index scale (frontend-elevation): the Atlas/Deck layers.
+       grain/cursor sit above everything; the deck above the page veil. */
+    --z-veil: 40;
+    --z-deck: 50;
+    --z-grain: 9999;
+    --z-ink: 9000;
+    --z-toolbar: 10000;
+    --z-nib: 10001;
+
     /* Engraver's extras (not part of the shadcn contract) */
     --gold: 42 56% 44%;
     --gold-soft: 44 55% 86%;
@@ -134,7 +149,7 @@
     --rule-strong: 154 16% 48%;
     --ink-wash: 166 20% 12%;
     --paper-high: 166 22% 12%;
-    --debit: 8 64% 58%;
+    --debit: 8 66% 62%;           /* frontend-elevation: +lightness for AA headroom on small figures */
     --credit: 156 34% 56%;
 
     --chart-1: 156 32% 60%;
@@ -196,11 +211,12 @@
     mix-blend-mode: screen;
   }
 
-  /* Engraved focus: a fine gold double ring */
+  /* Engraved focus (frontend-elevation): a gold ring via OUTLINE only.
+     Outline (not box-shadow) so elements that set their own box-shadow —
+     .press buttons, the command summon, plates — can't override the ring. */
   :focus-visible {
-    outline: 1px solid hsl(var(--ring));
+    outline: 2px solid hsl(var(--gold));
     outline-offset: 2px;
-    box-shadow: 0 0 0 1px hsl(var(--background)), 0 0 0 4px hsl(var(--ring) / 0.35);
   }
 
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -232,6 +248,48 @@
     box-shadow:
       0 1px 0 hsl(44 36% 87% / 0.04) inset,
       0 2px 14px hsl(168 40% 2% / 0.5);
+  }
+
+  /* frontend-elevation: opt-in plate behaviors (additive — bare .plate is
+     unchanged so existing pages don't regress). A page adds these classes to
+     turn on raking-light depth and/or pointer-parallax tilt. */
+
+  /* Raking-light: a soft "desk lamp" highlight follows the cursor (JS sets
+     --mx/--my). Only on real hover so touch taps don't trigger it. */
+  .plate-raking { --mx: 50%; --my: 50%; overflow: hidden; }
+  .plate-raking::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s var(--ease-out);
+    background: radial-gradient(420px circle at var(--mx) var(--my),
+      hsl(var(--paper-high) / 0.9), transparent 45%);
+  }
+  .dark .plate-raking::after {
+    background: radial-gradient(420px circle at var(--mx) var(--my),
+      hsl(var(--gold) / 0.1), transparent 45%);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .plate-raking:hover::after { opacity: 0.7; }
+  }
+  /* keep real content above the raking glow */
+  .plate-raking > * { position: relative; z-index: 2; }
+
+  /* Pointer-parallax: JS sets the perspective transform; children sit on
+     raised planes for engraved depth. transition is short so it tracks. */
+  .plate-tilt {
+    transform-style: preserve-3d;
+    transition: box-shadow 0.25s var(--ease-out), transform 0.12s var(--ease-out);
+  }
+  .plate-tilt::before { transform: translateZ(20px); }
+  .plate-tilt > * { transform: translateZ(30px); }
+  @media (hover: hover) and (pointer: fine) {
+    .plate-tilt:hover {
+      box-shadow: 0 1px 0 hsl(var(--paper-high)) inset, 0 18px 50px hsl(167 30% 12% / 0.18);
+    }
   }
 
   /* Microprint: the anti-counterfeit line of tiny repeated text */
@@ -396,5 +454,9 @@
     * {
       transition-duration: 0.01ms !important;
     }
+    /* frontend-elevation: flatten parallax + drop raking glow under reduce-motion.
+       The burin cursor + living-guilloché motion are JS-gated off separately. */
+    .plate-tilt { transform: none !important; }
+    .plate-raking::after { opacity: 0 !important; }
   }
 }
