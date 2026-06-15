@@ -32,7 +32,7 @@ export default function ForecastCard() {
   const timeline = forecast?.timeline ?? [];
 
   return (
-    <Card>
+    <Card raking>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle>30-Day Cashflow Forecast</CardTitle>
         <button

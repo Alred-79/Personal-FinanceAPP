@@ -31,3 +31,23 @@ export function tooltipStyle() {
     boxShadow: "0 8px 24px hsl(167 30% 12% / 0.18)",
   };
 }
+
+/**
+ * Steel-engraving hatch fill (frontend-elevation). Returns the SVG markup for a
+ * diagonal line-hatch <pattern> in a chart ink, plus the `url(#id)` reference to
+ * use as an area `fill`. Reads like an engraved plate instead of a flat gradient.
+ *
+ * Usage in a recharts chart:
+ *   <defs dangerouslySetInnerHTML={{ __html: hatch("h-run", "--chart-3").def }} />
+ *   <Area fill={hatch("h-run", "--chart-3").fill} ... />
+ * (id must be unique per chart instance.)
+ */
+export function hatch(id: string, colorVar: string, alpha = 0.5, gap = 5) {
+  const stroke = ink(colorVar, alpha);
+  return {
+    fill: `url(#${id})`,
+    def: `<pattern id="${id}" patternUnits="userSpaceOnUse" width="${gap}" height="${gap}" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="${gap}" stroke="${stroke}" stroke-width="1" />
+    </pattern>`,
+  };
+}

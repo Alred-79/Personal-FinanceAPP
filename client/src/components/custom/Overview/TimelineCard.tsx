@@ -61,7 +61,7 @@ export default function TimelineCard() {
   const hasFuture = data.some((d) => d.date > today);
 
   return (
-    <Card>
+    <Card raking>
       <CardHeader>
         <CardTitle>Cashflow Timeline</CardTitle>
       </CardHeader>

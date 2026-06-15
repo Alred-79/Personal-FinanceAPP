@@ -53,7 +53,7 @@ export default function SpendCard() {
   const arcLen = Math.PI * R;
 
   return (
-    <Card>
+    <Card raking>
       <CardHeader className="flex flex-row items-center justify-between pb-1">
         <CardTitle>Safe to Spend</CardTitle>
         <SpendSettingsDialog

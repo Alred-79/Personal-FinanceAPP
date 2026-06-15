@@ -36,7 +36,7 @@ export default function ExpensesCard() {
   const rows = [...budgets].sort((a, b) => b.spent / Math.max(1, b.effective_limit) - a.spent / Math.max(1, a.effective_limit));
 
   return (
-    <Card>
+    <Card raking>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle>Budget Status</CardTitle>
         <button

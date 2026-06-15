@@ -33,7 +33,7 @@ export default function NetWorthCard() {
   })();
 
   return (
-    <Card>
+    <Card raking>
       <CardHeader>
         <CardTitle>Net Worth Trend</CardTitle>
       </CardHeader>
