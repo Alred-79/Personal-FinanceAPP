@@ -34,7 +34,7 @@ vi.mock("@/hooks/useToast", () => ({
 // this test exercises the DIALOG's submit/error logic — the thing under test —
 // not radix internals. The shims preserve the value/onValueChange contract.
 vi.mock("@/components/ui/select", () => {
-  const React = require("react");
+  const React = require("react") as typeof import("react");
   const Ctx = React.createContext<{
     value?: string;
     onValueChange?: (v: string) => void;
@@ -61,19 +61,20 @@ vi.mock("@/components/ui/select", () => {
     return React.createElement(
       "div",
       { role: "listbox" },
-      React.Children.map(children, (child: React.ReactElement) =>
-        child
+      React.Children.map(children, (child) => {
+        const el = child as React.ReactElement<{ value: string; children: React.ReactNode }>;
+        return el
           ? React.createElement(
               "button",
               {
                 type: "button",
                 role: "option",
-                onClick: () => onValueChange?.(child.props.value),
+                onClick: () => onValueChange?.(el.props.value),
               },
-              child.props.children
+              el.props.children
             )
-          : null
-      )
+          : null;
+      })
     );
   };
   const SelectItem = ({ children }: { value: string; children: React.ReactNode }) =>

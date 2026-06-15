@@ -37,7 +37,9 @@ beforeEach(() => {
     });
   });
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("scenario store defaults + logout reset", () => {
   it("defaults are empty/null", () => {
@@ -99,7 +101,7 @@ describe("scenario CRUD (refetch after mutation)", () => {
       expect.objectContaining({ name: "New" })
     );
     expect(apiGet).toHaveBeenCalledWith("/scenarios/"); // refetch
-    expect((created as { id: number }).id).toBe(3);
+    expect((created as unknown as { id: number }).id).toBe(3);
   });
 
   it("updateScenario PUTs to the id path then refetches", async () => {
@@ -237,7 +239,7 @@ describe("compareScenarios + commitScenario", () => {
     expect(apiPost).toHaveBeenNthCalledWith(2, "/assistant/actions/confirm/", {
       token: "tok-123",
     });
-    expect((result as { plan_id: number }).plan_id).toBe(42);
+    expect((result as unknown as { plan_id: number }).plan_id).toBe(42);
     expect(useStore.getState().committedPlan).toEqual({ plan_id: 42, rule_ids: [7] });
     // Refetch fired for both forecast and goals.
     expect(apiGet).toHaveBeenCalledWith("/forecast", expect.anything());

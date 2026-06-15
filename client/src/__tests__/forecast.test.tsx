@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   render,
   screen,
-  fireEvent,
   cleanup,
   waitFor,
 } from "@testing-library/react";
@@ -99,15 +98,16 @@ vi.mock("@/components/ui/select", () => {
     return React.createElement(
       "div",
       { role: "listbox" },
-      React.Children.map(children, (child: React.ReactElement) =>
-        child
+      React.Children.map(children, (child) => {
+        const el = child as React.ReactElement<{ value: string; children: React.ReactNode }>;
+        return el
           ? React.createElement(
               "button",
-              { type: "button", role: "option", onClick: () => onValueChange?.(child.props.value) },
-              child.props.children
+              { type: "button", role: "option", onClick: () => onValueChange?.(el.props.value) },
+              el.props.children
             )
-          : null
-      )
+          : null;
+      })
     );
   };
   const SelectItem = ({ children }: { value: string; children: React.ReactNode }) =>
