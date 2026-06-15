@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import Lenis from "lenis";
 import { useStore } from "@/store/store";
 import { useToast } from "@/hooks/useToast";
 import { usePlaidReady, type PlaidHandler } from "@/lib/plaid";
+import { useReducedMotion } from "@/hooks/useEnvironment";
 import { AssistantInterface } from "@/components/custom/AssistantInterface/AssistantInterface";
 import { ChroniclerDrawer } from "@/components/custom/ChroniclerDrawer/ChroniclerDrawer";
+import { LivingGuilloche } from "@/components/atlas/LivingGuilloche";
+import { BurinCursor } from "@/components/atlas/BurinCursor";
+import { MoodWatermark } from "@/components/atlas/MoodWatermark";
 import Header from "./Header";
 import { titleForPath } from "./nav";
 
@@ -84,6 +89,25 @@ export default function AppShell() {
     };
   }, [linkToken, plaidReady]);
 
+  // Smooth scroll (frontend-elevation) — Lenis drives a single rAF loop for the
+  // whole app so scroll-reveals feel intentional. Disabled under reduced motion
+  // (Lenis itself is not started → native scroll).
+  const reduceMotion = useReducedMotion();
+  useEffect(() => {
+    if (reduceMotion) return;
+    const lenis = new Lenis();
+    let raf = 0;
+    const loop = (time: number) => {
+      lenis.raf(time);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => {
+      cancelAnimationFrame(raf);
+      lenis.destroy();
+    };
+  }, [reduceMotion]);
+
   const handleLogout = () => {
     logout();
     navigate("/login");
@@ -92,6 +116,10 @@ export default function AppShell() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      {/* frontend-elevation Atlas layers — global, mode-gated, behind content. */}
+      <LivingGuilloche />
+      <MoodWatermark />
+      <BurinCursor />
       <Header
         title={titleForPath(location.pathname)}
         onConnectBank={handleConnectBank}

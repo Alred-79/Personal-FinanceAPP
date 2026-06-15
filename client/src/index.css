@@ -278,6 +278,23 @@
   /* keep real content above the raking glow */
   .plate-raking > * { position: relative; z-index: 2; }
 
+  /* Burin cursor (frontend-elevation): the nib follows the pointer; over an
+     interactive element it cross-fades burin → manicule and tints gold. */
+  .burin-nib {
+    color: hsl(var(--foreground));
+    transform: translate(-3px, -2px);
+    transition: color 0.15s var(--ease-out);
+    will-change: transform;
+  }
+  .burin-nib g {
+    transition: opacity 0.15s var(--ease-out), transform 0.18s var(--ease-out);
+    transform-origin: 13px 13px;
+  }
+  .burin-nib .g-manicule { opacity: 0; transform: scale(0.6) rotate(-12deg); }
+  .burin-nib.over-target { color: hsl(var(--gold)); }
+  .burin-nib.over-target .g-burin { opacity: 0; transform: scale(0.6) rotate(12deg); }
+  .burin-nib.over-target .g-manicule { opacity: 1; transform: scale(1) rotate(0); }
+
   /* Pointer-parallax: JS sets the perspective transform; children sit on
      raised planes for engraved depth. transition is short so it tracks. */
   .plate-tilt {
