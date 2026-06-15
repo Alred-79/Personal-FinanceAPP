@@ -7,9 +7,7 @@ import { usePlaidReady, type PlaidHandler } from "@/lib/plaid";
 import { useReducedMotion } from "@/hooks/useEnvironment";
 import { AssistantInterface } from "@/components/custom/AssistantInterface/AssistantInterface";
 import { ChroniclerDrawer } from "@/components/custom/ChroniclerDrawer/ChroniclerDrawer";
-import { LivingGuilloche } from "@/components/atlas/LivingGuilloche";
-import { BurinCursor } from "@/components/atlas/BurinCursor";
-import { MoodWatermark } from "@/components/atlas/MoodWatermark";
+import { AtlasLayers } from "@/components/atlas/AtlasLayers";
 import Header from "./Header";
 import { titleForPath } from "./nav";
 
@@ -117,9 +115,7 @@ export default function AppShell() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       {/* frontend-elevation Atlas layers — global, mode-gated, behind content. */}
-      <LivingGuilloche />
-      <MoodWatermark />
-      <BurinCursor />
+      <AtlasLayers />
       <Header
         title={titleForPath(location.pathname)}
         onConnectBank={handleConnectBank}

@@ -24,6 +24,7 @@ import ErrorBoundary from "./components/layout/ErrorBoundary.tsx";
 import { Toaster } from "@/components/ui/toaster";
 import { GameModeProvider } from "@/store/gameMode";
 import { ScanlineOverlay } from "@/components/custom/ScanlineOverlay/ScanlineOverlay";
+import AtlasPreview from "@/pages/AtlasPreview/AtlasPreview"; // DEV-ONLY, remove after review
 import { apiBase } from "@/lib/apiBase";
 
 // Wipe the assistant's history when the user closes the tab. `sendBeacon` is
@@ -43,6 +44,8 @@ createRoot(document.getElementById("root")!).render(
           <Routes>
           {/* Stands alone, no login needed */}
           <Route path="/login" element={<Login />} />
+          {/* DEV-ONLY throwaway: Atlas layers preview (frontend-elevation). Remove after review. */}
+          <Route path="/atlas-preview" element={<AtlasPreview />} />
 
           {/* The auth guard wraps every page that needs a login */}
           <Route element={<ProtectedRoute />}>

@@ -1,6 +1,8 @@
 import * as React from "react"
+import { motion, useMotionValue, useSpring, useMotionTemplate } from "motion/react"
 
 import { cn } from "@/lib/utils"
+import { useReducedMotion, usePointerFine } from "@/hooks/useEnvironment"
 
 /**
  * Cards are engraved plates: a heavy outer rule with a hairline inner frame
@@ -39,6 +41,67 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
   }
 )
 Card.displayName = "Card"
+
+/**
+ * TiltCard — a plate that tilts in 3D toward the cursor with spring physics and
+ * a moving gold sheen (frontend-elevation "powered" look). Opt-in, separate from
+ * the plain Card so existing usages are untouched. Falls back to a plain static
+ * plate under reduced motion or on touch (no fine pointer).
+ */
+type TiltCardProps = React.HTMLAttributes<HTMLDivElement> & {
+  /** max tilt in degrees (default 10) */
+  maxTilt?: number
+}
+
+const TiltCard = React.forwardRef<HTMLDivElement, TiltCardProps>(
+  ({ className, children, maxTilt = 10, ...props }, ref) => {
+    const reduce = useReducedMotion()
+    const fine = usePointerFine()
+    const rx = useSpring(useMotionValue(0), { stiffness: 120, damping: 12 })
+    const ry = useSpring(useMotionValue(0), { stiffness: 120, damping: 12 })
+    const mx = useMotionValue(50)
+    const my = useMotionValue(50)
+    const sheen = useMotionTemplate`radial-gradient(380px circle at ${mx}% ${my}%, hsl(var(--gold) / 0.16), transparent 55%)`
+
+    // No tilt where it shouldn't run — render a plain plate.
+    if (reduce || !fine) {
+      return (
+        <div ref={ref} className={cn("plate rounded-none text-card-foreground", className)} {...props}>
+          {children}
+        </div>
+      )
+    }
+
+    return (
+      <motion.div
+        ref={ref}
+        className={cn("plate rounded-none text-card-foreground", className)}
+        onPointerMove={(e) => {
+          const r = e.currentTarget.getBoundingClientRect()
+          const px = (e.clientX - r.left) / r.width
+          const py = (e.clientY - r.top) / r.height
+          ry.set((px - 0.5) * maxTilt)
+          rx.set((0.5 - py) * maxTilt)
+          mx.set(px * 100)
+          my.set(py * 100)
+        }}
+        onPointerLeave={() => {
+          rx.set(0)
+          ry.set(0)
+        }}
+        style={{ rotateX: rx, rotateY: ry, transformPerspective: 900, transformStyle: "preserve-3d" }}
+        {...(props as React.ComponentProps<typeof motion.div>)}
+      >
+        <motion.div
+          aria-hidden
+          style={{ position: "absolute", inset: 0, background: sheen, pointerEvents: "none", zIndex: 1 }}
+        />
+        <div style={{ position: "relative", zIndex: 2 }}>{children}</div>
+      </motion.div>
+    )
+  }
+)
+TiltCard.displayName = "TiltCard"
 
 const CardHeader = React.forwardRef<
   HTMLDivElement,
@@ -99,4 +162,4 @@ const CardFooter = React.forwardRef<
 ))
 CardFooter.displayName = "CardFooter"
 
-export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }
+export { Card, TiltCard, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }
