@@ -3,6 +3,7 @@ import { GuillocheGL } from "./GuillocheGL";
 import { LivingGuilloche } from "./LivingGuilloche";
 import { BurinCursor } from "./BurinCursor";
 import { MoodWatermark } from "./MoodWatermark";
+import { CursorGlow } from "./CursorGlow";
 
 /**
  * AtlasLayers — the global background/cursor chrome for the Cartographer's Desk,
@@ -30,6 +31,7 @@ export function AtlasLayers() {
               (it sits at the same z-0 and shows through if WebGL is absent). */}
           <LivingGuilloche />
           <GuillocheGL opacity={flags.guillocheWarp ? 0.55 : 0.42} />
+          <CursorGlow />
         </>
       )}
       <BurinCursor />

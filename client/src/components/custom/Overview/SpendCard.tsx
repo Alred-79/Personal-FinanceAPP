@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TiltCard, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useStore } from "@/store/store";
 import { formatCurrency } from "@/lib/format";
 import { AnimatedNumber } from "@/components/engraving/AnimatedNumber";
@@ -53,7 +53,7 @@ export default function SpendCard() {
   const arcLen = Math.PI * R;
 
   return (
-    <Card raking>
+    <TiltCard>
       <CardHeader className="flex flex-row items-center justify-between pb-1">
         <CardTitle>Safe to Spend</CardTitle>
         <SpendSettingsDialog
@@ -190,6 +190,6 @@ export default function SpendCard() {
           </div>
         )}
       </CardContent>
-    </Card>
+    </TiltCard>
   );
 }

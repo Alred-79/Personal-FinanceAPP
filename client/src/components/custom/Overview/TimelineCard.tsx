@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TiltCard, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useStore } from "@/store/store";
 import { formatCurrency } from "@/lib/format";
 import { todayLocalISO } from "@/lib/dates";
@@ -61,7 +61,7 @@ export default function TimelineCard() {
   const hasFuture = data.some((d) => d.date > today);
 
   return (
-    <Card raking>
+    <TiltCard>
       <CardHeader>
         <CardTitle>Cashflow Timeline</CardTitle>
       </CardHeader>
@@ -148,6 +148,6 @@ export default function TimelineCard() {
           </p>
         )}
       </CardContent>
-    </Card>
+    </TiltCard>
   );
 }

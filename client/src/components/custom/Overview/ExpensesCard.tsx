@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, TiltCard, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useStore } from "@/store/store";
 import { formatCurrency } from "@/lib/format";
 import { useNavigate } from "react-router-dom";
@@ -36,7 +36,7 @@ export default function ExpensesCard() {
   const rows = [...budgets].sort((a, b) => b.spent / Math.max(1, b.effective_limit) - a.spent / Math.max(1, a.effective_limit));
 
   return (
-    <Card raking>
+    <TiltCard>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle>Budget Status</CardTitle>
         <button
@@ -84,6 +84,6 @@ export default function ExpensesCard() {
           );
         })}
       </CardContent>
-    </Card>
+    </TiltCard>
   );
 }

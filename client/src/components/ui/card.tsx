@@ -43,25 +43,30 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
 Card.displayName = "Card"
 
 /**
- * TiltCard — a plate that tilts in 3D toward the cursor with spring physics and
- * a moving gold sheen (frontend-elevation "powered" look). Opt-in, separate from
- * the plain Card so existing usages are untouched. Falls back to a plain static
- * plate under reduced motion or on touch (no fine pointer).
+ * TiltCard — a plate that comes alive: on hover it LIFTS (spring), tilts in 3D
+ * toward the cursor, and a gold sheen tracks the pointer (frontend-elevation
+ * "powered" look). Opt-in, separate from the plain Card so existing usages are
+ * untouched. Falls back to a plain static plate under reduced motion or on touch.
+ *
+ * `onHoverChange` lets a parent react (e.g. tint a reactive background) when the
+ * card is entered/left.
  */
 type TiltCardProps = React.HTMLAttributes<HTMLDivElement> & {
-  /** max tilt in degrees (default 10) */
+  /** max tilt in degrees (default 8) */
   maxTilt?: number
+  /** fired true on pointer-enter, false on leave */
+  onHoverChange?: (hovered: boolean) => void
 }
 
 const TiltCard = React.forwardRef<HTMLDivElement, TiltCardProps>(
-  ({ className, children, maxTilt = 10, ...props }, ref) => {
+  ({ className, children, maxTilt = 8, onHoverChange, ...props }, ref) => {
     const reduce = useReducedMotion()
     const fine = usePointerFine()
-    const rx = useSpring(useMotionValue(0), { stiffness: 120, damping: 12 })
-    const ry = useSpring(useMotionValue(0), { stiffness: 120, damping: 12 })
+    const rx = useSpring(useMotionValue(0), { stiffness: 150, damping: 15 })
+    const ry = useSpring(useMotionValue(0), { stiffness: 150, damping: 15 })
     const mx = useMotionValue(50)
     const my = useMotionValue(50)
-    const sheen = useMotionTemplate`radial-gradient(380px circle at ${mx}% ${my}%, hsl(var(--gold) / 0.16), transparent 55%)`
+    const sheen = useMotionTemplate`radial-gradient(340px circle at ${mx}% ${my}%, hsl(var(--gold) / 0.16), transparent 60%)`
 
     // No tilt where it shouldn't run — render a plain plate.
     if (reduce || !fine) {
@@ -85,11 +90,15 @@ const TiltCard = React.forwardRef<HTMLDivElement, TiltCardProps>(
           mx.set(px * 100)
           my.set(py * 100)
         }}
+        onPointerEnter={() => onHoverChange?.(true)}
         onPointerLeave={() => {
           rx.set(0)
           ry.set(0)
+          onHoverChange?.(false)
         }}
-        style={{ rotateX: rx, rotateY: ry, transformPerspective: 900, transformStyle: "preserve-3d" }}
+        whileHover={{ y: -6, scale: 1.02, boxShadow: "0 24px 60px hsl(222 40% 4% / 0.22)" }}
+        transition={{ type: "spring", stiffness: 300, damping: 22 }}
+        style={{ position: "relative", rotateX: rx, rotateY: ry, transformPerspective: 1000, transformStyle: "preserve-3d" }}
         {...(props as React.ComponentProps<typeof motion.div>)}
       >
         <motion.div

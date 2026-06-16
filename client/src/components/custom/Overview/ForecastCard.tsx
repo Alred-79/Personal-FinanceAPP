@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TiltCard, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useStore } from "@/store/store";
 import { formatCurrency } from "@/lib/format";
 import { Stamp } from "@/components/engraving/Stamp";
@@ -32,7 +32,7 @@ export default function ForecastCard() {
   const timeline = forecast?.timeline ?? [];
 
   return (
-    <Card raking>
+    <TiltCard>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle>30-Day Cashflow Forecast</CardTitle>
         <button
@@ -121,7 +121,7 @@ export default function ForecastCard() {
           </>
         )}
       </CardContent>
-    </Card>
+    </TiltCard>
   );
 }
 

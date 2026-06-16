@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TiltCard, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useStore } from "@/store/store";
 import { formatCurrency } from "@/lib/format";
 import {
@@ -33,7 +33,7 @@ export default function NetWorthCard() {
   })();
 
   return (
-    <Card raking>
+    <TiltCard>
       <CardHeader>
         <CardTitle>Net Worth Trend</CardTitle>
       </CardHeader>
@@ -93,6 +93,6 @@ export default function NetWorthCard() {
           </ResponsiveContainer>
         )}
       </CardContent>
-    </Card>
+    </TiltCard>
   );
 }
