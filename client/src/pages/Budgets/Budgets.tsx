@@ -1,5 +1,7 @@
 import React, { ChangeEvent, useEffect, useState } from "react";
+import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
+import { useReducedMotion } from "@/hooks/useEnvironment";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +45,7 @@ const Budgets: React.FC = () => {
   const [newBudget, setNewBudget] = useState<BudgetForm>(emptyForm);
   const [editBudget, setEditBudget] = useState<Budget | null>(null);
   const { toast } = useToast();
+  const reduce = useReducedMotion();
 
   // The budget store actions rethrow on failure; catch so the failure is
   // surfaced (and the dialog stays open on the data) instead of an unhandled
@@ -184,6 +187,7 @@ const Budgets: React.FC = () => {
                 key={b.id}
                 seed={b.id * 13 + 1}
                 accent={color}
+                alive
                 onClick={() => setEditBudget(b)}
                 className="animate-rise-in"
               >
@@ -224,9 +228,13 @@ const Budgets: React.FC = () => {
                   </div>
 
                   <div className="relative h-2 w-full overflow-hidden border border-rule-strong/40 bg-secondary">
-                    <div
-                      className="absolute inset-y-0 left-0 transition-[width] duration-700 ease-out"
+                    <motion.div
+                      className="absolute inset-y-0 left-0 origin-left"
                       style={{ width: `${pct}%`, background: fill }}
+                      initial={reduce ? false : { scaleX: 0 }}
+                      whileInView={{ scaleX: 1 }}
+                      viewport={{ once: true, amount: 0.6 }}
+                      transition={{ duration: 0.7, ease: [0.23, 1, 0.32, 1] }}
                     />
                   </div>
 
