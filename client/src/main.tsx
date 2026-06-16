@@ -28,6 +28,7 @@ import AtlasPreview from "@/pages/AtlasPreview/AtlasPreview"; // DEV-ONLY, remov
 import DirectionsGallery from "@/pages/DirectionsGallery/DirectionsGallery"; // DEV-ONLY, remove after review
 import LivingMoney from "@/pages/LivingMoney/LivingMoney"; // DEV-ONLY, remove after review
 import Workspace from "@/pages/Workspace/Workspace"; // DEV-ONLY, remove after review
+import DevPreview from "@/pages/DevPreview/DevPreview"; // DEV-ONLY, remove after review
 import { apiBase } from "@/lib/apiBase";
 
 // Wipe the assistant's history when the user closes the tab. `sendBeacon` is
@@ -52,6 +53,7 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/directions" element={<DirectionsGallery />} />
           <Route path="/living" element={<LivingMoney />} />
           <Route path="/workspace" element={<Workspace />} />
+          <Route path="/dev-preview" element={<DevPreview />} />
 
           {/* The auth guard wraps every page that needs a login */}
           <Route element={<ProtectedRoute />}>

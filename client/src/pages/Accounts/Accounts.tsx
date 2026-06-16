@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useToast } from "@/hooks/useToast";
-import { Card } from "@/components/ui/card";
+import { TiltCard } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Trash2, Landmark } from "lucide-react";
 import {
@@ -83,7 +83,7 @@ export default function Accounts() {
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {accounts.map((account, i) => (
-            <Card
+            <TiltCard
               key={account.id}
               className="group relative animate-rise-in"
               style={{ animationDelay: `${i * 60}ms` }}
@@ -203,7 +203,7 @@ export default function Accounts() {
                   </ResponsiveContainer>
                 </div>
               </div>
-            </Card>
+            </TiltCard>
           ))}
           {accounts.length === 0 && (
             <div className="col-span-full flex min-h-[40vh] flex-col items-center justify-center gap-3">
