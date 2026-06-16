@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useStore } from "@/store/store";
 import PageHeader from "@/components/layout/PageHeader";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, TiltCard, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Reveal, RevealItem } from "@/components/motion/Reveal";
 import { formatCurrency } from "@/lib/format";
 import { AnimatedNumber } from "@/components/engraving/AnimatedNumber";
 import { Stamp } from "@/components/engraving/Stamp";
@@ -173,10 +174,14 @@ export default function Forecast() {
           </TabsList>
 
           {/* ── Projection: the live, no-overlay forecast ── */}
-          <TabsContent value="projection" className="space-y-6">
-            <PromissoryPlate />
+          <TabsContent value="projection">
+            <Reveal className="space-y-6">
+            <RevealItem>
+              <PromissoryPlate />
+            </RevealItem>
 
-            <Card>
+            <RevealItem>
+            <Card raking>
               <CardHeader>
                 <CardTitle>Running Balance</CardTitle>
               </CardHeader>
@@ -231,8 +236,10 @@ export default function Forecast() {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
+            </RevealItem>
 
             {dips.length > 0 && (
+              <RevealItem>
               <div className="space-y-3">
                 <SectionRule>Schedule of Projected Obligations</SectionRule>
                 <Card>
@@ -265,13 +272,19 @@ export default function Forecast() {
                   </CardContent>
                 </Card>
               </div>
+              </RevealItem>
             )}
 
-            <CashflowCalendar forecast={forecast!} />
+            <RevealItem>
+              <CashflowCalendar forecast={forecast!} />
+            </RevealItem>
+            </Reveal>
           </TabsContent>
 
           {/* ── What-If: the stacked builder + baseline-vs-scenario overlay ── */}
-          <TabsContent value="whatif" className="space-y-6">
+          <TabsContent value="whatif">
+            <Reveal>
+            <RevealItem className="space-y-6">
             <ScenarioBuilder
               initialMutations={initialMutations}
               onSaved={() => fetchScenarios()}
@@ -279,7 +292,7 @@ export default function Forecast() {
 
             {activeScenarioResult && (
               <>
-                <Card>
+                <Card raking>
                   <CardHeader className="flex flex-row items-center justify-between gap-3">
                     <CardTitle>Baseline vs What-If</CardTitle>
                     {overdraftProb != null && (
@@ -374,7 +387,7 @@ export default function Forecast() {
             )}
 
             {/* Saved-scenario picker + commit affordance. */}
-            <Card>
+            <Card raking>
               <CardHeader>
                 <CardTitle>Saved scenarios</CardTitle>
               </CardHeader>
@@ -414,11 +427,15 @@ export default function Forecast() {
                 )}
               </CardContent>
             </Card>
+            </RevealItem>
+            </Reveal>
           </TabsContent>
 
           {/* ── Compare: N saved scenarios against one baseline ── */}
-          <TabsContent value="compare" className="space-y-6">
-            <Card>
+          <TabsContent value="compare">
+            <Reveal>
+            <RevealItem className="space-y-6">
+            <Card raking>
               <CardHeader>
                 <CardTitle>Choose scenarios to compare</CardTitle>
               </CardHeader>
@@ -449,6 +466,8 @@ export default function Forecast() {
               </CardContent>
             </Card>
             <ScenarioCompare scenarioIds={compareIds} horizonDays={forecastHorizon || 90} />
+            </RevealItem>
+            </Reveal>
           </TabsContent>
         </Tabs>
       )}
@@ -457,7 +476,7 @@ export default function Forecast() {
 
   function PromissoryPlate() {
     return (
-      <Card className="relative overflow-hidden animate-ink-in">
+      <TiltCard className="relative overflow-hidden animate-ink-in">
         <div className="text-gold/40">
           <GuillocheBand height={16} waves={4} seed={9} />
         </div>
@@ -497,7 +516,7 @@ export default function Forecast() {
             />
           </div>
         </CardContent>
-      </Card>
+      </TiltCard>
     );
   }
 }

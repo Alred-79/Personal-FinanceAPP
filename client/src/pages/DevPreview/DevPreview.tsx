@@ -63,7 +63,7 @@ function seed() {
     subscriptionsLoaded: true,
     forecast: {
       starting_balance: 4180, ending_balance: 5423, lowest_balance: 240.1, lowest_date: day(22),
-      horizon_end: day(30), will_go_negative: false, total_projected_expenses: 1910,
+      horizon_start: day(0), horizon_end: day(30), will_go_negative: false, total_projected_expenses: 1910,
       timeline: Array.from({ length: 30 }, (_, i) => ({ date: day(i), balance: 4180 + i * 42 + Math.round(Math.sin(i / 4) * 220), change: i % 7 === 0 ? -140 : 5 })),
     } as never,
     forecastLoaded: true, forecastHorizon: 30,
