@@ -1,6 +1,8 @@
 import React, { useState, ChangeEvent, useEffect } from "react";
+import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import { Calendar } from "@/components/ui/calendar";
+import { useReducedMotion } from "@/hooks/useEnvironment";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -55,6 +57,7 @@ const Goals: React.FC = () => {
   } = useStore();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const reduce = useReducedMotion();
 
   // These store actions rethrow on failure; without a catch the awaiting
   // handlers below would leak an unhandled rejection AND still close/clear the
@@ -255,7 +258,7 @@ const Goals: React.FC = () => {
                 }}
               >
                 <DialogTrigger asChild>
-                  <Certificate seed={(goal.id ?? 1) * 17 + 3} className="h-full">
+                  <Certificate seed={(goal.id ?? 1) * 17 + 3} alive className="h-full">
                     <button
                       aria-label="Delete goal"
                       className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center text-muted-foreground opacity-0 transition-opacity hover:text-debit group-hover:opacity-100"
@@ -299,14 +302,17 @@ const Goals: React.FC = () => {
                       </div>
 
                       <div className="relative mb-1 h-2 w-full overflow-hidden border border-rule-strong/40 bg-secondary">
-                        <div
-                          className="absolute inset-y-0 left-0 bg-credit transition-[width] duration-700 ease-out"
+                        <motion.div
+                          className="absolute inset-y-0 left-0 origin-left bg-credit"
                           style={{
                             width: `${Math.min(
                               100,
                               calculateProgress(goal.progress || 0, goal.amount)
                             )}%`,
                           }}
+                          initial={reduce ? false : { scaleX: 0 }}
+                          animate={{ scaleX: 1 }}
+                          transition={{ duration: 0.7, ease: [0.23, 1, 0.32, 1] }}
                         />
                       </div>
                       <p className="mb-4 text-right font-mono text-[11px] text-muted-foreground">

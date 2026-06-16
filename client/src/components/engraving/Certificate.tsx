@@ -1,17 +1,15 @@
-import { ReactNode } from "react";
+import { forwardRef, ReactNode } from "react";
 import { motion, useMotionValue, useSpring, useMotionTemplate } from "motion/react";
 import { cn } from "@/lib/utils";
 import { useReducedMotion, usePointerFine } from "@/hooks/useEnvironment";
 import { CornerRosette } from "./Guilloche";
 
-interface CertificateProps {
+type CertificateProps = React.HTMLAttributes<HTMLDivElement> & {
   children: ReactNode;
   /** Seed so each certificate's corner engraving differs but stays stable. */
   seed?: number;
   /** Accent rule colour, e.g. a category tint. */
   accent?: string;
-  className?: string;
-  onClick?: () => void;
   /**
    * frontend-elevation: opt in to the "alive" plate — on hover it lifts (spring),
    * tilts in 3D toward the cursor, and a gold sheen tracks the pointer. Falls back
@@ -20,7 +18,7 @@ interface CertificateProps {
   alive?: boolean;
   /** max tilt in degrees (default 7) */
   maxTilt?: number;
-}
+};
 
 /** The certificate's framing: accent rule + corner rosettes + content. */
 function CertificateFrame({
@@ -55,15 +53,10 @@ function CertificateFrame({
  * into each corner, and a fine accent rule along the top. Used for budget
  * envelopes and savings goals.
  */
-export function Certificate({
-  children,
-  seed = 1,
-  accent,
-  className,
-  onClick,
-  alive = false,
-  maxTilt = 7,
-}: CertificateProps) {
+export const Certificate = forwardRef<HTMLDivElement, CertificateProps>(function Certificate(
+  { children, seed = 1, accent, className, onClick, alive = false, maxTilt = 7, ...rest },
+  ref
+) {
   const reduce = useReducedMotion();
   const fine = usePointerFine();
   const rx = useSpring(useMotionValue(0), { stiffness: 150, damping: 15 });
@@ -72,6 +65,9 @@ export function Certificate({
   const my = useMotionValue(50);
   const sheen = useMotionTemplate`radial-gradient(340px circle at ${mx}% ${my}%, hsl(var(--gold) / 0.16), transparent 60%)`;
 
+  // `rest` carries any props injected by a Radix `Slot` trigger (data-state,
+  // aria-*, id, onPointerDown…); spreading it onto the root keeps the plate a
+  // correct, accessible trigger. `ref` is forwarded for the same reason.
   const frame = (
     <CertificateFrame seed={seed} accent={accent}>
       {children}
@@ -82,12 +78,14 @@ export function Certificate({
   if (!alive || reduce || !fine) {
     return (
       <div
+        ref={ref}
         onClick={onClick}
         className={cn(
           "plate group relative overflow-hidden bg-card transition-transform duration-300",
           onClick && "cursor-pointer hover:-translate-y-0.5",
           className
         )}
+        {...rest}
       >
         {frame}
       </div>
@@ -97,6 +95,7 @@ export function Certificate({
   // Alive plate — spring lift + 3D tilt + cursor-tracking gold sheen.
   return (
     <motion.div
+      ref={ref}
       onClick={onClick}
       className={cn(
         "plate group relative overflow-hidden bg-card",
@@ -119,6 +118,7 @@ export function Certificate({
       whileHover={{ y: -6, scale: 1.02, boxShadow: "0 24px 60px hsl(222 40% 4% / 0.22)" }}
       transition={{ type: "spring", stiffness: 300, damping: 22 }}
       style={{ rotateX: rx, rotateY: ry, transformPerspective: 1000, transformStyle: "preserve-3d" }}
+      {...(rest as React.ComponentProps<typeof motion.div>)}
     >
       <motion.div
         aria-hidden
@@ -127,4 +127,5 @@ export function Certificate({
       {frame}
     </motion.div>
   );
-}
+});
+Certificate.displayName = "Certificate";

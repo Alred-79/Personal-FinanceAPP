@@ -232,8 +232,7 @@ const Budgets: React.FC = () => {
                       className="absolute inset-y-0 left-0 origin-left"
                       style={{ width: `${pct}%`, background: fill }}
                       initial={reduce ? false : { scaleX: 0 }}
-                      whileInView={{ scaleX: 1 }}
-                      viewport={{ once: true, amount: 0.6 }}
+                      animate={{ scaleX: 1 }}
                       transition={{ duration: 0.7, ease: [0.23, 1, 0.32, 1] }}
                     />
                   </div>
