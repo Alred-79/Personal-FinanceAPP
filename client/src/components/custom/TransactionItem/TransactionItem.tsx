@@ -1,6 +1,7 @@
 import { Transaction } from "@/types";
 import { Trash2 } from "lucide-react";
 import { useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import { categoryIcon } from "@/lib/categoryIcon";
 import { categoryColor } from "@/lib/format";
 import { useIsMobile } from "@/hooks/responsive";
@@ -24,6 +25,7 @@ function TransactionItem({
 }) {
   const isMobile = useIsMobile();
   const [isSelected, setIsSelected] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const taxEnabled = useStore((s) => s.taxFeaturesEnabled);
   const Icon = categoryIcon(transaction.category);
   const isIncome = transaction.type === "income";
@@ -33,10 +35,11 @@ function TransactionItem({
     onDelete !== null && (isMobile ? isSelected : false);
 
   return (
+    <div className="border-b border-rule/0">
     <div
       style={style}
       className="ledger-row group flex items-center gap-3 px-1.5 py-2.5"
-      onClick={() => isMobile && setIsSelected((s) => !s)}
+      onClick={() => (isMobile ? setIsSelected((s) => !s) : setExpanded((e) => !e))}
     >
       <span
         className="grid h-9 w-9 shrink-0 place-items-center border border-rule-strong/40 bg-card"
@@ -89,6 +92,40 @@ function TransactionItem({
           <Trash2 className="h-[15px] w-[15px]" />
         </button>
       )}
+    </div>
+
+      {/* frontend-elevation: desktop click expands a detail strip */}
+      <AnimatePresence initial={false}>
+        {expanded && !isMobile && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            style={{ overflow: "hidden" }}
+          >
+            <div className="grid grid-cols-3 gap-2 px-12 pb-2.5 pt-0.5 font-mono text-[11px] text-muted-foreground">
+              <span>
+                <span className="uppercase tracking-[0.12em] text-rule-strong/70">Type</span>
+                <br />
+                {transaction.type}
+              </span>
+              <span>
+                <span className="uppercase tracking-[0.12em] text-rule-strong/70">Category</span>
+                <br />
+                {transaction.category}
+              </span>
+              <span className="text-right">
+                <span className="uppercase tracking-[0.12em] text-rule-strong/70">Amount</span>
+                <br />
+                <span className={isIncome ? "ink-credit" : "ink-debit"}>
+                  {isIncome ? "+" : "−"}${transaction.amount.toFixed(2)}
+                </span>
+              </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

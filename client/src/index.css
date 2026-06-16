@@ -368,10 +368,14 @@
   .ledger-row {
     position: relative;
     border-bottom: 1px solid hsl(var(--rule));
-    transition: background-color 200ms ease;
+    transition: background-color 200ms var(--ease-out), transform 200ms var(--ease-out);
   }
   .ledger-row:hover {
     background: hsl(var(--ink-wash) / 0.7);
+  }
+  /* frontend-elevation: gentle slide on real hover (not touch) for "alive" rows */
+  @media (hover: hover) and (pointer: fine) {
+    .ledger-row:hover { transform: translateX(3px); }
   }
   .ledger-row:hover .manicule {
     opacity: 1;
