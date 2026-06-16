@@ -1,11 +1,12 @@
 import React, { useEffect } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { TiltCard, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Repeat } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { useStore } from "@/store/store";
 import { formatCurrency } from "@/lib/format";
 import { AnimatedNumber } from "@/components/engraving/AnimatedNumber";
+import { Reveal, RevealItem } from "@/components/motion/Reveal";
 
 const formatDate = (iso: string | null) =>
   iso
@@ -15,6 +16,16 @@ const formatDate = (iso: string | null) =>
         year: "numeric",
       })
     : "—";
+
+/** Whole days from today until an ISO date (null if no date / in the past). */
+const daysUntil = (iso: string | null): number | null => {
+  if (!iso) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(iso + "T00:00:00");
+  const diff = Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
+  return diff >= 0 ? diff : null;
+};
 
 /**
  * Standing Orders: recurring charges detected in your spending, rendered as a
@@ -61,13 +72,12 @@ const Subscriptions: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
-        {subscriptions.map((s, i) => (
-          <Card
-            key={s.merchant}
-            className="relative animate-rise-in"
-            style={{ animationDelay: `${i * 50}ms` }}
-          >
+      <Reveal className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+        {subscriptions.map((s) => {
+          const soon = daysUntil(s.next_date);
+          return (
+          <RevealItem key={s.merchant} className="h-full">
+          <TiltCard className="relative h-full">
             <CardContent className="p-6">
               <div className="mb-3 flex items-start justify-between gap-2">
                 <div className="flex items-center gap-3">
@@ -92,7 +102,17 @@ const Subscriptions: React.FC = () => {
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">Next due</dt>
-                  <dd className="text-gold">{formatDate(s.next_date)}</dd>
+                  <dd className="flex items-center gap-1.5 text-gold">
+                    {soon != null && soon <= 7 && (
+                      <span
+                        className="rounded-none bg-gold/15 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-gold"
+                        title="Charge expected within a week"
+                      >
+                        {soon === 0 ? "today" : `in ${soon}d`}
+                      </span>
+                    )}
+                    {formatDate(s.next_date)}
+                  </dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">Observed</dt>
@@ -100,8 +120,10 @@ const Subscriptions: React.FC = () => {
                 </div>
               </dl>
             </CardContent>
-          </Card>
-        ))}
+          </TiltCard>
+          </RevealItem>
+          );
+        })}
 
         {subscriptionsLoaded && subscriptions.length === 0 && (
           <div className="col-span-full flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
@@ -114,7 +136,7 @@ const Subscriptions: React.FC = () => {
             </p>
           </div>
         )}
-      </div>
+      </Reveal>
     </>
   );
 };

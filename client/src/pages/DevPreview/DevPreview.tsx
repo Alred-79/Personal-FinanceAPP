@@ -56,9 +56,11 @@ function seed() {
     spendOverTime: 1574, budgetAllotment: 2200,
     safeToSpend: { available: 612.4, daily_plan: 55.6, days_remaining: 11, horizon_end: day(11), breakdown: { upcoming_bills: 480, goal_earmarks: 200, buffer: 150 } } as never,
     subscriptions: [
-      { id: 1, name: "Netflix", amount: 15.49, cadence: "monthly", next_date: day(8), category: "Entertainment" },
-      { id: 2, name: "Spotify", amount: 11.99, cadence: "monthly", next_date: day(3), category: "Entertainment" },
-      { id: 3, name: "Gym", amount: 45, cadence: "monthly", next_date: day(20), category: "Health" },
+      { merchant: "NETFLIX.COM", title: "Netflix", amount: 15.49, cadence: "monthly", occurrences: 11, last_date: day(-22), next_date: day(8) },
+      { merchant: "SPOTIFY P1ABCD", title: "Spotify", amount: 11.99, cadence: "monthly", occurrences: 8, last_date: day(-27), next_date: day(3) },
+      { merchant: "PLANET FITNESS", title: "Planet Fitness", amount: 45, cadence: "monthly", occurrences: 6, last_date: day(-10), next_date: day(20) },
+      { merchant: "AMZN PRIME*123", title: "Amazon Prime", amount: 139, cadence: "annually", occurrences: 2, last_date: day(-95), next_date: day(270) },
+      { merchant: "NYT*DIGITAL", title: "NYT Digital", amount: 4.25, cadence: "weekly", occurrences: 24, last_date: day(-3), next_date: day(4) },
     ] as never,
     subscriptionsLoaded: true,
     forecast: {
