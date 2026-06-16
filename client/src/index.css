@@ -111,56 +111,59 @@
   }
 
   .dark {
-    /* — Midnight Vault — */
-    --background: 168 30% 6.5%;
-    --foreground: 44 36% 87%;
+    /* — Midnight — slate base + indigo accent (frontend-elevation: dark theme
+       reskinned to "Midnight" per design decision; light stays Ledger Paper).
+       Game tokens (--game-accent amber, --boss-accent red) live in :root and
+       are unchanged, so the color law still holds in game contexts. */
+    --background: 222 32% 9%;
+    --foreground: 220 22% 93%;
 
-    --card: 167 26% 9.5%;
-    --card-foreground: 44 36% 87%;
+    --card: 222 26% 13%;
+    --card-foreground: 220 22% 93%;
 
-    --popover: 167 28% 8.5%;
-    --popover-foreground: 44 36% 87%;
+    --popover: 222 28% 12%;
+    --popover-foreground: 220 22% 93%;
 
-    --primary: 156 30% 64%;
-    --primary-foreground: 168 30% 7%;
+    --primary: 244 72% 72%;
+    --primary-foreground: 222 45% 11%;
 
-    --secondary: 166 18% 16%;
-    --secondary-foreground: 44 36% 87%;
+    --secondary: 222 20% 18%;
+    --secondary-foreground: 220 22% 93%;
 
-    --muted: 167 20% 13%;
-    --muted-foreground: 152 10% 56%;
+    --muted: 222 22% 15%;
+    --muted-foreground: 220 14% 64%;
 
-    --accent: 43 62% 56%;
-    --accent-foreground: 168 30% 7%;
+    --accent: 245 80% 72%;
+    --accent-foreground: 222 45% 11%;
 
-    --destructive: 8 64% 58%;
-    --destructive-foreground: 168 30% 7%;
+    --destructive: 6 78% 64%;
+    --destructive-foreground: 222 45% 11%;
 
-    --success: 156 32% 58%;
-    --success-foreground: 168 30% 7%;
+    --success: 150 58% 58%;
+    --success-foreground: 222 45% 11%;
 
-    --border: 163 14% 24%;
-    --input: 163 14% 28%;
-    --ring: 43 62% 56%;
+    --border: 222 18% 24%;
+    --input: 222 18% 28%;
+    --ring: 245 84% 72%;
 
-    --gold: 43 62% 56%;
-    --gold-soft: 45 30% 18%;
-    --rule: 164 12% 20%;
-    --rule-strong: 154 16% 48%;
-    --ink-wash: 166 20% 12%;
-    --paper-high: 166 22% 12%;
-    --debit: 8 66% 62%;           /* frontend-elevation: +lightness for AA headroom on small figures */
-    --credit: 156 34% 56%;
+    --gold: 245 84% 72%;          /* brand accent → indigo in Midnight */
+    --gold-soft: 244 40% 22%;
+    --rule: 222 18% 22%;
+    --rule-strong: 222 16% 44%;
+    --ink-wash: 222 22% 16%;
+    --paper-high: 222 26% 18%;
+    --debit: 6 78% 64%;
+    --credit: 150 58% 58%;
 
-    --chart-1: 156 32% 60%;
-    --chart-2: 43 62% 56%;
-    --chart-3: 213 38% 62%;
-    --chart-4: 8 64% 60%;
-    --chart-5: 312 24% 62%;
-    --chart-6: 28 48% 58%;
+    --chart-1: 150 58% 60%;
+    --chart-2: 245 84% 72%;
+    --chart-3: 232 80% 72%;
+    --chart-4: 6 78% 64%;
+    --chart-5: 290 60% 70%;
+    --chart-6: 28 60% 64%;
 
-    --sidebar: 168 32% 5%;
-    --sidebar-foreground: 44 36% 87%;
+    --sidebar: 222 36% 6%;
+    --sidebar-foreground: 220 22% 93%;
   }
 }
 
