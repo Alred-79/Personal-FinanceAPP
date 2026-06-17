@@ -64,7 +64,7 @@ export default function SpendCard() {
 
       <CardContent className="space-y-2">
         <div className="relative mx-auto w-full max-w-[230px]">
-          <svg viewBox="0 0 200 116" className="w-full">
+          <svg viewBox="0 0 200 108" className="w-full">
             {/* tick marks every 10% */}
             {Array.from({ length: 11 }).map((_, i) => {
               const a = Math.PI - (i / 10) * Math.PI;
@@ -125,7 +125,7 @@ export default function SpendCard() {
             <circle cx={cx} cy={cy} r="7.5" fill="none" stroke="hsl(var(--rule-strong))" strokeWidth="1" />
           </svg>
 
-          <div className="-mt-6 text-center">
+          <div className="mt-1 text-center">
             <p
               className="intaglio text-4xl leading-none"
               style={{ color: accent }}
