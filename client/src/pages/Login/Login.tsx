@@ -10,7 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/useToast";
 import { useStore } from "@/store/store";
 import api from "@/lib/api";
@@ -128,13 +128,28 @@ export default function Login() {
 
   return (
     <div className="relative flex min-h-screen w-full flex-col items-center justify-center gap-6 overflow-hidden bg-background p-4">
-      {/* Engraved backdrop */}
-      <div className="pointer-events-none absolute -left-32 -top-32 text-gold/10">
+      {/* Engraved backdrop — corner rosettes + a breathing centre guilloché,
+          matching the landing's living plate. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-rule-strong/[0.06] dark:text-rule-strong/[0.1]"
+      >
+        <Guilloche size={760} rings={9} seed={42} animate />
+      </div>
+      <div aria-hidden className="pointer-events-none absolute -left-32 -top-32 text-gold/10">
         <Guilloche size={520} rings={9} seed={21} animate />
       </div>
-      <div className="pointer-events-none absolute -bottom-40 -right-40 text-gold/10">
+      <div aria-hidden className="pointer-events-none absolute -bottom-40 -right-40 text-gold/10">
         <Guilloche size={620} rings={10} seed={88} animate />
       </div>
+
+      {/* Back to the public landing */}
+      <Link
+        to="/welcome"
+        className="absolute left-4 top-4 z-10 flex items-center gap-1.5 font-sans text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <span aria-hidden>←</span> The Ledger
+      </Link>
 
       <div className="relative flex flex-col items-center gap-3 text-center animate-ink-in">
         <span className="text-gold">
@@ -145,6 +160,9 @@ export default function Login() {
           <h1 className="font-display text-4xl font-semibold tracking-tight">
             The Ledger
           </h1>
+          <p className="mt-1 font-sans text-sm text-muted-foreground">
+            Keep your money in good standing.
+          </p>
         </div>
       </div>
 
@@ -281,6 +299,29 @@ export default function Login() {
           </Tabs>
         </CardContent>
       </Card>
+
+      {/* Assurances — echoing the landing's promises. */}
+      <div className="relative flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[0.72rem] tracking-[0.04em] text-muted-foreground animate-rise-in delay-3">
+        {["No card required", "Your data stays yours", "Read-only by default"].map(
+          (t) => (
+            <span key={t} className="flex items-center gap-1.5">
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                className="text-gold"
+                aria-hidden
+              >
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              {t}
+            </span>
+          )
+        )}
+      </div>
     </div>
   );
 }
