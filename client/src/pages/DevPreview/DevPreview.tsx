@@ -14,6 +14,8 @@ const PAGES: Record<string, React.LazyExoticComponent<React.ComponentType>> = {
   Goals: lazy(() => import("@/pages/Goals/Goals")),
   Forecast: lazy(() => import("@/pages/Forecast/Forecast")),
   Subscriptions: lazy(() => import("@/pages/Subscriptions/Subscriptions")),
+  Reconcile: lazy(() => import("@/pages/Reconcile/Reconcile")),
+  Tax: lazy(() => import("@/pages/Tax/Tax")),
 };
 
 function seed() {

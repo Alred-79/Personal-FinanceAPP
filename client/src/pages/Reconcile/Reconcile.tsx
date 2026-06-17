@@ -4,6 +4,7 @@ import { useStore } from "@/store/store";
 import { ImportSession } from "@/types";
 import PageHeader from "@/components/layout/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Reveal, RevealItem } from "@/components/motion/Reveal";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -112,8 +113,9 @@ export default function Reconcile() {
           onDiscarded={reset}
         />
       ) : (
-        <div className="grid gap-6 lg:grid-cols-3">
-          <Card className="lg:col-span-2">
+        <Reveal className="grid gap-6 lg:grid-cols-3">
+          <RevealItem className="lg:col-span-2">
+          <Card raking className="h-full">
             <CardHeader>
               <CardTitle>Import a statement</CardTitle>
             </CardHeader>
@@ -180,9 +182,11 @@ export default function Reconcile() {
               </Tabs>
             </CardContent>
           </Card>
+          </RevealItem>
 
           {/* ── The Detangler ─────────────────────────────────────────── */}
-          <Card>
+          <RevealItem>
+          <Card raking className="h-full">
             <CardHeader>
               <CardTitle>The Detangler</CardTitle>
             </CardHeader>
@@ -207,7 +211,8 @@ export default function Reconcile() {
               </Button>
             </CardContent>
           </Card>
-        </div>
+          </RevealItem>
+        </Reveal>
       )}
     </div>
   );
