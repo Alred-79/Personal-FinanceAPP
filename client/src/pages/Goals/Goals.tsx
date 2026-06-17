@@ -24,7 +24,11 @@ import { formatCurrency } from "@/lib/format";
 import { Certificate } from "@/components/engraving/Certificate";
 import { Seal } from "@/components/engraving/Seal";
 import { EmptyState } from "@/components/engraving/EmptyState";
+import { SectionRule } from "@/components/engraving/SectionRule";
+import { Guilloche } from "@/components/engraving/Guilloche";
+import { MintedCoin } from "@/components/custom/MintedCoin/MintedCoin";
 import { RuleEditor } from "@/components/custom/RuleEditor/RuleEditor";
+import { useFlags } from "@/store/gameMode";
 import api from "@/lib/api";
 import type { Goal } from "@/store/store";
 
@@ -58,6 +62,8 @@ const Goals: React.FC = () => {
   } = useStore();
   const { toast } = useToast();
   const navigate = useNavigate();
+  // The collectibles Cabinet is a game-layer surface (ambient + full only).
+  const { cabinet } = useFlags();
   const reduce = useReducedMotion();
 
   // These store actions rethrow on failure; without a catch the awaiting
@@ -518,6 +524,52 @@ const Goals: React.FC = () => {
             />
           )}
         </div>
+      )}
+
+      {/* The Cabinet — minted coins for met goals, awaiting discs for the rest.
+          Game-layer collectibles (cabinet flag = ambient + full). Off mode keeps
+          pure finance, so this stays hidden. */}
+      {cabinet && goals.length > 0 && (
+        <section className="mt-12">
+          <SectionRule className="mb-4">The Cabinet</SectionRule>
+          <div className="plate relative overflow-hidden bg-card p-8">
+            {/* faint constellation backdrop — the charted sky behind the case */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-rule-strong/[0.06] dark:text-rule-strong/[0.1]"
+            >
+              <Guilloche size={520} rings={7} seed={314} animate />
+            </div>
+            <div className="relative flex flex-wrap justify-center gap-x-10 gap-y-8 sm:justify-start">
+              {goals.map((goal) =>
+                goal.completed ? (
+                  <figure key={goal.id} className="flex w-24 flex-col items-center gap-2 text-center">
+                    <MintedCoin label={goal.name} />
+                    <figcaption className="font-display text-sm font-semibold leading-tight">
+                      {goal.name}
+                    </figcaption>
+                    <span className="dept-label text-[9px]">minted</span>
+                  </figure>
+                ) : (
+                  <figure key={goal.id} className="flex w-24 flex-col items-center gap-2 text-center opacity-70">
+                    <span className="grid h-[84px] w-[84px] place-items-center rounded-full border border-dashed border-rule-strong/40 text-rule-strong/40">
+                      <span className="font-mono text-[10px] uppercase tracking-wider">
+                        {Math.round(((goal.progress || 0) / (goal.amount || 1)) * 100)}%
+                      </span>
+                    </span>
+                    <figcaption className="font-display text-sm font-semibold leading-tight text-muted-foreground">
+                      {goal.name}
+                    </figcaption>
+                    <span className="dept-label text-[9px]">awaiting</span>
+                  </figure>
+                )
+              )}
+            </div>
+            <p className="serial relative mt-6 text-center font-mono text-[11px] text-muted-foreground">
+              A coin is struck for each goal you complete · click one to re-strike
+            </p>
+          </div>
+        </section>
       )}
     </>
   );

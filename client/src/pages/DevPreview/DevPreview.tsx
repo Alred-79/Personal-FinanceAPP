@@ -184,6 +184,7 @@ function seed() {
       { id: 1, name: "Emergency Fund", description: "6 months of expenses", amount: 2000, progress: 1800, deadline: new Date(day(60)), completed: false },
       { id: 2, name: "Vacation", description: "Japan trip", amount: 4000, progress: 1600, deadline: new Date(day(180)), completed: false },
       { id: 3, name: "New Laptop", description: "M-series", amount: 2500, progress: 2375, deadline: new Date(day(30)), completed: false },
+      { id: 4, name: "Card Paid", description: "Cleared in full", amount: 1200, progress: 1200, deadline: new Date(day(-10)), completed: true },
     ] as never,
     goalsLoaded: true,
     spendOverTime: 1574, budgetAllotment: 2200,
