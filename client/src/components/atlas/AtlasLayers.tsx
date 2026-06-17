@@ -11,29 +11,28 @@ import { CursorGlow } from "./CursorGlow";
  * tidy and no page branches on `mode` directly.
  *
  * - MoodWatermark: every mode (finance-derived).
- * - Guilloché: ambient + full get the WebGL flowing field (GuillocheGL); if
- *   WebGL fails it renders nothing and the CSS/canvas LivingGuilloche shows the
- *   lighter breathing fallback. off = nothing.
+ * - LivingGuilloché: the light canvas "breather" — AMBIENT + full
+ *   (`guillocheMotion`). Subtle (low opacity, --rule-strong), keeps content
+ *   readable.
+ * - GuillocheGL: the heavier WebGL phosphor field — FULL ONLY (`guillocheWarp`).
+ *   This is the full-mode "living paper" centerpiece; keeping it off in ambient
+ *   is what keeps ambient legible AND makes ambient→full a clear visual step.
+ * - CursorGlow: soft warm glow — ambient + full.
  * - BurinCursor: ambient + full (self-gates pointer:fine / reduce-motion).
  *
  * All layers are aria-hidden, behind content, never touch a money figure.
  */
 export function AtlasLayers() {
   const flags = useFlags();
-  const guilloche = flags.guillocheMotion || flags.guillocheWarp; // ambient + full
 
   return (
     <>
       <MoodWatermark />
-      {guilloche && (
-        <>
-          {/* WebGL field on top; the canvas breather is the graceful fallback
-              (it sits at the same z-0 and shows through if WebGL is absent). */}
-          <LivingGuilloche />
-          <GuillocheGL opacity={flags.guillocheWarp ? 0.55 : 0.42} />
-          <CursorGlow />
-        </>
-      )}
+      {/* ambient + full: the subtle breathing rosette (self-gates internally too) */}
+      {flags.guillocheMotion && <LivingGuilloche />}
+      {/* full only: the WebGL phosphor field (off in ambient so content stays legible) */}
+      {flags.guillocheWarp && <GuillocheGL opacity={0.45} />}
+      {flags.guillocheMotion && <CursorGlow />}
       <BurinCursor />
     </>
   );
