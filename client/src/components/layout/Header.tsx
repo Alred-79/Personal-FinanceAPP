@@ -58,7 +58,7 @@ export default function Header({
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetTrigger
             aria-label="Open navigation"
-            className="press grid h-9 w-9 place-items-center border border-rule-strong/50 bg-card text-foreground shadow-plate transition-all hover:bg-wash lg:hidden"
+            className="press grid h-11 w-11 place-items-center border border-rule-strong/50 bg-card text-foreground shadow-plate transition-all hover:bg-wash lg:hidden"
           >
             <Menu className="h-5 w-5" />
           </SheetTrigger>
