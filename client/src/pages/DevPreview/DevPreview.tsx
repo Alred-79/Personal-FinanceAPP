@@ -94,17 +94,17 @@ const MOCK_GAME: Record<string, unknown> = {
     campaign: {
       quarter: "2026-Q2", arc_key: "steady-hand", status: "active", rank: "Steward", lifetime_prestige: 7,
       milestones: [
-        { key: "m1", label_term: "campaign.milestone.first_surplus", granted: true },
-        { key: "m2", label_term: "campaign.milestone.debt_phase", granted: true },
-        { key: "m3", label_term: "campaign.milestone.three_streak", granted: false },
-        { key: "m4", label_term: "campaign.milestone.full_quarter", granted: false },
+        { key: "green_week_1", label_term: "campaign.milestone.green_week_1", granted: true },
+        { key: "boss_phase_1", label_term: "campaign.milestone.boss_phase_1", granted: true },
+        { key: "green_week_4", label_term: "campaign.milestone.green_week_4", granted: false },
+        { key: "month_sealed_1", label_term: "campaign.milestone.month_sealed_1", granted: false },
       ],
     },
   },
   "/game/challenges/": {
     challenges: [
-      { key: "c1", label_term: "challenge.no_spend_week", status: "active" },
-      { key: "c2", label_term: "challenge.under_budget_dining", status: "met" },
+      { id: 1, key: "t1_category_free_week", tier: 1, category: "Dining", status: "active", cosmetic_credit: true },
+      { id: 2, key: "t2_reference_check", tier: 2, category: "", status: "met", cosmetic_credit: true },
     ],
     candidates: [],
   },

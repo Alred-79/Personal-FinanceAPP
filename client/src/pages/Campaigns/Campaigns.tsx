@@ -15,13 +15,11 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import PageHeader from "@/components/layout/PageHeader";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Certificate } from "@/components/engraving/Certificate";
 import { Seal } from "@/components/engraving/Seal";
+import { SectionRule } from "@/components/engraving/SectionRule";
+import { Reveal, RevealItem } from "@/components/motion/Reveal";
 import { useFlags, useTerm } from "@/store/gameMode";
 import api from "@/lib/api";
 
@@ -49,23 +47,32 @@ interface ChallengeRow {
   cosmetic_credit: boolean;
 }
 
-function MilestoneRow({ milestone }: { milestone: Milestone }) {
+function MilestoneRow({ milestone, last }: { milestone: Milestone; last: boolean }) {
   const label = useTerm(milestone.label_term);
   return (
     <li
-      className="flex items-center justify-between border-b border-border/40 py-2"
+      className="relative flex items-start gap-4 pl-1"
       data-testid={`milestone-${milestone.key}`}
     >
-      <span className={milestone.granted ? "" : "text-muted-foreground"}>
-        {label}
-      </span>
-      {milestone.granted ? (
-        <Seal label="sealed" size={34} tone="approved" />
-      ) : (
-        <span className="dept-label text-[10px] text-muted-foreground">
-          — open —
-        </span>
-      )}
+      {/* node marker on the rule: a pressed seal when granted, else a hollow
+          engraved ring. The connector line is drawn by the parent track. */}
+      <div className="relative z-[1] grid shrink-0 place-items-center pt-0.5">
+        {milestone.granted ? (
+          <Seal label="sealed" size={38} tone="approved" />
+        ) : (
+          <span className="grid h-[38px] w-[38px] place-items-center rounded-full border border-dashed border-gold/50 bg-background">
+            <span className="h-1.5 w-1.5 rounded-full bg-gold/40" />
+          </span>
+        )}
+      </div>
+      <div className={`flex-1 ${last ? "pb-0" : "pb-7"}`}>
+        <p className={`font-display text-base font-semibold leading-tight ${milestone.granted ? "" : "text-muted-foreground"}`}>
+          {label}
+        </p>
+        <p className="dept-label mt-1 text-[10px]">
+          {milestone.granted ? "— sealed —" : "— open —"}
+        </p>
+      </div>
     </li>
   );
 }
@@ -74,8 +81,9 @@ function ChallengeLine({ challenge }: { challenge: ChallengeRow }) {
   const label = useTerm(`challenge.${challenge.key}`);
   const status = useTerm(`challenge.status.${challenge.status}`);
   return (
-    <li className="flex items-center justify-between py-1.5">
-      <span>
+    <li className="ledger-row flex items-center justify-between py-2.5">
+      <span className="flex items-center gap-2">
+        <span className="manicule text-gold">☞</span>
         {label}
         {challenge.category ? (
           <span className="text-muted-foreground"> · {challenge.category}</span>
@@ -112,50 +120,88 @@ export default function Campaigns() {
     return <Navigate to="/settings" replace />;
   }
 
+  const granted = campaign?.milestones.filter((m) => m.granted).length ?? 0;
+  const total = campaign?.milestones.length ?? 0;
+
   return (
     <div data-testid="campaigns-page">
       <PageHeader
         title={title}
         description="The long arc. It waits for you; it never runs out."
+        reference="Folio XI · Standing of the House"
       />
 
       {campaign ? (
-        <>
-          <Card className="mb-6">
-            <CardContent className="flex items-center justify-between pt-6">
-              <div>
-                <span className="dept-label text-[11px]">{rankLabel}</span>
-                <div
-                  className="ledger-figures figure text-4xl font-semibold"
-                  data-testid="campaign-rank"
-                >
-                  {campaign.rank}
+        <Reveal className="space-y-8">
+          {/* Rank crest — the standing, with the quarter's progress + prestige. */}
+          <RevealItem>
+            <Certificate seed={11} alive className="overflow-hidden">
+              <div className="flex flex-col gap-4 p-6 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <span className="dept-label text-[11px]">{rankLabel}</span>
+                  <div
+                    className="ledger-figures figure mt-1 font-display text-4xl font-semibold"
+                    data-testid="campaign-rank"
+                  >
+                    {campaign.rank}
+                  </div>
+                  <div className="mt-3 flex items-center gap-1.5" title="Lifetime prestige">
+                    {Array.from({ length: Math.min(10, Math.max(0, campaign.lifetime_prestige)) }).map((_, i) => (
+                      <span key={i} className="h-2 w-2 rounded-full bg-gold/80" />
+                    ))}
+                    <span className="ml-1 font-mono text-[11px] text-muted-foreground">
+                      {campaign.lifetime_prestige} prestige
+                    </span>
+                  </div>
+                </div>
+                <div className="text-left sm:text-right">
+                  <span className="dept-label text-[11px]">{campaign.quarter}</span>
+                  <p className="mt-1 font-mono text-sm text-muted-foreground">
+                    {granted} of {total} sealed
+                  </p>
+                  {campaign.status === "paused" ? (
+                    <p className="mt-1 max-w-[240px] text-sm text-muted-foreground">
+                      {pausedCopy}
+                    </p>
+                  ) : null}
                 </div>
               </div>
-              <div className="text-right">
-                <span className="dept-label text-[11px]">{campaign.quarter}</span>
-                {campaign.status === "paused" ? (
-                  <p className="mt-1 max-w-[220px] text-sm text-muted-foreground">
-                    {pausedCopy}
-                  </p>
-                ) : null}
-              </div>
-            </CardContent>
-          </Card>
+            </Certificate>
+          </RevealItem>
 
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle className="text-base">{arcLabel}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul data-testid="milestone-track">
-                {campaign.milestones.map((m) => (
-                  <MilestoneRow key={m.key} milestone={m} />
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        </>
+          {/* The arc — an engraved milestone track with a ruled connector. */}
+          <RevealItem>
+            <SectionRule className="mb-4">{arcLabel}</SectionRule>
+            <Card raking>
+              <CardContent className="pt-6">
+                <ol data-testid="milestone-track" className="relative ml-[18px] border-l border-rule-strong/30 pl-5">
+                  {campaign.milestones.map((m, i) => (
+                    <MilestoneRow
+                      key={m.key}
+                      milestone={m}
+                      last={i === campaign.milestones.length - 1}
+                    />
+                  ))}
+                </ol>
+              </CardContent>
+            </Card>
+          </RevealItem>
+
+          {challenges.length > 0 ? (
+            <RevealItem>
+              <SectionRule className="mb-4">{challengeTitle}</SectionRule>
+              <Card raking>
+                <CardContent className="pt-2">
+                  <ul data-testid="challenge-list">
+                    {challenges.map((c) => (
+                      <ChallengeLine key={c.id} challenge={c} />
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            </RevealItem>
+          ) : null}
+        </Reveal>
       ) : (
         <Card className="mb-6">
           <CardContent className="pt-6 text-sm text-muted-foreground">
@@ -163,21 +209,6 @@ export default function Campaigns() {
           </CardContent>
         </Card>
       )}
-
-      {challenges.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{challengeTitle}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul data-testid="challenge-list">
-              {challenges.map((c) => (
-                <ChallengeLine key={c.id} challenge={c} />
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      ) : null}
     </div>
   );
 }
