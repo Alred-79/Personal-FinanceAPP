@@ -13,6 +13,7 @@ import Forecast from "./pages/Forecast/Forecast.tsx";
 import Reconcile from "./pages/Reconcile/Reconcile.tsx";
 import Tax from "./pages/Tax/Tax.tsx";
 import Login from "./pages/Login/Login.tsx";
+import Landing from "./pages/Landing/Landing.tsx";
 import Settings from "./pages/Settings/Settings.tsx";
 import Keeper from "./pages/Keeper/Keeper.tsx";
 import Debts from "./pages/Debts/Debts.tsx";
@@ -47,6 +48,8 @@ createRoot(document.getElementById("root")!).render(
           <Toaster />
           <ScanlineOverlay />
           <Routes>
+          {/* Public, no login needed: the marketing landing sits before /login. */}
+          <Route path="/welcome" element={<Landing />} />
           {/* Stands alone, no login needed */}
           <Route path="/login" element={<Login />} />
           {/* DEV-ONLY throwaway: Atlas layers preview (frontend-elevation). Remove after review. */}

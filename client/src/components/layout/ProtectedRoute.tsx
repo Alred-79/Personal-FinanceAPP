@@ -28,7 +28,9 @@ export default function ProtectedRoute() {
   useEffect(() => {
     if (authChecking) return;
     if (!isLoggedIn) {
-      navigate("/login", { replace: true });
+      // First-time / signed-out visitors meet the public landing, which carries
+      // the sign-in + open-account CTAs. /login remains directly reachable.
+      navigate("/welcome", { replace: true });
     }
   }, [authChecking, isLoggedIn, navigate]);
 
