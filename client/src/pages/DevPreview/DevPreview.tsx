@@ -5,6 +5,7 @@
  */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useStore } from "@/store/store";
+import { useGameMode, type GameMode } from "@/store/gameMode";
 import api from "@/lib/api";
 
 // The Tax page fetches /tax/* directly via axios (not the store), so the store
@@ -43,6 +44,72 @@ const MOCK_TAX_MILEAGE = [
   { id: 1, trip_date: "2026-05-12", miles: 42, purpose: "Client visit", business_personal: "business", tax_year: 2026 },
   { id: 2, trip_date: "2026-04-03", miles: 18.5, purpose: "Supplier pickup", business_personal: "business", tax_year: 2026 },
 ];
+// Rich sample data for the game-layer surfaces (Keeper, Debts, Expedition,
+// Campaigns) so they render their POPULATED state in the harness. Real shapes
+// matched to each page's fetch (see the page components + service modules).
+const gDay = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const MOCK_GAME: Record<string, unknown> = {
+  "/game/keeper/": {
+    stats: {
+      vitality: { bucket: "Healthy", months: 4.2 },
+      mana: 0.82, armor: 0.64, might: 1.1, low_confidence: false,
+    },
+    level: 12, xp: 3420, level_progress: 0.62,
+  },
+  "/game/streak/": { status: "active", current: 23, best: 41, wards: 2, grace_wards: 1, tick_collectible: false },
+  "/game/homestead/": { reveal: { projection_date: gDay(28), projection_cents: 184000, accrual_cents: 4200, action: { label: "Set aside $42 now", deep_link: "/goals" } } },
+  "/game/bosses/": {
+    bosses: [
+      { id: 1, name: "The Revolving Balance", kind: "kraken", principal_cents: 340000, minimum_payment_cents: 6000, status: "active", is_active_boss: true, boss: { hp: 204000, starting_hp: 480000, defeated: false, phases_broken: [1] } },
+      { id: 2, name: "Auto Loan", kind: "golem", principal_cents: 1280000, minimum_payment_cents: 38000, status: "active", is_active_boss: false, boss: { hp: null, starting_hp: null, defeated: false, phases_broken: [] } },
+      { id: 3, name: "Student Loan", kind: "wyrm", principal_cents: 2100000, minimum_payment_cents: 21000, status: "active", is_active_boss: false, boss: { hp: null, starting_hp: null, defeated: false, phases_broken: [] } },
+    ],
+  },
+  "/game/monsters/": {
+    monsters: [
+      { kind: "minor", key: "Dining", reason: "12 charges this month" },
+      { kind: "creeper", key: "Streaming subscriptions", reason: "+$14 vs last month" },
+    ],
+  },
+  "/game/expedition/": {
+    map: {
+      month: gDay(0).slice(0, 7),
+      acts: [
+        { index: 1, start: gDay(-6), end: gDay(3), forks: [{ key: "provision", objective: "Provision the month" }] },
+        { index: 2, start: gDay(4), end: gDay(13), forks: [{ key: "hold", objective: "Hold the line on dining" }] },
+        { index: 3, start: gDay(14), end: gDay(24), forks: [{ key: "bank", objective: "Bank the surplus" }] },
+      ],
+      nodes: [
+        { kind: "bill", day: gDay(-4), label: "Rent" },
+        { kind: "income", day: gDay(-2), label: "Payroll" },
+        { kind: "rest", day: gDay(2), label: "Quiet week" },
+        { kind: "boss", day: gDay(8), label: "Card payment due" },
+        { kind: "fog", day: gDay(11), label: "Unscheduled" },
+        { kind: "income", day: gDay(13), label: "Payroll" },
+        { kind: "bill", day: gDay(18), label: "Utilities" },
+      ],
+    },
+  },
+  "/game/campaigns/": {
+    campaign: {
+      quarter: "2026-Q2", arc_key: "steady-hand", status: "active", rank: "Steward", lifetime_prestige: 7,
+      milestones: [
+        { key: "m1", label_term: "campaign.milestone.first_surplus", granted: true },
+        { key: "m2", label_term: "campaign.milestone.debt_phase", granted: true },
+        { key: "m3", label_term: "campaign.milestone.three_streak", granted: false },
+        { key: "m4", label_term: "campaign.milestone.full_quarter", granted: false },
+      ],
+    },
+  },
+  "/game/challenges/": {
+    challenges: [
+      { key: "c1", label_term: "challenge.no_spend_week", status: "active" },
+      { key: "c2", label_term: "challenge.under_budget_dining", status: "met" },
+    ],
+    candidates: [],
+  },
+};
+
 let taxPatched = false;
 function patchTaxApi() {
   if (taxPatched) return;
@@ -53,6 +120,9 @@ function patchTaxApi() {
     if (url.startsWith("/tax/summary")) return Promise.resolve({ data: MOCK_TAX_SUMMARY });
     if (url.startsWith("/tax/mileage")) return Promise.resolve({ data: MOCK_TAX_MILEAGE });
     if (url.startsWith("/settings/")) return Promise.resolve({ data: { ai: { model: "claude-opus-4-8" }, preferences: { auto_execute_threshold: 100 } } });
+    // Game-layer surfaces — strip any query string, then match the path.
+    const path = url.split("?")[0];
+    if (path in MOCK_GAME) return Promise.resolve({ data: MOCK_GAME[path] });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return orig(url, config as any);
   };
@@ -69,6 +139,10 @@ const PAGES: Record<string, React.LazyExoticComponent<React.ComponentType>> = {
   Reconcile: lazy(() => import("@/pages/Reconcile/Reconcile")),
   Tax: lazy(() => import("@/pages/Tax/Tax")),
   Settings: lazy(() => import("@/pages/Settings/Settings")),
+  Keeper: lazy(() => import("@/pages/Keeper/Keeper")),
+  Debts: lazy(() => import("@/pages/Debts/Debts")),
+  Expedition: lazy(() => import("@/pages/Expedition/Expedition")),
+  Campaigns: lazy(() => import("@/pages/Campaigns/Campaigns")),
 };
 
 function seed() {
@@ -132,10 +206,13 @@ function seed() {
   });
 }
 
+const MODES: GameMode[] = ["off", "ambient", "full"];
+
 export default function DevPreview() {
   const [page, setPage] = useState("Overview");
   const [dark, setDark] = useState(false);
   const [ready, setReady] = useState(false);
+  const { mode, setMode } = useGameMode();
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
   useEffect(() => {
     seed();
@@ -153,6 +230,10 @@ export default function DevPreview() {
           <button key={k} onClick={() => setPage(k)} style={{ fontFamily: "'Spline Sans Mono',monospace", fontSize: ".66rem", padding: ".3rem .55rem", borderRadius: 5, border: "none", cursor: "pointer", background: page === k ? "hsl(var(--gold))" : "transparent", color: page === k ? "hsl(var(--background))" : "hsl(var(--foreground))" }}>{k}</button>
         ))}
         <button onClick={() => setDark((d) => !d)} style={{ fontFamily: "'Spline Sans Mono',monospace", fontSize: ".66rem", padding: ".3rem .55rem", borderRadius: 5, border: "1px solid hsl(var(--rule-strong)/.4)", cursor: "pointer", background: "transparent", color: "hsl(var(--foreground))" }}>◐</button>
+        <span style={{ width: 1, alignSelf: "stretch", background: "hsl(var(--rule-strong)/.4)", margin: "0 .15rem" }} />
+        {MODES.map((m) => (
+          <button key={m} onClick={() => setMode(m)} title="game mode" style={{ fontFamily: "'Spline Sans Mono',monospace", fontSize: ".66rem", padding: ".3rem .55rem", borderRadius: 5, border: "1px solid hsl(var(--rule-strong)/.4)", cursor: "pointer", background: mode === m ? "hsl(var(--game-accent))" : "transparent", color: mode === m ? "hsl(222 45% 11%)" : "hsl(var(--foreground))" }}>⛯ {m}</button>
+        ))}
       </div>
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "3.5rem clamp(1rem,4vw,3rem) 4rem" }}>
         {ready && (
