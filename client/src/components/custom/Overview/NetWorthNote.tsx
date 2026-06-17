@@ -2,7 +2,6 @@ import { useStore } from "@/store/store";
 import { formatCurrency } from "@/lib/format";
 import { AnimatedNumber } from "@/components/engraving/AnimatedNumber";
 import { Guilloche, GuillocheBand } from "@/components/engraving/Guilloche";
-import { Sparkline } from "@/components/engraving/Sparkline";
 import { Brandmark } from "@/components/layout/Brandmark";
 
 /**
@@ -14,7 +13,6 @@ export default function NetWorthNote() {
   const { netWorth, user } = useStore();
 
   const current = netWorth.length > 0 ? netWorth[netWorth.length - 1].total : 0;
-  const series = netWorth.map((p) => p.total);
 
   const delta = (() => {
     if (netWorth.length < 2) return null;
@@ -116,11 +114,6 @@ export default function NetWorthNote() {
           <p className="text-center text-[9px] uppercase tracking-[0.28em] text-muted-foreground">
             Certified True Balance
           </p>
-          {series.length > 1 && (
-            <div className="text-credit dark:text-credit">
-              <Sparkline data={series} width={180} height={40} />
-            </div>
-          )}
         </div>
       </div>
 
