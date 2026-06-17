@@ -74,7 +74,7 @@ function TransactionItem({
           isIncome ? "ink-credit" : "ink-debit"
         }`}
       >
-        {isIncome ? "+" : "−"}${transaction.amount.toFixed(2)}
+        {isIncome ? "+" : "−"}${Math.abs(transaction.amount).toFixed(2)}
       </p>
 
       {onDelete !== null && (
@@ -119,7 +119,7 @@ function TransactionItem({
                 <span className="uppercase tracking-[0.12em] text-rule-strong/70">Amount</span>
                 <br />
                 <span className={isIncome ? "ink-credit" : "ink-debit"}>
-                  {isIncome ? "+" : "−"}${transaction.amount.toFixed(2)}
+                  {isIncome ? "+" : "−"}${Math.abs(transaction.amount).toFixed(2)}
                 </span>
               </span>
             </div>
