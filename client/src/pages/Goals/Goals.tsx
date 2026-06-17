@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/useToast";
 import { formatCurrency } from "@/lib/format";
 import { Certificate } from "@/components/engraving/Certificate";
 import { Seal } from "@/components/engraving/Seal";
+import { EmptyState } from "@/components/engraving/EmptyState";
 import { RuleEditor } from "@/components/custom/RuleEditor/RuleEditor";
 import api from "@/lib/api";
 import type { Goal } from "@/store/store";
@@ -503,15 +504,18 @@ const Goals: React.FC = () => {
             </div>
           ))}
           {goals.length === 0 && (
-            <div className="col-span-full flex min-h-[40vh] flex-col items-center justify-center gap-4">
-              <p className="font-mono text-sm text-muted-foreground">
-                No savings goals yet.
-              </p>
-              <Button onClick={() => setNewGoalDialogOpen(true)}>
-                <Plus className="mr-2 h-4 w-4" />
-                Create your first goal
-              </Button>
-            </div>
+            <EmptyState
+              seed={20}
+              eyebrow="Goals · A dark sky"
+              title="Awaiting its first star"
+              description="You haven't charted a destination yet. Set a goal and watch its coin mint as you approach — saving you'll actually want to finish."
+              action={
+                <Button onClick={() => setNewGoalDialogOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Chart your first goal
+                </Button>
+              }
+            />
           )}
         </div>
       )}

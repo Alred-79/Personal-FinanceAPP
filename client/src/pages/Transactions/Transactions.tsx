@@ -365,9 +365,17 @@ export default function Transactions() {
                   </div>
                   <div className="max-h-[58vh] overflow-y-auto">
                     {isEmpty ? (
-                      <p className="py-10 text-center font-sans text-sm italic text-muted-foreground">
-                        No entries.
-                      </p>
+                      <div className="flex flex-col items-center gap-1.5 py-14 text-center">
+                        <span className="text-2xl text-rule-strong/50" aria-hidden>
+                          ☞
+                        </span>
+                        <p className="font-display text-lg text-muted-foreground">
+                          No entries on this page of the ledger
+                        </p>
+                        <p className="font-sans text-xs italic text-muted-foreground">
+                          Record a transaction or adjust the filters above.
+                        </p>
+                      </div>
                     ) : (
                       items.map((transaction) => (
                         <TransactionItem

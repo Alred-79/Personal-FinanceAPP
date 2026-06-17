@@ -18,6 +18,7 @@ import { useStore } from "@/store/store";
 import { ink } from "@/lib/chart";
 import { formatCurrency } from "@/lib/format";
 import { AnimatedNumber } from "@/components/engraving/AnimatedNumber";
+import { EmptyState } from "@/components/engraving/EmptyState";
 import CustomTooltip from "@/components/custom/Tooltip/Tooltip";
 
 export default function Accounts() {
@@ -206,14 +207,13 @@ export default function Accounts() {
             </TiltCard>
           ))}
           {accounts.length === 0 && (
-            <div className="col-span-full flex min-h-[40vh] flex-col items-center justify-center gap-3">
-              <p className="font-display text-2xl text-muted-foreground">
-                No accounts on the register
-              </p>
-              <p className="font-sans text-sm italic text-muted-foreground">
-                Add a passbook or link a bank to begin.
-              </p>
-            </div>
+            <EmptyState
+              seed={2}
+              eyebrow="Register II · Awaiting first entry"
+              title="No accounts on the register"
+              description="This register has been opened but not yet inscribed. Add a passbook or link a bank to begin recording holdings."
+              action={<AccountDialog onAccountCreated={handleAccountCreated} />}
+            />
           )}
         </div>
       )}

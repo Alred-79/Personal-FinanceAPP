@@ -23,6 +23,7 @@ import { formatCurrency, categoryColor } from "@/lib/format";
 import { categoryIcon } from "@/lib/categoryIcon";
 import { Certificate } from "@/components/engraving/Certificate";
 import { Stamp } from "@/components/engraving/Stamp";
+import { EmptyState } from "@/components/engraving/EmptyState";
 import type { Budget } from "@/store/store";
 
 type BudgetForm = {
@@ -272,14 +273,18 @@ const Budgets: React.FC = () => {
             );
           })}
           {budgets.length === 0 && (
-            <div className="col-span-full flex min-h-[40vh] flex-col items-center justify-center gap-3">
-              <p className="font-display text-2xl text-muted-foreground">
-                No envelopes ruled yet
-              </p>
-              <p className="font-sans text-sm italic text-muted-foreground">
-                Rule your first budget to begin appropriating funds.
-              </p>
-            </div>
+            <EmptyState
+              seed={5}
+              eyebrow="Appropriations · Unruled"
+              title="No envelopes ruled yet"
+              description="An envelope sets aside a monthly appropriation per category, then tracks every draw against it. Rule your first to begin."
+              action={
+                <Button onClick={() => setNewDialogOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Rule a budget
+                </Button>
+              }
+            />
           )}
         </div>
       )}

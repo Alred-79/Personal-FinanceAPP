@@ -6,6 +6,7 @@ import PageHeader from "@/components/layout/PageHeader";
 import { useStore } from "@/store/store";
 import { formatCurrency } from "@/lib/format";
 import { AnimatedNumber } from "@/components/engraving/AnimatedNumber";
+import { EmptyState } from "@/components/engraving/EmptyState";
 import { Reveal, RevealItem } from "@/components/motion/Reveal";
 
 const formatDate = (iso: string | null) =>
@@ -126,15 +127,12 @@ const Subscriptions: React.FC = () => {
         })}
 
         {subscriptionsLoaded && subscriptions.length === 0 && (
-          <div className="col-span-full flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
-            <p className="font-display text-2xl text-muted-foreground">
-              No standing orders detected
-            </p>
-            <p className="max-w-sm font-sans text-sm italic text-muted-foreground">
-              Mandates are spotted automatically from your transaction history
-              once you've linked an account and built up a few months of spending.
-            </p>
-          </div>
+          <EmptyState
+            seed={9}
+            eyebrow="Standing Orders · None on file"
+            title="No standing orders detected"
+            description="Mandates are spotted automatically from your transaction history once you've linked an account and built up a few months of spending."
+          />
         )}
       </Reveal>
     </>

@@ -19,6 +19,7 @@ import { Stamp } from "@/components/engraving/Stamp";
 import { SectionRule } from "@/components/engraving/SectionRule";
 import { GuillocheBand } from "@/components/engraving/Guilloche";
 import { Figure } from "@/components/engraving/Figure";
+import { EmptyState } from "@/components/engraving/EmptyState";
 import CashflowCalendar from "@/components/custom/CashflowCalendar/CashflowCalendar";
 import ScenarioBuilder from "@/components/custom/ScenarioBuilder/ScenarioBuilder";
 import ScenarioCompare from "@/components/custom/ScenarioCompare/ScenarioCompare";
@@ -155,16 +156,18 @@ export default function Forecast() {
           Casting the projection…
         </p>
       ) : timeline.length <= 1 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-            <p className="font-display text-2xl">Nothing to project yet</p>
-            <p className="max-w-md font-sans text-sm text-muted-foreground">
+        <EmptyState
+          seed={14}
+          eyebrow="Forecast · Uncharted waters"
+          title="Here be dragons"
+          description={
+            <>
               The forecast walks your <em>recurring</em> expenses forward from
-              today's balance. Mark a few expenses as recurring and they'll
-              appear here as a runway.
-            </p>
-          </CardContent>
-        </Card>
+              today's balance to draw your coastline. Mark a few expenses as
+              recurring and the runway will chart itself.
+            </>
+          }
+        />
       ) : (
         <Tabs value={tab} onValueChange={setTab} className="space-y-6">
           <TabsList>

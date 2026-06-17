@@ -137,7 +137,13 @@ export default function DevPreview() {
   const [dark, setDark] = useState(false);
   const [ready, setReady] = useState(false);
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
-  useEffect(() => { seed(); setReady(true); }, []);
+  useEffect(() => {
+    seed();
+    // DEV-ONLY: expose the store so empty-state showpieces can be driven from
+    // the verification harness (e.g. __useStore.setState({ accounts: [] })).
+    (window as unknown as { __useStore?: typeof useStore }).__useStore = useStore;
+    setReady(true);
+  }, []);
   const PageEl = useMemo(() => PAGES[page], [page]);
 
   return (
