@@ -29,6 +29,7 @@ import DirectionsGallery from "@/pages/DirectionsGallery/DirectionsGallery"; // 
 import LivingMoney from "@/pages/LivingMoney/LivingMoney"; // DEV-ONLY, remove after review
 import Workspace from "@/pages/Workspace/Workspace"; // DEV-ONLY, remove after review
 import DevPreview from "@/pages/DevPreview/DevPreview"; // DEV-ONLY, remove after review
+import DevNav from "@/pages/DevNav/DevNav"; // DEV-ONLY, remove after review
 import { apiBase } from "@/lib/apiBase";
 
 // Wipe the assistant's history when the user closes the tab. `sendBeacon` is
@@ -54,6 +55,7 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/living" element={<LivingMoney />} />
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/dev-preview" element={<DevPreview />} />
+          <Route path="/dev-nav" element={<DevNav />} />
 
           {/* The auth guard wraps every page that needs a login */}
           <Route element={<ProtectedRoute />}>

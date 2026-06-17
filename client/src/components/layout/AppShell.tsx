@@ -9,7 +9,10 @@ import { AssistantInterface } from "@/components/custom/AssistantInterface/Assis
 import { ChroniclerDrawer } from "@/components/custom/ChroniclerDrawer/ChroniclerDrawer";
 import { AtlasLayers } from "@/components/atlas/AtlasLayers";
 import Header from "./Header";
+import SidebarRail from "./SidebarRail";
 import { titleForPath } from "./nav";
+import { useNavVariant } from "@/lib/navVariant";
+import { cn } from "@/lib/utils";
 
 /**
  * Layout for signed in users: a fixed left sidebar on desktop (a drawer on
@@ -112,6 +115,11 @@ export default function AppShell() {
   };
   const handleConnectBank = () => plaidHandler?.open();
 
+  // TEMP — nav-style comparison. The "sidebar" variant renders a left rail
+  // (desktop) instead of the header's centre index.
+  const navVariant = useNavVariant();
+  const railOn = navVariant === "sidebar";
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       {/* frontend-elevation Atlas layers — global, mode-gated, behind content. */}
@@ -122,11 +130,19 @@ export default function AppShell() {
         canConnectBank={!!plaidHandler}
         onLogout={handleLogout}
       />
-      <main className="flex-1 px-4 py-8 md:px-8 md:py-10">
-        <div className="mx-auto w-full max-w-[1400px]">
-          <Outlet />
-        </div>
-      </main>
+      <div className="flex flex-1">
+        {railOn && <SidebarRail />}
+        <main
+          className={cn(
+            "min-w-0 flex-1 px-4 py-8 md:px-8 md:py-10",
+            railOn && "lg:pl-6"
+          )}
+        >
+          <div className="mx-auto w-full max-w-[1400px]">
+            <Outlet />
+          </div>
+        </main>
+      </div>
 
       <AssistantInterface />
       {/* The Chronicler drawer: `/`-summoned over any page, every mode. */}
