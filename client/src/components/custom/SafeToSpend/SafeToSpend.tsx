@@ -32,14 +32,15 @@ interface SafeToSpendProps {
   updateTabTitle?: boolean;
 }
 
-export function SafeToSpend({ updateTabTitle = true }: SafeToSpendProps) {
-  const s2s = useStore((s) => s.safeToSpend);
-  const label = useTerm("money.safe_to_spend");
-  const available = s2s ? s2s.available : null;
-
-  // Drive the tab title on every data refresh.
+/**
+ * Drive the browser tab title from the safe-to-spend figure ("$612 · The
+ * Ledger"). Extracted so whichever component owns the Overview hero (the flat
+ * SafeToSpend or the promoted SpendCard gauge) can keep the title in sync.
+ * `enabled` is the Settings toggle.
+ */
+export function useSafeToSpendTitle(available: number | null, enabled: boolean) {
   useEffect(() => {
-    if (!updateTabTitle) return;
+    if (!enabled) return;
     if (available === null) {
       document.title = APP_NAME;
       return;
@@ -48,7 +49,16 @@ export function SafeToSpend({ updateTabTitle = true }: SafeToSpendProps) {
     return () => {
       document.title = APP_NAME;
     };
-  }, [available, updateTabTitle]);
+  }, [available, enabled]);
+}
+
+export function SafeToSpend({ updateTabTitle = true }: SafeToSpendProps) {
+  const s2s = useStore((s) => s.safeToSpend);
+  const label = useTerm("money.safe_to_spend");
+  const available = s2s ? s2s.available : null;
+
+  // Drive the tab title on every data refresh.
+  useSafeToSpendTitle(available, updateTabTitle);
 
   const isNegative = available !== null && available < 0;
 

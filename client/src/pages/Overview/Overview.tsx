@@ -8,7 +8,6 @@ import TransactionsCard from "@/components/custom/Overview/TransactionsCard";
 import TimelineCard from "@/components/custom/Overview/TimelineCard";
 import NetWorthCard from "@/components/custom/Overview/NetWorthCard";
 import ForecastCard from "@/components/custom/Overview/ForecastCard";
-import { SafeToSpend } from "@/components/custom/SafeToSpend/SafeToSpend";
 import { DailySurface } from "@/components/custom/DailySurface/DailySurface";
 import { SagaChapter } from "@/components/custom/SagaChapter/SagaChapter";
 
@@ -36,10 +35,10 @@ function Overview() {
         reference={`Form 1040-A · ${today}`}
       />
 
-      {/* The glanceable hero: ONE number, identical across modes (v4 §5.2).
-          Sits above the net-worth note so it's the first thing the eye lands on. */}
+      {/* The glanceable hero: Safe-to-Spend, drawn as the pressure-gauge plate
+          (it also drives the browser tab title). First thing the eye lands on. */}
       <div className="mb-6 animate-rise-in">
-        <SafeToSpend />
+        <SpendCard />
       </div>
 
       {/* The daily surface: today's one verb + collect (hidden in off mode).
@@ -66,17 +65,12 @@ function Overview() {
           <TransactionsCard />
         </div>
 
-        {/* Right two-thirds: the analytical plates */}
-        <div className="grid grid-cols-1 gap-6 lg:col-span-2 sm:grid-cols-2">
-          <div className="animate-rise-in delay-2">
-            <SpendCard />
-          </div>
-          <div className="animate-rise-in delay-3">
-            <ExpensesCard />
-          </div>
+        {/* Right two-thirds: the analytical plates, stacked beside the ledger */}
+        <div className="lg:col-span-2 animate-rise-in delay-2">
+          <ExpensesCard />
         </div>
 
-        <div className="lg:col-span-2 animate-rise-in delay-4">
+        <div className="lg:col-span-2 animate-rise-in delay-3">
           <ForecastCard />
         </div>
       </div>
