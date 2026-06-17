@@ -5,6 +5,57 @@
  */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useStore } from "@/store/store";
+import api from "@/lib/api";
+
+// The Tax page fetches /tax/* directly via axios (not the store), so the store
+// seed can't reach it. Patch the shared api instance to answer those GETs with
+// mock data in the harness; everything else still hits the (down) backend.
+const MOCK_TAX_SUMMARY = {
+  tax_year: 2026,
+  income_by_source: {
+    sources: [
+      { issuer: "Acme Corp", form_type: "W-2", income: 82000, withholding: 11400, provenance: "from_document" },
+      { issuer: "Freelance — Design", form_type: "1099-NEC", income: 18500, withholding: 0, provenance: "from_ledger" },
+      { issuer: "Brokerage", form_type: "1099-DIV", income: 1240, withholding: 0, provenance: "from_document" },
+    ],
+    total_income: 101740,
+    total_withholding: 11400,
+  },
+  deductions_by_bucket: [
+    { bucket: "home_office", label: "Home office", irs_line: "Sch C L30", total: 3600, deductible: 3600 },
+    { bucket: "software", label: "Software & subscriptions", irs_line: "Sch C L27a", total: 1450, deductible: 1450 },
+    { bucket: "supplies", label: "Supplies", irs_line: "Sch C L22", total: 820, deductible: 820 },
+  ],
+  mileage: { miles: 1240, rate_cents_per_mile: 67, deduction: 830.8, rate_available: true },
+  estimated_quarterly: {
+    tax_year: 2026, filing_status: "single", total_income: 101740, wages: 82000, se_income: 18500,
+    total_deductible: 6700, se_net_earnings: 17086, se_tax: 2613, income_tax: 14200, state_tax: 0,
+    taxable_base: 80000, total_withholding: 11400, payments_made: 0,
+    annual_estimate: 16813, remaining_estimate: 5413, per_quarter: 1353,
+    safe_harbor_annual: null, safe_harbor_remaining: null, safe_harbor_per_quarter: null,
+    due_dates: [["Q1", "Apr 15"], ["Q2", "Jun 16"], ["Q3", "Sep 15"], ["Q4", "Jan 15"]],
+    methodology: "Estimated from your tagged income and deductions using 2026 federal brackets; SE tax on 1099 net earnings. A rough planning figure, not a filing.",
+    disclaimer: "An estimate for planning only — not tax advice. Confirm with a professional before paying.",
+  },
+  disclaimer: "Organization only — not tax advice.",
+};
+const MOCK_TAX_MILEAGE = [
+  { id: 1, trip_date: "2026-05-12", miles: 42, purpose: "Client visit", business_personal: "business", tax_year: 2026 },
+  { id: 2, trip_date: "2026-04-03", miles: 18.5, purpose: "Supplier pickup", business_personal: "business", tax_year: 2026 },
+];
+let taxPatched = false;
+function patchTaxApi() {
+  if (taxPatched) return;
+  taxPatched = true;
+  const orig = api.get.bind(api);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (api as any).get = (url: string, config?: unknown) => {
+    if (url.startsWith("/tax/summary")) return Promise.resolve({ data: MOCK_TAX_SUMMARY });
+    if (url.startsWith("/tax/mileage")) return Promise.resolve({ data: MOCK_TAX_MILEAGE });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return orig(url, config as any);
+  };
+}
 
 const PAGES: Record<string, React.LazyExoticComponent<React.ComponentType>> = {
   Overview: lazy(() => import("@/pages/Overview/Overview")),
@@ -19,6 +70,7 @@ const PAGES: Record<string, React.LazyExoticComponent<React.ComponentType>> = {
 };
 
 function seed() {
+  patchTaxApi();
   const today = new Date();
   const day = (n: number) => { const d = new Date(today); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
   const txns = [

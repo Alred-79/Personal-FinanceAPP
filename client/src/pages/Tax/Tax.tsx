@@ -5,6 +5,8 @@ import { formatCurrency } from "@/lib/format";
 import { FilingStatus, MileageLog, TaxSummary } from "@/types";
 import PageHeader from "@/components/layout/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Reveal, RevealItem } from "@/components/motion/Reveal";
+import { AnimatedNumber } from "@/components/engraving/AnimatedNumber";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -171,9 +173,10 @@ export default function Tax() {
           <Loader2 className="h-6 w-6 animate-spin text-gold" />
         </div>
       ) : summary ? (
-        <div className="space-y-6">
+        <Reveal className="space-y-6">
           {/* Income by source (with provenance) */}
-          <Card>
+          <RevealItem>
+          <Card raking>
             <CardHeader>
               <CardTitle>Income by source</CardTitle>
             </CardHeader>
@@ -214,9 +217,11 @@ export default function Tax() {
               </div>
             </CardContent>
           </Card>
+          </RevealItem>
 
           {/* Deductions by bucket */}
-          <Card>
+          <RevealItem>
+          <Card raking>
             <CardHeader>
               <CardTitle>Deductions by bucket</CardTitle>
             </CardHeader>
@@ -256,9 +261,11 @@ export default function Tax() {
               )}
             </CardContent>
           </Card>
+          </RevealItem>
 
           {/* Estimated quarterly — LOUDLY an estimate */}
-          <Card className="border-gold/40">
+          <RevealItem>
+          <Card raking className="border-gold/40">
             <CardHeader>
               <CardTitle>Estimated quarterly figure</CardTitle>
             </CardHeader>
@@ -322,7 +329,7 @@ export default function Tax() {
               </div>
 
               <p className="intaglio text-3xl">
-                {formatCurrency(summary.estimated_quarterly.per_quarter)}
+                <AnimatedNumber value={summary.estimated_quarterly.per_quarter} />
                 <span className="ml-2 font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
                   / quarter (estimate)
                 </span>
@@ -418,9 +425,11 @@ export default function Tax() {
               </div>
             </CardContent>
           </Card>
+          </RevealItem>
 
           {/* Mileage log */}
-          <Card>
+          <RevealItem>
+          <Card raking>
             <CardHeader>
               <CardTitle>Business mileage log</CardTitle>
             </CardHeader>
@@ -479,7 +488,8 @@ export default function Tax() {
               )}
             </CardContent>
           </Card>
-        </div>
+          </RevealItem>
+        </Reveal>
       ) : null}
     </div>
   );
