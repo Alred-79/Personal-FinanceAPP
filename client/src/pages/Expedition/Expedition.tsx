@@ -51,9 +51,24 @@ export function ExpeditionView() {
       .catch(() => {});
   }, []);
 
+  const hasActs = !!data && data.acts.length > 0;
+
   return (
     <div data-testid="expedition-view" data-skin={terminal ? "map" : "calendar"}>
       <PageHeader title={title} description="Your month, act by act." />
+      {!hasActs && (
+        <Card data-testid="expedition-empty">
+          <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+            <p className="font-display text-2xl text-muted-foreground">
+              Nothing charted yet
+            </p>
+            <p className="max-w-md font-sans text-sm text-muted-foreground">
+              Your month plots here act by act once there's a plan to map. In the
+              meantime your finances live in the Ledger, Budgets, and Forecast.
+            </p>
+          </CardContent>
+        </Card>
+      )}
       {data?.acts.map((act) => (
         <Card key={act.index} className="mb-4" data-testid="expedition-act">
           <CardContent className="pt-6">

@@ -105,7 +105,7 @@ export default function Header({
           <button
             onClick={onConnectBank}
             disabled={!canConnectBank}
-            className="press hidden h-9 items-center gap-1.5 border border-rule-strong/50 bg-card px-3 font-sans text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground shadow-plate transition-all hover:bg-wash disabled:opacity-50 xl:flex"
+            className="press hidden h-9 items-center gap-1.5 border border-rule-strong/50 bg-card px-3 font-sans text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground shadow-plate transition-all hover:bg-wash disabled:opacity-50 lg:flex"
           >
             <Building2 className="h-4 w-4 shrink-0" />
             Link Bank
