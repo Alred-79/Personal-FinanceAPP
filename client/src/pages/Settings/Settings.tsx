@@ -17,6 +17,8 @@ import { IntensitySelector } from "@/components/custom/IntensitySelector/Intensi
 import { AgentKeys } from "@/components/custom/AgentKeys/AgentKeys";
 import { StandingOrders } from "@/components/custom/StandingOrders/StandingOrders";
 import { LearnedMemory } from "@/components/custom/LearnedMemory/LearnedMemory";
+import { Reveal, RevealItem } from "@/components/motion/Reveal";
+import { SectionRule } from "@/components/engraving/SectionRule";
 import api from "@/lib/api";
 
 /**
@@ -69,7 +71,7 @@ function PercentSetting({
   };
 
   return (
-    <Card>
+    <Card raking className="h-full">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
@@ -148,7 +150,7 @@ function AutoExecuteThreshold() {
   };
 
   return (
-    <Card className="mt-6">
+    <Card raking>
       <CardHeader>
         <CardTitle>Auto-fund threshold</CardTitle>
         <CardDescription>
@@ -280,101 +282,139 @@ export default function Settings() {
 
         {/* Preferences */}
         <TabsContent value="preferences">
-          <div className="grid gap-6 sm:grid-cols-2">
-            <PercentSetting
-              title="Spend warning"
-              description="Alert threshold for safe to spend tracking (0 to 100%)."
-              value={warningPosition}
-              onSave={updateWarningPosition}
-            />
-            <PercentSetting
-              title="Savings target"
-              description="Portion of income set aside (0 to 100%)."
-              value={savingsPercent}
-              onSave={updateSavingsPercent}
-            />
-          </div>
+          <Reveal className="space-y-8">
+            <RevealItem>
+              <SectionRule className="mb-4">Thresholds</SectionRule>
+              <div className="grid gap-6 sm:grid-cols-2">
+                <PercentSetting
+                  title="Spend warning"
+                  description="Alert threshold for safe to spend tracking (0 to 100%)."
+                  value={warningPosition}
+                  onSave={updateWarningPosition}
+                />
+                <PercentSetting
+                  title="Savings target"
+                  description="Portion of income set aside (0 to 100%)."
+                  value={savingsPercent}
+                  onSave={updateSavingsPercent}
+                />
+              </div>
+            </RevealItem>
 
-          <Card className="mt-6">
-            <CardContent className="pt-6">
-              <IntensitySelector />
-            </CardContent>
-          </Card>
+            <RevealItem>
+              <SectionRule className="mb-4">Atmosphere</SectionRule>
+              <Card raking>
+                <CardContent className="pt-6">
+                  <IntensitySelector />
+                </CardContent>
+              </Card>
+            </RevealItem>
 
-          <Card className="mt-6">
-            <CardHeader>
-              <CardTitle>AI assistant</CardTitle>
-              <CardDescription>
-                The model powering the in-app assistant.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm">
-                Current model:{" "}
-                <span className="font-mono">{aiModel ?? "…"}</span>
-              </p>
-            </CardContent>
-          </Card>
+            <RevealItem>
+              <SectionRule className="mb-4">Assistant</SectionRule>
+              <Card raking>
+                <CardHeader>
+                  <CardTitle>AI assistant</CardTitle>
+                  <CardDescription>
+                    The model powering the in-app assistant.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm">
+                    Current model:{" "}
+                    <span className="font-mono">{aiModel ?? "…"}</span>
+                  </p>
+                </CardContent>
+              </Card>
+            </RevealItem>
+          </Reveal>
         </TabsContent>
 
         {/* Accounts */}
         <TabsContent value="accounts">
-          <Card>
-            <CardHeader>
-              <CardTitle>Accounts</CardTitle>
-              <CardDescription>Manage your linked accounts.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {accounts.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No accounts linked.
-                </p>
-              ) : (
-                <ul className="divide-y">
-                  {accounts.map((account) => (
-                    <li
-                      key={account.id}
-                      className="flex items-center justify-between py-3"
-                    >
-                      <div>
-                        <p className="font-medium">{account.name}</p>
-                        <p className="text-sm text-muted-foreground capitalize">
-                          {account.type}
-                        </p>
-                      </div>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => handleDeleteAccount(account.id)}
-                      >
-                        Remove
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
+          <Reveal>
+            <RevealItem>
+              <Card raking>
+                <CardHeader>
+                  <CardTitle>Accounts</CardTitle>
+                  <CardDescription>
+                    Manage your linked accounts.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {accounts.length === 0 ? (
+                    <p className="text-sm italic text-muted-foreground">
+                      No accounts linked. Link a bank to begin the register.
+                    </p>
+                  ) : (
+                    <ul>
+                      {accounts.map((account) => (
+                        <li
+                          key={account.id}
+                          className="ledger-row flex items-center justify-between py-3"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="manicule" aria-hidden>
+                              ☞
+                            </span>
+                            <div>
+                              <p className="font-medium">{account.name}</p>
+                              <p className="text-sm capitalize text-muted-foreground">
+                                {account.type}
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleDeleteAccount(account.id)}
+                          >
+                            Remove
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+            </RevealItem>
+          </Reveal>
         </TabsContent>
 
         {/* Automation — standing-order rules (categorize / notify) */}
         <TabsContent value="automation">
-          <StandingOrders />
-          <AutoExecuteThreshold />
+          <Reveal className="space-y-6">
+            <RevealItem>
+              <StandingOrders />
+            </RevealItem>
+            <RevealItem>
+              <AutoExecuteThreshold />
+            </RevealItem>
+          </Reveal>
         </TabsContent>
 
         <TabsContent value="memory">
-          <LearnedMemory />
+          <Reveal>
+            <RevealItem>
+              <LearnedMemory />
+            </RevealItem>
+          </Reveal>
         </TabsContent>
 
         {/* Agent Keys — MCP capability key management */}
         <TabsContent value="agent-keys">
-          <AgentKeys />
+          <Reveal>
+            <RevealItem>
+              <AgentKeys />
+            </RevealItem>
+          </Reveal>
         </TabsContent>
 
         {/* Security */}
         <TabsContent value="security">
-          <Card>
+          <Reveal>
+           <RevealItem>
+            <Card raking>
             <CardHeader>
               <CardTitle>Change password</CardTitle>
               <CardDescription>Update your login password.</CardDescription>
@@ -423,7 +463,9 @@ export default function Settings() {
                 </Button>
               </form>
             </CardContent>
-          </Card>
+            </Card>
+           </RevealItem>
+          </Reveal>
         </TabsContent>
       </Tabs>
     </>

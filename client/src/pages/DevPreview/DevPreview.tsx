@@ -52,6 +52,7 @@ function patchTaxApi() {
   (api as any).get = (url: string, config?: unknown) => {
     if (url.startsWith("/tax/summary")) return Promise.resolve({ data: MOCK_TAX_SUMMARY });
     if (url.startsWith("/tax/mileage")) return Promise.resolve({ data: MOCK_TAX_MILEAGE });
+    if (url.startsWith("/settings/")) return Promise.resolve({ data: { ai: { model: "claude-opus-4-8" }, preferences: { auto_execute_threshold: 100 } } });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return orig(url, config as any);
   };
@@ -67,6 +68,7 @@ const PAGES: Record<string, React.LazyExoticComponent<React.ComponentType>> = {
   Subscriptions: lazy(() => import("@/pages/Subscriptions/Subscriptions")),
   Reconcile: lazy(() => import("@/pages/Reconcile/Reconcile")),
   Tax: lazy(() => import("@/pages/Tax/Tax")),
+  Settings: lazy(() => import("@/pages/Settings/Settings")),
 };
 
 function seed() {
@@ -90,6 +92,9 @@ function seed() {
       { id: 3, name: "Travel Card", type: "credit", balance: -612.4, last_updated: day(0), transactions: txns.slice(2, 5) },
     ] as never,
     accountsLoaded: true,
+    settingsLoaded: true,
+    warningPosition: 80,
+    savingsPercent: 20,
     netWorth: Array.from({ length: 24 }, (_, i) => ({ date: day(-180 + i * 7), total: 22000 + i * 560 + Math.round(Math.sin(i / 3) * 800) })) as never,
     netWorthLoaded: true,
     recentTransactions: txns as never,
