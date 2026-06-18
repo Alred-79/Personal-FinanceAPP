@@ -20,6 +20,8 @@ from server.src.services.plaid_service import PlaidService
 from server.src.services import plaid_crypto
 from server.src.services.auth_service import AuthService
 from server.src.db.session import get_db, SessionLocal
+from server.src.db.rls import set_tenant
+from server.src.settings import settings
 from server.src.db.models import (
     Account as AccountORM,
     Token as TokenORM,
@@ -133,6 +135,10 @@ async def exchange_public_token(
 
     def _bg_initial_sync():
         bg_db = SessionLocal()
+        # Background task: the request contextvar may not propagate here, so bind
+        # the RLS tenant explicitly (no-op unless enable_rls + Postgres).
+        if settings.enable_rls:
+            set_tenant(bg_db, user_id)
         try:
             bg_token = bg_db.execute(
                 select(TokenORM).where(TokenORM.id == token_id)
@@ -191,6 +197,8 @@ async def sync_transactions(
 
     def _bg_sync_all():
         bg_db = SessionLocal()
+        if settings.enable_rls:
+            set_tenant(bg_db, user_id)
         try:
             # Look the user up again inside the background session.
             from server.src.db.models import User as UserORM

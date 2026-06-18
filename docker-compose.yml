@@ -6,10 +6,42 @@ services:
     # Load secrets from .env (never baked into the image)
     env_file: .env
     environment:
-      # Use an absolute SQLite path so it lands inside the mounted volume.
-      # 4 slashes = absolute path on Unix: sqlite:////app/data/finance_tracker.db
-      DATABASE_URL: sqlite:////app/data/finance_tracker.db
+      # WS1: Postgres is the multi-tenant target (psycopg 3 driver). The app
+      # container's CMD runs `alembic upgrade head` then uvicorn (see Dockerfile),
+      # so it connects with a role that can run migrations. For a real
+      # multi-tenant deploy with RLS enforcing, split this into a BYPASSRLS
+      # migration role and a restricted, non-superuser pf_app request role (see
+      # the WS2 role model in .env.example) and set ENABLE_RLS=true.
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://pf_owner:pf_owner@postgres:5432/finance_tracker}
       ENVIRONMENT: production
+      # --- WS2 RLS opt-in (uncomment + set ENABLE_RLS=true to enforce tenant
+      # isolation). The app then connects as the restricted pf_app role, while
+      # migrations and the in-process scheduler use the BYPASSRLS pf_owner role.
+      # The postgres init script (docker/postgres-init/01-roles.sql) creates pf_app.
+      # DATABASE_URL: postgresql+psycopg://pf_app:pf_app@postgres:5432/finance_tracker
+      # ALEMBIC_DATABASE_URL: postgresql+psycopg://pf_owner:pf_owner@postgres:5432/finance_tracker
+      # SCHEDULER_DATABASE_URL: postgresql+psycopg://pf_owner:pf_owner@postgres:5432/finance_tracker
+      # ENABLE_RLS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: pf_owner
+      POSTGRES_PASSWORD: pf_owner
+      POSTGRES_DB: finance_tracker
     volumes:
-      # Persist the SQLite database across container restarts
-      - ./data:/app/data
+      # Persist the database across container restarts
+      - pgdata:/var/lib/postgresql/data
+      # WS2: create the restricted pf_app request role at first init (RLS role model)
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pf_owner -d finance_tracker"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

@@ -339,13 +339,39 @@ def job_auditor(db: Session, now: Optional[datetime | date] = None) -> int:
 # The scheduled wrappers — own-session, commit, close (no request context).
 # ---------------------------------------------------------------------------
 
-def _run_in_own_session(fn) -> None:
-    """Run a job in its OWN ``SessionLocal()`` — there is no request ``get_db``
-    session under the scheduler. Commit on success, roll back + log on failure;
-    a job failure must never crash the scheduler thread."""
-    from .db.session import SessionLocal
+_scheduler_session_factory = None
 
-    db = SessionLocal()
+
+def _scheduler_sessions():
+    """Session factory for scheduler jobs. Uses ``settings.scheduler_database_url``
+    (e.g. a BYPASSRLS role, so all-users batch jobs aren't tenant-filtered under
+    RLS) when set; otherwise reuses the app's ``SessionLocal``. Lazily built and
+    cached. See WS2 in docs/MULTI-TENANT-DO-NOW.md."""
+    global _scheduler_session_factory
+    if _scheduler_session_factory is None:
+        from .db.session import SessionLocal
+
+        if settings.scheduler_database_url:
+            from sqlalchemy.orm import sessionmaker
+
+            from .db.session import _make_engine
+
+            _scheduler_session_factory = sessionmaker(
+                bind=_make_engine(settings.scheduler_database_url),
+                autoflush=False,
+                autocommit=False,
+                future=True,
+            )
+        else:
+            _scheduler_session_factory = SessionLocal
+    return _scheduler_session_factory
+
+
+def _run_in_own_session(fn) -> None:
+    """Run a job in its OWN session — there is no request ``get_db`` session under
+    the scheduler. Commit on success, roll back + log on failure; a job failure
+    must never crash the scheduler thread."""
+    db = _scheduler_sessions()()
     try:
         fn(db)
         db.commit()

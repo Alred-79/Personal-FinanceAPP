@@ -30,9 +30,13 @@ from sqlalchemy import (
     UniqueConstraint,
     event,
     func,
+    select,
     text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from .types import JSONStr
+
 
 class Base(DeclarativeBase):
     pass
@@ -145,7 +149,7 @@ class Account(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     type: Mapped[str] = mapped_column(String, nullable=False)
     balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # stored as cents
-    last_updated: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
+    last_updated: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.current_timestamp())
     # Step 08: the Plaid ``account_id`` this local account mirrors, set at
     # exchange time (one local Account per Plaid account). NULL for a
     # manually-managed account. Routing and the transfer guard key on this id
@@ -217,6 +221,12 @@ class Expense(Base):
         ForeignKey("accounts.id", ondelete="CASCADE"),
         nullable=False,
     )
+    # WS2 denormalized tenant key (== accounts.user_id). Backfilled from the parent
+    # account on insert by _backfill_user_id, so RLS policies filter expenses
+    # directly instead of joining through accounts on every row.
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
 
     account = relationship("Account", back_populates="expenses")
 
@@ -259,6 +269,10 @@ class Income(Base):
         Integer,
         ForeignKey("accounts.id", ondelete="CASCADE"),
         nullable=False,
+    )
+    # WS2 denormalized tenant key (== accounts.user_id); backfilled on insert.
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     account = relationship("Account", back_populates="income")
@@ -311,9 +325,9 @@ class RefreshToken(Base):
         nullable=False,
     )
     token_hash: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 0 = active, 1 = revoked
-    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.current_timestamp())
 
     user = relationship("User", back_populates="refresh_tokens")
 
@@ -398,7 +412,7 @@ class MerchantCategory(Base):
     category: Mapped[str] = mapped_column(String, nullable=False)
     source: Mapped[str] = mapped_column(String, nullable=False, default="user")
     updated_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime,
+        DateTime(timezone=True),
         server_default=func.current_timestamp(),
         onupdate=func.current_timestamp(),
     )
@@ -429,7 +443,7 @@ class Notification(Base):
     message: Mapped[str] = mapped_column(String, nullable=False)
     ref: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)  # dedup key
     read: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 0 = unread, 1 = read
-    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.current_timestamp())
 
     user = relationship("User", back_populates="notifications")
 
@@ -453,7 +467,7 @@ class UsedActionToken(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.current_timestamp())
 
     user = relationship("User", back_populates="used_action_tokens")
 
@@ -491,7 +505,7 @@ class AssistedAction(Base):
     source_ref: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     dest_ref: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     rationale: Mapped[str] = mapped_column(String, nullable=False)  # the "why" (factual; screened)
-    how_json: Mapped[str] = mapped_column(String, nullable=False, default="{}")  # execution affordance JSON
+    how_json: Mapped[str] = mapped_column(JSONStr, nullable=False, default="{}")  # execution affordance JSON
     # proposed | acknowledged | confirmed_done | verified | dismissed | expired
     status: Mapped[str] = mapped_column(String, nullable=False, default="proposed")
     # RESERVED (real-money appendix): authorized|submitted|pending|settled|
@@ -524,14 +538,14 @@ class Rule(Base):
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     enabled: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    conditions: Mapped[str] = mapped_column(String, nullable=False, default="[]")  # JSON list of predicates
+    conditions: Mapped[str] = mapped_column(JSONStr, nullable=False, default="[]")  # JSON list of predicates
     action_type: Mapped[str] = mapped_column(String, nullable=False)  # 'notify' | 'allocate' | 'roundup' | 'categorize'
-    action_params: Mapped[str] = mapped_column(String, nullable=False, default="{}")  # JSON object
+    action_params: Mapped[str] = mapped_column(JSONStr, nullable=False, default="{}")  # JSON object
     target_kind: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # 'goal' | (v4: 'liability', …)
     target_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime(timezone=True), server_default=func.current_timestamp()
     )
 
     user = relationship("User", back_populates="rules")
@@ -560,10 +574,14 @@ class RuleExecution(Base):
         ForeignKey("rules.id", ondelete="CASCADE"),
         nullable=False,
     )
+    # WS2 denormalized tenant key (== rules.user_id); backfilled on insert.
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     tx_type: Mapped[str] = mapped_column(String, nullable=False)  # 'expense' | 'income'
     tx_id: Mapped[int] = mapped_column(Integer, nullable=False)
     fired_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime(timezone=True), server_default=func.current_timestamp()
     )
     action_type: Mapped[str] = mapped_column(String, nullable=False)
     amount_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -593,12 +611,12 @@ class MCPKey(Base):
     key_prefix: Mapped[str] = mapped_column(String, nullable=False)  # first 12 chars for UI
     scopes: Mapped[str] = mapped_column(String, nullable=False)  # comma-joined
     created_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime(timezone=True), server_default=func.current_timestamp()
     )
-    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 0 = active, 1 = revoked
-    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user = relationship("User", back_populates="mcp_keys")
 
@@ -813,9 +831,9 @@ class Liability(Base):
         String, nullable=True
     )  # 'snowball' | 'avalanche' once the one-time override is made
     opened_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime(timezone=True), server_default=func.current_timestamp()
     )
-    defeated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    defeated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Run(Base):
@@ -835,12 +853,12 @@ class Run(Base):
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     month: Mapped[str] = mapped_column(String, nullable=False)  # 'YYYY-MM'
-    map_json: Mapped[str] = mapped_column(String, nullable=False)  # immutable snapshot
-    overlay_json: Mapped[str] = mapped_column(String, nullable=False, default="{}")
+    map_json: Mapped[str] = mapped_column(JSONStr, nullable=False)  # immutable snapshot
+    overlay_json: Mapped[str] = mapped_column(JSONStr, nullable=False, default="{}")
     modifier_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     started_at: Mapped[str] = mapped_column(String, nullable=False)
     sealed_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    score_json: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    score_json: Mapped[Optional[str]] = mapped_column(JSONStr, nullable=True)
 
 
 class HeatContract(Base):
@@ -875,7 +893,7 @@ class HeatContract(Base):
     sweep_paused: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     auto_extended: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime(timezone=True), server_default=func.current_timestamp()
     )
 
 
@@ -952,10 +970,14 @@ class LiabilityAdjustment(Base):
     liability_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("liabilities.id", ondelete="CASCADE"), nullable=False
     )
+    # WS2 denormalized tenant key (== liabilities.user_id); backfilled on insert.
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     delta_cents: Mapped[int] = mapped_column(Integer, nullable=False)
     reason: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime(timezone=True), server_default=func.current_timestamp()
     )
 
 
@@ -1088,6 +1110,10 @@ class CampaignProgress(Base):
     campaign_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False
     )
+    # WS2 denormalized tenant key (== campaigns.user_id); backfilled on insert.
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     milestone_key: Mapped[str] = mapped_column(String, nullable=False)
     granted_at: Mapped[str] = mapped_column(String, nullable=False)
     source_event_id: Mapped[Optional[int]] = mapped_column(
@@ -1117,12 +1143,12 @@ class Challenge(Base):
     )  # active | met | void | soft_landed
     starts_on: Mapped[str] = mapped_column(String, nullable=False)
     ends_on: Mapped[str] = mapped_column(String, nullable=False)
-    params_json: Mapped[str] = mapped_column(String, nullable=False, default="{}")
-    verdict_json: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    params_json: Mapped[str] = mapped_column(JSONStr, nullable=False, default="{}")
+    verdict_json: Mapped[Optional[str]] = mapped_column(JSONStr, nullable=True)
     cosmetic_credit: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     suppressed_until: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime(timezone=True), server_default=func.current_timestamp()
     )
 
 
@@ -1208,12 +1234,12 @@ class Scenario(Base):
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
-    overlay_json: Mapped[str] = mapped_column(String, nullable=False, default="{}")  # ScenarioOverlay as JSON (cents)
+    overlay_json: Mapped[str] = mapped_column(JSONStr, nullable=False, default="{}")  # ScenarioOverlay as JSON (cents)
     created_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime(timezone=True), server_default=func.current_timestamp()
     )
     updated_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime(timezone=True), server_default=func.current_timestamp()
     )
 
     user = relationship("User", back_populates="scenarios")
@@ -1241,14 +1267,14 @@ class PlanOfRecord(Base):
     scenario_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("scenarios.id", ondelete="SET NULL"), nullable=True
     )
-    rule_ids_json: Mapped[str] = mapped_column(String, nullable=False, default="[]")
-    baseline_snapshot_json: Mapped[str] = mapped_column(String, nullable=False)
+    rule_ids_json: Mapped[str] = mapped_column(JSONStr, nullable=False, default="[]")
+    baseline_snapshot_json: Mapped[str] = mapped_column(JSONStr, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     committed_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime(timezone=True), server_default=func.current_timestamp()
     )
     last_checked_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, nullable=True
+        DateTime(timezone=True), nullable=True
     )
 
     user = relationship("User", back_populates="plans_of_record")
@@ -1289,9 +1315,9 @@ class ImportSession(Base):
     reconciled: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 0/1
     discrepancy_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # signed
     created_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime(timezone=True), server_default=func.current_timestamp()
     )
-    committed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    committed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user = relationship("User", back_populates="import_sessions")
     rows = relationship(
@@ -1316,6 +1342,10 @@ class ImportRow(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("import_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    # WS2 denormalized tenant key (== import_sessions.user_id); backfilled on insert.
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     title: Mapped[str] = mapped_column(String, nullable=False)
     amount: Mapped[int] = mapped_column(Integer, nullable=False)  # signed cents (+in / -out)
@@ -1389,10 +1419,10 @@ class TaxTag(Base):
     )  # 'user' | 'rule' | 'llm' — mirrors MerchantCategory.source precedence
     note: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime(timezone=True), server_default=func.current_timestamp()
     )
     updated_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime,
+        DateTime(timezone=True),
         server_default=func.current_timestamp(),
         onupdate=func.current_timestamp(),
     )
@@ -1424,7 +1454,7 @@ class MerchantTaxBucket(Base):
     bucket: Mapped[str] = mapped_column(String, nullable=False)
     source: Mapped[str] = mapped_column(String, nullable=False, default="user")
     updated_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime,
+        DateTime(timezone=True),
         server_default=func.current_timestamp(),
         onupdate=func.current_timestamp(),
     )
@@ -1464,7 +1494,7 @@ class TaxDocument(Base):
         String, nullable=True
     )  # ONLY last 4, masked at extraction — never the full EIN/TIN
     fields_json: Mapped[str] = mapped_column(
-        String, nullable=False, default="{}"
+        JSONStr, nullable=False, default="{}"
     )  # money boxes (integer cents) + non-PII labels ONLY (JSON text)
     status: Mapped[str] = mapped_column(
         String, nullable=False, default="pending_review"
@@ -1473,9 +1503,9 @@ class TaxDocument(Base):
         String, nullable=False, default="image"
     )  # 'image' | 'pdf'
     created_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime(timezone=True), server_default=func.current_timestamp()
     )
-    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user = relationship("User", back_populates="tax_documents")
 
@@ -1503,7 +1533,61 @@ class MileageLog(Base):
     )
     tax_year: Mapped[int] = mapped_column(Integer, nullable=False)  # denormalized int(date[:4])
     created_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, server_default=func.current_timestamp()
+        DateTime(timezone=True), server_default=func.current_timestamp()
     )
 
     user = relationship("User", back_populates="mileage_logs")
+
+
+# ── WS2: denormalized user_id backfill ──────────────────────────────────────
+# These 6 child tables carry a denormalized ``user_id`` (== their parent's) so
+# RLS policies can filter them directly instead of joining through the parent on
+# every row. On INSERT, if a caller didn't set ``user_id`` explicitly, derive it
+# from the parent via the in-flight flush connection (SQLAlchemy flushes parents
+# before children, so the parent row is already visible in this transaction).
+# This makes the column self-maintaining — call sites need not pass user_id and
+# it can never diverge from the parent — and is the child↔parent integrity guard.
+def _make_user_id_backfill(parent_table, fk_attr: str):
+    def _backfill(mapper, connection, target):
+        if getattr(target, "user_id", None) is not None:
+            return
+        fk_val = getattr(target, fk_attr, None)
+        if fk_val is None:
+            return
+        target.user_id = connection.execute(
+            select(parent_table.c.user_id).where(parent_table.c.id == fk_val)
+        ).scalar()
+
+    return _backfill
+
+
+for _child, _parent_table, _fk_attr in (
+    (Expense, Account.__table__, "account_id"),
+    (Income, Account.__table__, "account_id"),
+    (RuleExecution, Rule.__table__, "rule_id"),
+    (LiabilityAdjustment, Liability.__table__, "liability_id"),
+    (ImportRow, ImportSession.__table__, "session_id"),
+    (CampaignProgress, Campaign.__table__, "campaign_id"),
+):
+    event.listen(_child, "before_insert", _make_user_id_backfill(_parent_table, _fk_attr))
+
+
+# ── WS2: install RLS policies on create_all (Postgres + enable_rls only) ─────
+# Mirrors the enable_rls Alembic migration so a create_all-built schema (a test
+# that opts in via settings.enable_rls=True) gets the SAME tenant-isolation
+# policies as a migrated production DB — both consume the one TENANT_TABLES list
+# in db/rls.py, so they can't drift. Completely inert on SQLite and when
+# enable_rls is off (the default), so the standard suite is unaffected.
+from .rls import TENANT_TABLES as _TENANT_TABLES, enable_rls as _enable_rls  # noqa: E402
+
+
+def _install_rls_policy(target, connection, **kw):
+    from ..settings import settings
+
+    if connection.dialect.name != "postgresql" or not settings.enable_rls:
+        return
+    _enable_rls(connection, target.name)
+
+
+for _tname in _TENANT_TABLES:
+    event.listen(Base.metadata.tables[_tname], "after_create", _install_rls_policy)

@@ -142,7 +142,10 @@ def test_overlay_changes_do_not_touch_snapshot(db_session, user_acct):
     snapshot = run.map_json
     svc.set_overlay(_u(user), MONTH, "defeat_by_date", "2026-09-01")
     db_session.refresh(run)
-    assert run.map_json == snapshot  # unchanged
+    # Compare parsed JSON, not the raw string: on Postgres map_json is JSONB, which
+    # normalizes key order, so a byte-for-byte string compare is dialect-fragile.
+    # The immutability itself is enforced by the DB trigger (asserted above).
+    assert json.loads(run.map_json) == json.loads(snapshot)  # content unchanged
     assert json.loads(run.overlay_json)["defeat_by_date"] == "2026-09-01"
 
 

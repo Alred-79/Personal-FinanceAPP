@@ -140,8 +140,10 @@ def release_request(
     db.execute(
         text(
             "UPDATE llm_usage "
-            "SET requests = MAX(0, requests - :req), "
-            "    cost_cents = MAX(0, cost_cents - :cost) "
+            # Portable clamp-at-0: SQLite's MAX(a,b) is a scalar but Postgres MAX
+            # is an aggregate (would need GREATEST). CASE works on both dialects.
+            "SET requests = CASE WHEN requests - :req < 0 THEN 0 ELSE requests - :req END, "
+            "    cost_cents = CASE WHEN cost_cents - :cost < 0 THEN 0 ELSE cost_cents - :cost END "
             "WHERE user_id = :uid AND day = :day"
         ),
         {"req": max(0, requests), "cost": max(0, reserved_cost_cents),
@@ -166,7 +168,8 @@ def record_cost(
     _ensure_row(db, user_id, day)
     db.execute(
         text(
-            "UPDATE llm_usage SET cost_cents = MAX(0, cost_cents + :delta) "
+            "UPDATE llm_usage SET cost_cents = "
+            "CASE WHEN cost_cents + :delta < 0 THEN 0 ELSE cost_cents + :delta END "
             "WHERE user_id = :uid AND day = :day"
         ),
         {"delta": delta, "uid": user_id, "day": day},
@@ -187,7 +190,8 @@ def record_actual(db: Session, user_id: int, tokens: int) -> None:
     _ensure_row(db, user_id, day)
     db.execute(
         text(
-            "UPDATE llm_usage SET tokens = MAX(0, tokens + :tok) "
+            "UPDATE llm_usage SET tokens = "
+            "CASE WHEN tokens + :tok < 0 THEN 0 ELSE tokens + :tok END "
             "WHERE user_id = :uid AND day = :day"
         ),
         {"tok": tokens, "uid": user_id, "day": day},

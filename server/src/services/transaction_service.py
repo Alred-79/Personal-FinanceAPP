@@ -199,6 +199,7 @@ class TransactionService:
             date=str(tx_date),
             category=category,
             account_id=account_id,
+            user_id=user_id,  # WS2: denormalized tenant key (also backfilled on insert)
         )
         # Set extra columns (e.g. recurrence on Expense).
         if extra_fields:

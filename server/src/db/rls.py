@@ -25,6 +25,68 @@ from sqlalchemy.orm import Session
 # prior definition).
 TENANT_GUC = "app.user_id"
 
+# Credential tables that carry ``user_id`` but are DELIBERATELY NOT under RLS: they
+# are looked up by an unguessable secret hash PRE-authentication (before any tenant
+# context exists), so a policy would fail-close those lookups and break login / MCP
+# auth. The hash itself is the access control; cross-tenant isolation is meaningless
+# for a credential. App-layer queries still scope these by user_id where relevant.
+RLS_EXCLUDED_CREDENTIAL_TABLES: frozenset[str] = frozenset(
+    {
+        "refresh_tokens",  # login/signup/refresh/logout look up by token_hash pre-auth
+        "mcp_keys",  # MCP key resolution looks up by key_hash pre-auth
+    }
+)
+
+# The tenant-owned tables that carry an integer ``user_id`` and get a
+# tenant-isolation policy. SINGLE SOURCE OF TRUTH — consumed by BOTH the
+# create_all ``after_create`` listener (models.py) and the enable_rls Alembic
+# migration, so the list is maintained in exactly one place. ``users`` is the
+# owner table (no policy). The 6 children (expenses, income, rule_executions,
+# liability_adjustments, import_rows, campaign_progress) reach the user only via
+# a parent, so ``user_id`` is denormalized onto them (see the denormalize_user_id
+# migration). Non-tenant tables are excluded (category_settings, game_events,
+# llm_cache, projection_meta), as are the pre-auth credential tables above. A test
+# asserts this list matches every model carrying user_id minus those exclusions.
+TENANT_TABLES: tuple[str, ...] = (
+    # 29 with a direct user_id column (refresh_tokens + mcp_keys excluded above)
+    "accounts",
+    "assisted_actions",
+    "balance_snapshots",
+    "budgets",
+    "campaigns",
+    "canon_facts",
+    "challenges",
+    "experiment_exposures",
+    "goals",
+    "heat_contracts",
+    "import_sessions",
+    "liabilities",
+    "llm_usage",
+    "merchant_categories",
+    "merchant_lifecycle",
+    "merchant_tax_buckets",
+    "metric_fade",
+    "metric_rollups",
+    "mileage_logs",
+    "notifications",
+    "plans_of_record",
+    "rules",
+    "runs",
+    "scenarios",
+    "tax_documents",
+    "tax_tags",
+    "tokens",
+    "used_action_tokens",
+    "user_memory",
+    # 6 children with user_id denormalized on (WS2 denormalize_user_id migration)
+    "campaign_progress",
+    "expenses",
+    "import_rows",
+    "income",
+    "liability_adjustments",
+    "rule_executions",
+)
+
 _ENABLE_RLS_SQL = (
     "ALTER TABLE {table} ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE {table} FORCE ROW LEVEL SECURITY",

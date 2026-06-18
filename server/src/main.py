@@ -3,7 +3,7 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, APIRouter, HTTPException, Request
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -30,6 +30,7 @@ for _handler in logging.getLogger().handlers:
 
 from server.src.limiter import limiter
 from server.src.settings import settings
+from server.src.db.tenant import get_tenant_db
 from server.src.routers.auth import router as auth_router
 from server.src.routers.expenses import router as expenses_router
 from server.src.routers.income import router as income_router
@@ -187,33 +188,42 @@ async def oauth_protected_resource():
 # API routers
 # ---------------------------------------------------------------------------
 
+# auth_router runs PRE-authentication (login/signup/refresh/logout) — it must NOT
+# get the tenant dependency. Every other router is authenticated; bind the RLS
+# tenant for each of its requests via get_tenant_db (no-op unless enable_rls +
+# Postgres). The dependency also asserts auth, so an accidentally-public route on
+# an authed router would fail loudly in the suite.
 primary.include_router(auth_router)
-primary.include_router(plaid_router)
-primary.include_router(transactions_router)
-primary.include_router(expenses_router)
-primary.include_router(income_router)
-primary.include_router(accounts_router)
-primary.include_router(spend_router)
-primary.include_router(assistant_router)
-primary.include_router(goals_router)
-primary.include_router(users_router)
-primary.include_router(budgets_router)
-primary.include_router(recurring_router)
-primary.include_router(networth_router)
-primary.include_router(notifications_router)
-primary.include_router(memory_router)
-primary.include_router(subscriptions_router)
-primary.include_router(receipts_router)
-primary.include_router(imports_router)
-primary.include_router(tax_router)
-primary.include_router(forecast_router)
-primary.include_router(settings_router)
-primary.include_router(mcp_keys_router)
-primary.include_router(rules_router)
-primary.include_router(scenarios_router)
-primary.include_router(analytics_router)
-primary.include_router(game_router)
-primary.include_router(assisted_actions_router)
+_tenant_dep = [Depends(get_tenant_db)]
+for _router in (
+    plaid_router,
+    transactions_router,
+    expenses_router,
+    income_router,
+    accounts_router,
+    spend_router,
+    assistant_router,
+    goals_router,
+    users_router,
+    budgets_router,
+    recurring_router,
+    networth_router,
+    notifications_router,
+    memory_router,
+    subscriptions_router,
+    receipts_router,
+    imports_router,
+    tax_router,
+    forecast_router,
+    settings_router,
+    mcp_keys_router,
+    rules_router,
+    scenarios_router,
+    analytics_router,
+    game_router,
+    assisted_actions_router,
+):
+    primary.include_router(_router, dependencies=_tenant_dep)
 app.include_router(primary)
 
 

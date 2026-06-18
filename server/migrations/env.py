@@ -21,9 +21,15 @@ config = context.config
 
 # Override the placeholder URL from alembic.ini with the real one. This is what
 # lets ``database_url=sqlite:////tmp/bai_fresh.db alembic upgrade head`` work.
+# WS2: prefer ALEMBIC_DATABASE_URL when set. Under RLS the app connects as a
+# restricted, non-superuser role (pf_app) that CANNOT create policies / ALTER
+# tables; migrations must run as a BYPASSRLS owner role. Point ALEMBIC_DATABASE_URL
+# at that role so `alembic upgrade head` works while the app keeps DATABASE_URL.
 config.set_main_option(
     "sqlalchemy.url",
-    os.environ.get("DATABASE_URL") or os.environ.get("database_url", "sqlite:///finance_tracker.db"),
+    os.environ.get("ALEMBIC_DATABASE_URL")
+    or os.environ.get("DATABASE_URL")
+    or os.environ.get("database_url", "sqlite:///finance_tracker.db"),
 )
 
 # Interpret the config file for Python logging.

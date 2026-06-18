@@ -37,8 +37,13 @@ os.environ.setdefault("scheduler_enabled", "false")
 _TEST_DB_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
 if _TEST_DB_URL:
     os.environ["DATABASE_URL"] = _TEST_DB_URL
+    # Mirror the SQLite StaticPool single-connection model on Postgres so the
+    # request path, app-internal SessionLocal(), and the per-test db_session all
+    # share ONE connection/transaction (see db/session.py). Read by _make_engine
+    # at app-import time below — must be set first.
+    os.environ["PYTEST_PG_SHARED_CONN"] = "1"
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 
@@ -128,27 +133,67 @@ def rate_limited(monkeypatch):
     limiter.reset()
 
 
+@pytest.fixture(scope="session")
+def _pg_schema():
+    """Build the Postgres schema ONCE per session (DDL is expensive on real PG).
+
+    Only active when ``TEST_DATABASE_URL`` is set. Per-test isolation is then a
+    fast ``TRUNCATE ... RESTART IDENTITY CASCADE`` in the function-scoped
+    ``_engine`` fixture, not a per-test drop/create (which was ~0.7s/test of pure
+    DDL). ``RESTART IDENTITY`` resets sequences between tests so id-sensitive
+    tests behave like SQLite's per-test empty DB. This still exercises the
+    dialect-aware create_all path (PG triggers, RLS) — just once.
+    """
+    if not _TEST_DB_URL:
+        yield None
+        return
+    from server.src.db.session import engine as app_engine
+
+    # Drop first in case a prior crashed run left tables behind, then build a
+    # clean schema (fires the postgresql-guarded trigger/RLS DDL).
+    Base.metadata.drop_all(app_engine)
+    Base.metadata.create_all(app_engine)
+    try:
+        yield app_engine
+    finally:
+        Base.metadata.drop_all(app_engine)
+
+
 @pytest.fixture
-def _engine():
+def _engine(_pg_schema):
     """A fresh, empty DB per test.
 
     Default: in-memory SQLite (StaticPool keeps the single connection alive so the
     DB survives the whole test). When ``TEST_DATABASE_URL`` is set, reuse the
-    app's real engine (already pointed at Postgres via the env toggle at the top
-    of this file) and drop/create the schema per test for identical isolation —
-    this exercises the dialect-aware create_all path (PG triggers, RLS, etc.).
+    app's real engine (schema built once by ``_pg_schema``) and TRUNCATE every
+    table (RESTART IDENTITY) per test for fast, identical isolation.
     """
     if _TEST_DB_URL:
-        from server.src.db.session import engine as app_engine
-
-        # Drop first in case a prior crashed run left tables behind, then build a
-        # clean schema (fires the postgresql-guarded trigger/RLS DDL).
-        Base.metadata.drop_all(app_engine)
-        Base.metadata.create_all(app_engine)
-        try:
-            yield app_engine
-        finally:
-            Base.metadata.drop_all(app_engine)
+        app_engine = _pg_schema
+        # Fast per-test reset: empty every table and reset sequences. TRUNCATE
+        # bypasses row-level DELETE triggers (so the append-only game_events table
+        # is fine) and CASCADE handles FK ordering in one atomic statement.
+        # Introspect tables LIVE rather than from Base.metadata: game_projection_kv
+        # is created on-demand by ensure_kv and is NOT an ORM model, so a
+        # metadata-only truncate would let the game projections (XP, etc.) leak
+        # across tests. Exclude alembic_version (absent on the create_all path).
+        with app_engine.begin() as conn:
+            names = (
+                conn.execute(
+                    text(
+                        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+                        "AND tablename <> 'alembic_version'"
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if names:
+                joined = ", ".join(f'"{n}"' for n in names)
+                conn.execute(
+                    text(f"TRUNCATE TABLE {joined} RESTART IDENTITY CASCADE")
+                )
+        yield app_engine
         return
 
     engine = create_engine(

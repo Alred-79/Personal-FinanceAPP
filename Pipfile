@@ -43,6 +43,9 @@ scipy = "*"
 black = "*"
 pytest = "*"
 pytest-asyncio = "*"
+# Per-test timeout so a deadlock-prone test (e.g. cross-connection on Postgres)
+# fails fast instead of hanging the suite. Used as `pytest --timeout=60`.
+pytest-timeout = "*"
 httpx = "*"
 
 [requires]

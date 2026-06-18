@@ -86,15 +86,32 @@ def upgrade() -> None:
 
     # Append-only enforcement at the DB layer (guardrail against future bugs).
     # These mirror the SQLAlchemy after_create hook so a create_all DB (tests)
-    # gets the same guard.
-    op.execute(
-        "CREATE TRIGGER game_events_no_update BEFORE UPDATE ON game_events "
-        "BEGIN SELECT RAISE(ABORT, 'game_events is append-only'); END"
-    )
-    op.execute(
-        "CREATE TRIGGER game_events_no_delete BEFORE DELETE ON game_events "
-        "BEGIN SELECT RAISE(ABORT, 'game_events is append-only'); END"
-    )
+    # gets the same guard. Dialect-branched: SQLite uses RAISE(ABORT, ...) (not
+    # valid Postgres); Postgres uses a PL/pgSQL RAISE EXCEPTION function — exactly
+    # the forms in server/src/db/models.py.
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute(
+            "CREATE OR REPLACE FUNCTION game_events_append_only() RETURNS trigger "
+            "AS $$ BEGIN RAISE EXCEPTION 'game_events is append-only'; END; $$ "
+            "LANGUAGE plpgsql"
+        )
+        op.execute(
+            "CREATE TRIGGER game_events_no_update BEFORE UPDATE ON game_events "
+            "FOR EACH ROW EXECUTE FUNCTION game_events_append_only()"
+        )
+        op.execute(
+            "CREATE TRIGGER game_events_no_delete BEFORE DELETE ON game_events "
+            "FOR EACH ROW EXECUTE FUNCTION game_events_append_only()"
+        )
+    else:
+        op.execute(
+            "CREATE TRIGGER game_events_no_update BEFORE UPDATE ON game_events "
+            "BEGIN SELECT RAISE(ABORT, 'game_events is append-only'); END"
+        )
+        op.execute(
+            "CREATE TRIGGER game_events_no_delete BEFORE DELETE ON game_events "
+            "BEGIN SELECT RAISE(ABORT, 'game_events is append-only'); END"
+        )
 
     # ---- Migration B: additive columns on existing tables -------------------
     with op.batch_alter_table("users") as batch:
@@ -160,8 +177,13 @@ def downgrade() -> None:
     with op.batch_alter_table("users") as batch:
         batch.drop_column("game_mode")
 
-    op.execute("DROP TRIGGER IF EXISTS game_events_no_delete")
-    op.execute("DROP TRIGGER IF EXISTS game_events_no_update")
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("DROP TRIGGER IF EXISTS game_events_no_delete ON game_events")
+        op.execute("DROP TRIGGER IF EXISTS game_events_no_update ON game_events")
+        op.execute("DROP FUNCTION IF EXISTS game_events_append_only()")
+    else:
+        op.execute("DROP TRIGGER IF EXISTS game_events_no_delete")
+        op.execute("DROP TRIGGER IF EXISTS game_events_no_update")
     op.drop_table("llm_cache")
     op.drop_table("projection_meta")
     op.drop_index("ix_game_events_type", table_name="game_events")

@@ -48,10 +48,28 @@ def upgrade() -> None:
         sa.UniqueConstraint("user_id", "month", name="uq_run_user_month"),
     )
     op.create_index("ix_runs_user_id", "runs", ["user_id"])
-    op.execute(_MAP_IMMUTABLE_TRIGGER)
+    # Dialect-branched immutability trigger (see server/src/db/models.py). SQLite's
+    # RAISE(ABORT, ...) is not valid Postgres, so PG gets a PL/pgSQL function.
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute(
+            "CREATE OR REPLACE FUNCTION runs_map_json_immutable_fn() RETURNS trigger "
+            "AS $$ BEGIN IF OLD.map_json IS NOT NULL AND NEW.map_json <> OLD.map_json "
+            "THEN RAISE EXCEPTION 'runs.map_json is an immutable draft snapshot'; "
+            "END IF; RETURN NEW; END; $$ LANGUAGE plpgsql"
+        )
+        op.execute(
+            "CREATE TRIGGER runs_map_json_immutable BEFORE UPDATE OF map_json ON runs "
+            "FOR EACH ROW EXECUTE FUNCTION runs_map_json_immutable_fn()"
+        )
+    else:
+        op.execute(_MAP_IMMUTABLE_TRIGGER)
 
 
 def downgrade() -> None:
-    op.execute("DROP TRIGGER IF EXISTS runs_map_json_immutable")
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("DROP TRIGGER IF EXISTS runs_map_json_immutable ON runs")
+        op.execute("DROP FUNCTION IF EXISTS runs_map_json_immutable_fn()")
+    else:
+        op.execute("DROP TRIGGER IF EXISTS runs_map_json_immutable")
     op.drop_index("ix_runs_user_id", table_name="runs")
     op.drop_table("runs")

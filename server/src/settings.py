@@ -64,6 +64,22 @@ class Settings(BaseSettings):
     # implementation later is leader election (e.g. a Postgres
     # ``pg_try_advisory_lock``). Default True = current single-worker behavior.
     scheduler_leader: bool = True
+    # WS2 — Row-Level Security tenant isolation (Postgres only). Master switch.
+    # Default False so the SQLite dev/CI suite is a pure no-op (set_tenant /
+    # enable_rls already no-op on SQLite, the create_all RLS listener self-skips,
+    # and the enable_rls migration installs no policies). A Postgres deployment
+    # opts IN by setting enable_rls=true — at which point the app MUST connect as
+    # a non-superuser role and every request sets the tenant (both wired
+    # automatically). Read fresh off the singleton so tests can monkeypatch it.
+    # See server/src/db/rls.py and docs/MULTI-TENANT-DO-NOW.md.
+    enable_rls: bool = False
+    # WS2 — optional separate DB URL for the in-process scheduler. APScheduler runs
+    # in the app process, so its all-users batch jobs use the app's connection. With
+    # enable_rls=true the app connects as a NON-superuser (so RLS enforces requests),
+    # but those jobs must NOT be tenant-filtered. Point this at a BYPASSRLS / owner
+    # role URL so the scheduler bypasses RLS without per-job set_tenant. None
+    # (default) = reuse the app engine (correct whenever enable_rls is off).
+    scheduler_database_url: str | None = None
     # The Detangler's nightly pass (transfer/refund/duplicate flagging). On by
     # default; the per-pair notification dedup makes a re-fire harmless. Disable
     # to silence the nightly job without affecting the on-demand endpoint.

@@ -23,7 +23,9 @@ engine (the production shape), not an in-memory shared connection.
 
 import time
 from server.src.dates import parse_iso_date
+from server.src.db.rls import set_tenant
 from server.src.db.session import SessionLocal
+from server.src.settings import settings
 from server.src.mcp.annotations import (
     SPENDABLE_ASSUMPTIONS,
     SPENDABLE_CAVEATS,
@@ -206,6 +208,11 @@ def read(capability_token: str, resource: str, **params) -> object:
 
     # Step 2 — read-only session
     db = SessionLocal()
+    # WS2: bind the RLS tenant to the authenticated key's user (uid is authoritative
+    # from the verified capability claims). The finally-block rollback ends this
+    # transaction, so the SET LOCAL cannot leak to the next pooled use.
+    if settings.enable_rls:
+        set_tenant(db, uid)
     try:
         result = _dispatch(db, uid, resource, params, scopes)
         audit_record(
