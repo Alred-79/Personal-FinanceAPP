@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en" data-mode="full">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>persFin — (b) Game home · Expedition + Debts + Bestiary · on v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Spline+Sans+Mono:ital,wght@0,300..700;1,300..700&display=swap" rel="stylesheet" />
+<style>
+/* ====================================================================== */
+/*  (b) GAME HOME — Expedition voyage + Debts(territory) + Bestiary.       */
+/*  EXTENDS dynamic.html v2: burin cursor, breathing guilloché, parallax   */
+/*  tilt, coin/strike vocabulary all carried forward.                      */
+/*                                                                         */
+/*  Per memory reframes: Debts territory/boss = FULL-ONLY (ambient/off =   */
+/*  plain engraved debt schedule). This page demos `full`. Mode dial lets  */
+/*  you see ambient fall back to the plain schedule + static creatures.    */
+/*  COLOR LAW: red=boss ONLY, amber=game layer, green/ink=money(.figure).  */
+/* ====================================================================== */
+:root{
+  --background:44 42% 93%; --foreground:167 28% 14%;
+  --card:46 52% 96.5%; --muted-foreground:160 10% 37%;
+  --primary:164 40% 22%; --gold:42 56% 44%;
+  --rule:152 10% 72%; --rule-strong:162 16% 38%;
+  --ink-wash:160 18% 90%; --paper-high:48 60% 98%;
+  --debit:8 62% 41%; --credit:162 45% 26%; --chart-3:215 32% 40%;
+  --boss:5 68% 42%;
+  --radius:0rem; --ease-out:cubic-bezier(.23,1,.32,1); --ease-in-out:cubic-bezier(.77,0,.175,1);
+}
+.dark{
+  --background:168 30% 6.5%; --foreground:44 36% 87%;
+  --card:167 26% 9.5%; --muted-foreground:152 10% 56%;
+  --primary:156 30% 64%; --gold:43 62% 56%;
+  --rule:164 12% 20%; --rule-strong:154 16% 48%;
+  --ink-wash:166 20% 12%; --paper-high:166 22% 12%;
+  --debit:8 64% 58%; --credit:156 34% 56%; --chart-3:213 38% 62%;
+  --boss:5 72% 58%;
+}
+*{box-sizing:border-box;border-color:hsl(var(--rule))}
+body{margin:0;min-height:100vh;background:hsl(var(--background));color:hsl(var(--foreground));
+  font-family:"Instrument Sans",system-ui,sans-serif;font-feature-settings:"ss01" on;-webkit-font-smoothing:antialiased;
+  padding:2.5rem clamp(1rem,5vw,4rem) 8rem;position:relative;overflow-x:hidden;cursor:none}
+@media (pointer:coarse){body{cursor:auto}}
+h1,h2,h3,h4{font-family:"Fraunces",Georgia,serif;font-variation-settings:"opsz" 80;margin:0}
+::selection{background:hsl(var(--gold)/.85);color:hsl(167 30% 10%)}
+/* P0: engraved focus ring via outline */
+:focus-visible{outline:2px solid hsl(var(--gold));outline-offset:2px}
+body::after{content:"";position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:.05;mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")}
+.dark body::after{opacity:.07;mix-blend-mode:screen}
+#living{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.15}.dark #living{opacity:.2}
+#ink{position:fixed;inset:0;z-index:9000;pointer-events:none}
+#nib{position:fixed;z-index:10001;top:0;left:0;width:26px;height:26px;pointer-events:none;transform:translate(-3px,-2px);will-change:transform,color;color:hsl(var(--foreground));transition:color .15s var(--ease-out)}
+#nib g{transition:opacity .15s var(--ease-out),transform .18s var(--ease-out);transform-origin:13px 13px}
+#nib .g-manicule{opacity:0;transform:scale(.6) rotate(-12deg)}
+#nib.over-target{color:hsl(var(--gold))}
+#nib.over-target .g-burin{opacity:0;transform:scale(.6) rotate(12deg)}
+#nib.over-target .g-manicule{opacity:1;transform:scale(1) rotate(0)}
+@media (pointer:coarse){#nib,#ink{display:none}}
+
+.wrap{position:relative;z-index:1;max-width:1080px;margin:0 auto;display:grid;gap:2.4rem}
+.dept-label{font-size:.625rem;font-weight:600;letter-spacing:.32em;text-transform:uppercase;color:hsl(var(--muted-foreground))}
+.section-rule{display:flex;align-items:center;gap:.75rem;color:hsl(var(--muted-foreground));font-size:.7rem;letter-spacing:.28em;text-transform:uppercase}
+.section-rule::before,.section-rule::after{content:"";height:1px;flex:1;background:linear-gradient(to right,transparent,hsl(var(--rule-strong)/.5),transparent)}
+.figure{font-family:"Spline Sans Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;filter:none!important;text-shadow:none!important}
+.serial{font-family:"Spline Sans Mono",monospace;font-size:.7rem;letter-spacing:.18em;color:hsl(var(--muted-foreground))}
+.ink-credit{color:hsl(var(--credit))}.ink-debit{color:hsl(var(--debit))}
+
+.plate{position:relative;background:hsl(var(--card));border:1px solid hsl(var(--rule-strong)/.65);padding:1.6rem;
+  box-shadow:0 1px 0 hsl(var(--paper-high)) inset,0 2px 10px hsl(167 30% 12%/.07);overflow:hidden;
+  transform-style:preserve-3d;transition:box-shadow .25s ease,transform .12s ease-out}
+.plate::before{content:"";position:absolute;inset:3px;border:1px solid hsl(var(--rule-strong)/.28);pointer-events:none;z-index:5;transform:translateZ(20px)}
+@media (hover:hover) and (pointer:fine){.plate:hover{box-shadow:0 1px 0 hsl(var(--paper-high)) inset,0 18px 50px hsl(167 30% 12%/.18)}}
+.plate>*{transform:translateZ(30px)}
+.btn{font-family:"Instrument Sans";font-size:.8rem;font-weight:600;letter-spacing:.04em;background:hsl(var(--primary));color:hsl(46 52% 96%);border:none;padding:.6rem 1.1rem;cursor:none;transition:transform .13s var(--ease-out),box-shadow .13s var(--ease-out)}
+@media (hover:hover) and (pointer:fine){.btn:hover{box-shadow:0 5px 16px hsl(167 30% 12%/.2)}}
+.btn:active{transform:scale(.97)}
+.btn.ghost{background:transparent;border:1px solid hsl(var(--rule-strong)/.4);color:hsl(var(--foreground))}
+
+/* ---- EXPEDITION VOYAGE (the piece that was missing) ---- */
+.voyage-stage{position:relative;height:220px;border:1px solid hsl(var(--rule-strong)/.4);overflow:hidden;background:hsl(var(--ink-wash)/.4)}
+#voyage{display:block;width:100%;height:100%}
+.loadout{display:flex;gap:.6rem;margin-top:1rem;flex-wrap:wrap;align-items:center}
+.mod{font-family:"Spline Sans Mono",monospace;font-size:.74rem;border:1px solid hsl(var(--rule-strong)/.4);padding:.45rem .75rem;cursor:none;transition:transform .12s var(--ease-out),border-color .12s,background-color .12s;background:hsl(var(--card))}
+@media (hover:hover) and (pointer:fine){.mod:hover{transform:translateY(-2px)}}
+.mod[aria-pressed="true"]{border-color:hsl(var(--gold));background:hsl(var(--gold)/.14);color:hsl(var(--foreground))}
+.mod .k{color:hsl(var(--gold));margin-right:.4rem}
+.voyage-note{font-family:"Spline Sans Mono",monospace;font-size:.72rem;color:hsl(var(--muted-foreground));margin-left:auto}
+
+/* ---- DEBTS TERRITORY (full-only; ambient falls back to plain schedule) ---- */
+.terr-head{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;margin-bottom:.9rem;flex-wrap:wrap}
+.boss-name{font-family:"Fraunces",serif;font-size:1.4rem;font-weight:600;color:hsl(var(--boss))}
+.terr-stage{position:relative;height:210px;border:1px solid hsl(var(--rule-strong)/.4);overflow:hidden;background:hsl(var(--ink-wash)/.4)}
+#terr{display:block;width:100%;height:100%}
+.terr-hp{position:absolute;left:1rem;right:1rem;bottom:1rem;z-index:3}
+.hpbar{height:8px;background:hsl(var(--rule-strong)/.25);position:relative;border:1px solid hsl(var(--rule-strong)/.4)}
+.hpfill{position:absolute;inset:0;width:100%;transform-origin:left;background:hsl(var(--boss));transition:transform .5s var(--ease-out)}
+.terr-meta{display:flex;justify-content:space-between;margin-top:.4rem;font-family:"Spline Sans Mono",monospace;font-size:.72rem}
+.vanquished{position:absolute;inset:0;display:grid;place-items:center;z-index:4;pointer-events:none;opacity:0}
+.vanquished.go{opacity:1}
+.vanquished span{font-family:"Fraunces",serif;font-weight:700;letter-spacing:.14em;color:hsl(var(--gold));border:3px solid hsl(var(--gold));padding:.4rem 1.4rem;transform:rotate(-9deg);background:hsl(var(--card)/.7)}
+.vanquished.go span{animation:stamp-in .6s var(--ease-out) both}
+@keyframes stamp-in{0%{opacity:0;transform:scale(1.7) rotate(-14deg)}55%{opacity:1;transform:scale(.93) rotate(-7deg)}100%{opacity:1;transform:scale(1) rotate(-9deg)}}
+/* plain schedule shown only in ambient/off */
+.schedule{display:none}
+.schedule .row{display:grid;grid-template-columns:1fr auto auto;gap:1rem;padding:.55rem 0;border-bottom:1px solid hsl(var(--rule));font-family:"Spline Sans Mono",monospace;font-size:.82rem}
+html:not([data-mode="full"]) .terr-visual{display:none}
+html:not([data-mode="full"]) .schedule{display:block}
+.pay-row{display:flex;gap:.6rem;align-items:center;margin-top:1rem;flex-wrap:wrap}
+.pay-row .note{font-family:"Spline Sans Mono",monospace;font-size:.72rem;color:hsl(var(--muted-foreground))}
+
+/* ---- BESTIARY ---- */
+.bestiary{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1px;background:hsl(var(--rule-strong)/.25);border:1px solid hsl(var(--rule-strong)/.3)}
+.spec{background:hsl(var(--card));padding:1.1rem;display:grid;gap:.5rem;justify-items:center;text-align:center}
+.spec svg{width:138px;height:104px;color:hsl(var(--rule-strong))}
+.spec .tame .body{color:hsl(var(--gold))}
+.spec h4{font-family:"Fraunces",serif;font-size:.95rem;font-weight:600}
+.spec .lat{font-style:italic;color:hsl(var(--muted-foreground));font-size:.74rem}
+.spec .status{font-family:"Spline Sans Mono",monospace;font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;padding:.15rem .5rem;border:1px solid hsl(var(--rule-strong)/.4);color:hsl(var(--muted-foreground))}
+.spec .status.tamed{color:hsl(var(--gold));border-color:hsl(var(--gold)/.5)}
+/* creatures animate in full; ambient = static engraved (per memory reframe) */
+@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.025)}}
+@keyframes blink{0%,92%,100%{opacity:1}95%{opacity:.15}}
+html[data-mode="full"] .spec svg .body{animation:breathe 3s var(--ease-out) infinite;transform-origin:center}
+html[data-mode="full"] .spec svg .eye{animation:blink 5.5s steps(1) infinite}
+
+.toolbar{position:fixed;top:1rem;right:1rem;z-index:10000;display:flex;gap:.5rem;background:hsl(var(--card));border:1px solid hsl(var(--rule-strong)/.5);padding:.4rem}
+.toolbar button{font-family:"Spline Sans Mono",monospace;font-size:.7rem;background:transparent;border:1px solid hsl(var(--rule));padding:.3rem .6rem;cursor:none;color:hsl(var(--foreground))}
+.reveal{opacity:0;transform:translateY(24px);transition:opacity .7s var(--ease-out),transform .7s var(--ease-out)}
+.reveal.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){
+  *{transition-duration:.01ms!important;animation:none!important}.reveal{opacity:1;transform:none}
+  body{cursor:auto}#nib,#ink{display:none}
+  .hpfill{transition:none!important}.vanquished span{transform:rotate(-9deg)!important}
+}
+</style>
+</head>
+<body>
+<canvas id="living" aria-hidden="true"></canvas>
+<canvas id="ink" aria-hidden="true"></canvas>
+<svg id="nib" viewBox="0 0 26 26" aria-hidden="true">
+  <g class="g-burin" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M3 23 L9 17 L13 21 L7 27 Z" transform="translate(0,-4)"/><path d="M9 17 L20 6 a2 2 0 0 1 3 3 L12 20 Z" transform="translate(0,-4)" fill="currentColor" fill-opacity="0.15"/></g>
+  <g class="g-manicule" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14 q-1 -3 2 -3 q1 -3 3 -2 q0 -4 3 -3 q1 -4 3 -2 l0 6 q3 -2 5 0 q2 1 1 4 q-1 5 -5 7 q-4 2 -8 -1 q-3 -2 -4 -6 q-1 -2 1 -3 q1 0 2 2" fill="currentColor" fill-opacity="0.12"/></g>
+</svg>
+<div class="toolbar"><button id="mode" aria-label="Switch game mode (full / ambient)">⛯ mode: full</button><button id="theme" aria-label="Toggle light or dark theme">◐ theme</button></div>
+
+<div class="wrap">
+  <header class="reveal">
+    <p class="dept-label">Department of Personal Accounts · Sheet V — The Voyage</p>
+    <h1 style="font-size:clamp(1.8rem,4vw,2.8rem);margin-top:.4rem">This month's expedition</h1>
+    <p style="color:hsl(var(--muted-foreground));max-width:46rem;margin-top:.5rem">
+      Same living paper as the baseline. The month is a <strong>voyage</strong> — choose your loadout, then sail the legs.
+      Debts are <em>territories</em> reclaimed by paying down (full-mode only; switch to ambient for the plain engraved schedule).
+      Habit-monsters are catalogued in the bestiary. Red is the boss and only the boss.
+    </p>
+  </header>
+
+  <!-- EXPEDITION -->
+  <p class="section-rule reveal">Expedition · choose a loadout, then sail</p>
+  <section class="plate reveal" data-tilt>
+    <div class="voyage-stage"><canvas id="voyage" role="img" aria-label="This month's expedition route: leg 4 of 9, currently at port The Narrows."></canvas></div>
+    <div class="loadout">
+      <button class="mod" aria-pressed="true" data-mod="tailwind"><span class="k">↟</span>Tailwind · +10% to goal funding</button>
+      <button class="mod" data-mod="frugal"><span class="k">◇</span>Frugal Seas · −15% dining drift</button>
+      <button class="mod" data-mod="storm"><span class="k">⛆</span>Storm Watch · early overdraft alerts</button>
+      <span class="voyage-note" id="leg">leg 3 of 5 · port: Mid-Month Provisions</span>
+    </div>
+    <div class="pay-row"><button class="btn" id="sail">Sail the next leg →</button><span class="note">modifiers come from /game/expedition/ (currently dropped by the UI)</span></div>
+  </section>
+
+  <!-- DEBTS TERRITORY -->
+  <p class="section-rule reveal">Debts · territory to reclaim</p>
+  <section class="plate reveal" data-tilt>
+    <div class="terr-head">
+      <div><div class="boss-name">The Revolving Balance</div><div class="serial">Visa ···· 4821 · 22.9% APR</div></div>
+      <div style="text-align:right"><div class="dept-label">Remaining</div><div class="figure ink-debit" id="terr-bal" style="font-size:1.5rem">$3,400.00</div></div>
+    </div>
+    <div class="terr-visual">
+      <div class="terr-stage">
+        <canvas id="terr" role="img" aria-label="Debt territory map showing remaining balance being reclaimed as you pay down."></canvas>
+        <div class="vanquished" id="vanq"><span>VANQUISHED</span></div>
+        <div class="terr-hp"><div class="hpbar"><div class="hpfill" id="hpfill"></div></div>
+          <div class="terr-meta"><span class="figure" id="hp-left">$3,400 territory held</span><span style="color:hsl(var(--muted-foreground))">forecast-driven</span></div></div>
+      </div>
+    </div>
+    <div class="schedule">
+      <div class="row"><span>Payoff in 14 months at $260/mo</span><span class="figure">$260.00</span><span class="figure ink-debit">$3,400.00</span></div>
+      <div class="row"><span>Interest saved vs minimum</span><span class="figure ink-credit">+$640</span><span class="figure">2027-04</span></div>
+      <p class="serial" style="margin-top:.6rem">Ambient/off mode: a plain engraved debt schedule — no boss, no territory.</p>
+    </div>
+    <div class="pay-row"><button class="btn" id="pay">Make a $680 payment</button><button class="btn ghost" id="reset-terr">Reset</button><span class="note">area = remaining balance · it recedes as you reclaim ground</span></div>
+  </section>
+
+  <!-- BESTIARY -->
+  <p class="section-rule reveal">Bestiary · habit-monster specimens</p>
+  <section class="plate reveal" style="padding:0">
+    <div class="bestiary">
+      <div class="spec"><svg viewBox="0 0 160 110" aria-hidden="true"><g class="body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 70 q14 -26 40 -22 q18 -22 44 -8 q22 -2 30 14 q-10 8 -26 6 q6 14 -8 20 q-14 6 -22 -4 q-18 10 -34 0 q-16 -8 -24 -6 Z"/><path d="M104 56 q8 -10 18 -8 M112 64 q10 -6 18 -2"/><circle class="eye" cx="58" cy="58" r="2.4" fill="currentColor"/></g></svg><h4>The Latte Kraken</h4><div class="lat">Caffea quotidiana</div><div class="status">UNTAMED · $112/mo</div></div>
+      <div class="spec"><svg viewBox="0 0 160 110" aria-hidden="true"><g class="body tame" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M24 64 q20 -34 56 -28 q30 -8 56 16 q-8 16 -28 14 q4 16 -14 22 q-20 6 -30 -8 q-22 8 -38 -4 q-8 -10 -2 -24 Z"/><path d="M16 60 q-8 4 -6 14 M20 70 q-10 6 -8 16"/><circle class="eye" cx="70" cy="46" r="2.6" fill="currentColor"/></g></svg><h4>The Subscription Hydra</h4><div class="lat">Recurrens multiceps</div><div class="status tamed">TAMED · cancelled 3</div></div>
+      <div class="spec"><svg viewBox="0 0 160 110" aria-hidden="true"><g class="body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M30 72 q6 -30 34 -30 q10 -18 32 -12 q26 4 30 28 q-2 18 -22 20 q-2 14 -20 12 q-20 -2 -22 -16 q-16 0 -12 -16 Z"/><path d="M96 44 l10 -12 M104 50 l14 -8"/><circle class="eye" cx="62" cy="54" r="2.4" fill="currentColor"/></g></svg><h4>The Impulse Leviathan</h4><div class="lat">Emptio repentina</div><div class="status">STALKING · $0 this wk</div></div>
+    </div>
+  </section>
+</div>
+
+<script>
+const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
+const coarse=matchMedia('(pointer:coarse)').matches;
+const htmlEl=document.documentElement;
+const css=()=>getComputedStyle(htmlEl);const C=v=>`hsl(${css().getPropertyValue(v).trim()})`;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+/* ---- v2 living guilloché ---- */
+(function(){const cv=document.getElementById('living'),ctx=cv.getContext('2d');let W,H,DPR=Math.min(devicePixelRatio||1,2);
+  const rng=mulberry32(421018%100000);
+  function size(){W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px'}size();addEventListener('resize',size);
+  const rings=9,params=[];for(let r=0;r<rings;r++)params.push({k1:3+Math.floor(rng()*9),k2:2+Math.floor(rng()*7),ph:rng()*6.28});let t=0;
+  function frame(){t+=0.005;ctx.clearRect(0,0,W,H);ctx.strokeStyle=C('--rule-strong');ctx.lineWidth=DPR*0.6;const cx=W*0.5,cy=H*0.5,base=Math.min(W,H)*0.46;
+    for(let r=0;r<rings;r++){const p=params[r];ctx.globalAlpha=(0.5-r*0.045);ctx.beginPath();const amp=base*(1-r*0.06)*(1+0.04*Math.sin(t*1.3+r));
+      for(let a=0;a<=6.2832;a+=0.03){const rad=amp*(0.6+0.4*Math.sin(p.k1*a+p.ph+t))*(0.75+0.25*Math.cos(p.k2*a));const x=cx+rad*Math.cos(a),y=cy+rad*Math.sin(a);a===0?ctx.moveTo(x,y):ctx.lineTo(x,y)}ctx.closePath();ctx.stroke()}
+    ctx.globalAlpha=1;if(!reduce)requestAnimationFrame(frame)}frame();})();
+
+/* ---- v2 burin cursor ---- */
+(function(){if(coarse||reduce)return;const nib=document.getElementById('nib');
+  const cv=document.getElementById('ink'),ctx=cv.getContext('2d');let W,H,DPR=Math.min(devicePixelRatio||1,2);
+  function size(){W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px'}size();addEventListener('resize',size);let px=null,py=null;
+  const INTERACTIVE='button,a,input,.summon,.opt,.mod,[role="button"],label';
+  addEventListener('pointermove',e=>{nib.style.transform=`translate(${e.clientX-3}px,${e.clientY-2}px)`;const t=e.target.closest&&e.target.closest(INTERACTIVE);nib.classList.toggle('over-target',!!t);if(px!=null){ctx.strokeStyle=C('--gold');ctx.lineWidth=DPR*1.1;ctx.lineCap='round';ctx.globalAlpha=0.5;ctx.beginPath();ctx.moveTo(px*DPR,py*DPR);ctx.lineTo(e.clientX*DPR,e.clientY*DPR);ctx.stroke();ctx.globalAlpha=1}px=e.clientX;py=e.clientY});
+  function fade(){ctx.globalCompositeOperation='destination-out';ctx.fillStyle='rgba(0,0,0,0.06)';ctx.fillRect(0,0,W,H);ctx.globalCompositeOperation='source-over';requestAnimationFrame(fade)}fade();
+  addEventListener('pointerdown',e=>{ctx.fillStyle=C('--gold');ctx.globalAlpha=.6;ctx.beginPath();ctx.arc(e.clientX*DPR,e.clientY*DPR,3*DPR,0,6.29);ctx.fill();ctx.globalAlpha=1});})();
+
+/* ---- v2 parallax tilt ---- */
+document.querySelectorAll('[data-tilt]').forEach(el=>{el.addEventListener('pointermove',e=>{if(reduce)return;const r=el.getBoundingClientRect();const px=(e.clientX-r.left)/r.width,py=(e.clientY-r.top)/r.height;el.style.transform=`perspective(900px) rotateX(${(0.5-py)*4}deg) rotateY(${(px-0.5)*5}deg)`});el.addEventListener('pointerleave',()=>el.style.transform='')});
+
+/* ---- EXPEDITION voyage map ---- */
+(function(){
+  const cv=document.getElementById('voyage'),ctx=cv.getContext('2d');let W,H,DPR=Math.min(devicePixelRatio||1,2);
+  const rng=mulberry32(33);const N=5;
+  const ports=[];for(let i=0;i<=N;i++)ports.push({x:0.08+i/N*0.84,y:0.5+Math.sin(i*1.3+rng())*0.22});
+  let leg=3, prog=0, raf;
+  function size(){const r=cv.getBoundingClientRect();W=cv.width=r.width*DPR;H=cv.height=r.height*DPR}
+  function draw(){size();ctx.clearRect(0,0,W,H);
+    // rhumb-line grid
+    ctx.strokeStyle=C('--rule');ctx.globalAlpha=.3;ctx.lineWidth=DPR;
+    for(let gx=0;gx<=10;gx++){ctx.beginPath();ctx.moveTo(gx/10*W,0);ctx.lineTo(gx/10*W,H);ctx.stroke()}ctx.globalAlpha=1;
+    // route: sailed (gold solid) up to leg, then dashed ahead
+    ctx.lineWidth=2*DPR;
+    for(let i=0;i<N;i++){const a=ports[i],b=ports[i+1];const sailed=i<leg||(i===leg&&false);
+      ctx.beginPath();ctx.strokeStyle=i<leg?C('--gold'):C('--rule-strong');ctx.globalAlpha=i<leg?0.9:0.5;ctx.setLineDash(i<leg?[]:[5*DPR,5*DPR]);
+      ctx.moveTo(a.x*W,a.y*H);
+      if(i===leg){const mx=a.x+(b.x-a.x)*prog,my=a.y+(b.y-a.y)*prog;ctx.lineTo(mx*W,my*H);}else ctx.lineTo(b.x*W,b.y*H);
+      ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1}
+    // ports
+    ports.forEach((p,i)=>{const reached=i<=leg;ctx.fillStyle=reached?C('--gold'):'transparent';ctx.strokeStyle=reached?C('--gold'):C('--rule-strong');ctx.lineWidth=1.6*DPR;
+      ctx.beginPath();ctx.arc(p.x*W,p.y*H,4*DPR,0,6.29);reached?ctx.fill():ctx.stroke();
+      ctx.fillStyle=C('--muted-foreground');ctx.font=`${9.5*DPR}px "Spline Sans Mono",monospace`;ctx.textAlign='center';ctx.globalAlpha=.8;ctx.fillText('▮ '+(i+1),p.x*W,p.y*H-10*DPR);ctx.globalAlpha=1});
+    // the ship at current position
+    const a=ports[leg]||ports[N],b=ports[Math.min(leg+1,N)];const sx=(a.x+(b.x-a.x)*prog)*W,sy=(a.y+(b.y-a.y)*prog)*H;
+    ctx.fillStyle=C('--foreground');ctx.font=`${16*DPR}px serif`;ctx.textAlign='center';ctx.fillText('⛵',sx,sy+5*DPR);
+  }
+  function sail(){if(leg>=N)return;cancelAnimationFrame(raf);const t0=performance.now();
+    if(reduce){leg++;prog=0;draw();updLeg();return}
+    (function step(now){prog=Math.min(1,(now-t0)/900);draw();if(prog<1)raf=requestAnimationFrame(step);else{leg++;prog=0;draw();updLeg()}})(t0);}
+  function updLeg(){document.getElementById('leg').textContent=leg>=N?'voyage complete · 5 of 5':('leg '+(leg+1)+' of '+N+' · port: '+['Departure','First Provisions','Mid-Month Provisions','The Narrows','Harbor'][Math.min(leg,4)])}
+  document.getElementById('sail').onclick=sail;draw();updLeg();addEventListener('resize',draw);
+  document.querySelectorAll('.mod').forEach(m=>m.onclick=()=>m.setAttribute('aria-pressed',m.getAttribute('aria-pressed')==='true'?'false':'true'));
+})();
+
+/* ---- DEBTS territory reclaim ---- */
+(function(){
+  const cv=document.getElementById('terr'),ctx=cv.getContext('2d');const START=3400;let held=START,shown=START;
+  const balEl=document.getElementById('terr-bal'),hpFill=document.getElementById('hpfill'),hpLeft=document.getElementById('hp-left');
+  let W,H,DPR=Math.min(devicePixelRatio||1,2);const rng=mulberry32(99);const n=60,coast=[];for(let i=0;i<=n;i++)coast.push(0.55+rng()*0.4);
+  function size(){const r=cv.getBoundingClientRect();W=cv.width=r.width*DPR;H=cv.height=r.height*DPR}
+  function draw(){size();ctx.clearRect(0,0,W,H);const frac=shown/START;const topY=(1-frac)*H*0.78+H*0.10;
+    ctx.beginPath();ctx.moveTo(0,H);for(let i=0;i<=n;i++)ctx.lineTo(i/n*W,topY*(0.82+coast[i]*0.22));ctx.lineTo(W,H);ctx.closePath();
+    ctx.fillStyle=C('--boss');ctx.globalAlpha=0.16;ctx.fill();ctx.globalAlpha=0.55;ctx.lineWidth=1.6*DPR;ctx.strokeStyle=C('--boss');ctx.stroke();ctx.globalAlpha=1;
+    ctx.save();ctx.beginPath();ctx.moveTo(0,H);for(let i=0;i<=n;i++)ctx.lineTo(i/n*W,topY*(0.82+coast[i]*0.22));ctx.lineTo(W,H);ctx.closePath();ctx.clip();
+    ctx.strokeStyle=C('--boss');ctx.globalAlpha=0.12;ctx.lineWidth=DPR;for(let x=-H;x<W;x+=8*DPR){ctx.beginPath();ctx.moveTo(x,H);ctx.lineTo(x+H,0);ctx.stroke()}ctx.restore();ctx.globalAlpha=1;
+    ctx.strokeStyle=C('--gold');ctx.globalAlpha=0.10;ctx.lineWidth=DPR;for(let gx=0;gx<=n;gx+=6){ctx.beginPath();ctx.moveTo(gx/n*W,0);ctx.lineTo(gx/n*W,topY);ctx.stroke()}ctx.globalAlpha=1}
+  let raf;function tick(){shown+=(held-shown)*0.12;if(Math.abs(shown-held)<0.5)shown=held;draw();
+    balEl.textContent='$'+shown.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});hpFill.style.transform='scaleX('+(shown/START)+')';hpLeft.textContent='$'+Math.round(shown).toLocaleString()+' territory held';
+    if(shown!==held)raf=requestAnimationFrame(tick);else if(held<=0)document.getElementById('vanq').classList.add('go')}
+  function set(v){held=Math.max(0,v);cancelAnimationFrame(raf);if(reduce){shown=held;draw();balEl.textContent='$'+held.toFixed(2);hpFill.style.transform='scaleX('+(held/START)+')';hpLeft.textContent='$'+Math.round(held).toLocaleString()+' territory held';if(held<=0)document.getElementById('vanq').classList.add('go')}else tick()}
+  document.getElementById('pay').onclick=()=>{document.getElementById('vanq').classList.remove('go');set(held-680)};
+  document.getElementById('reset-terr').onclick=()=>{document.getElementById('vanq').classList.remove('go');held=START;shown=START;draw();balEl.textContent='$3,400.00';hpFill.style.transform='scaleX(1)';hpLeft.textContent='$3,400 territory held'};
+  draw();addEventListener('resize',draw);
+})();
+
+/* ---- toolbar ---- */
+let modeI=2;const modes=['off','ambient','full'];
+document.getElementById('mode').onclick=e=>{modeI=(modeI+1)%3;htmlEl.setAttribute('data-mode',modes[modeI]);e.target.textContent='⛯ mode: '+modes[modeI];dispatchEvent(new Event('resize'))};
+document.getElementById('theme').onclick=()=>{htmlEl.classList.toggle('dark');dispatchEvent(new Event('resize'))};
+const io=new IntersectionObserver(es=>es.forEach(x=>{if(x.isIntersecting)x.target.classList.add('in')}),{threshold:.12});
+document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+</script>
+</body>
+</html>

@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en" data-mode="ambient">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>persFin — Core (ambient) prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Spline+Sans+Mono:ital,wght@0,300..700;1,300..700&display=swap" rel="stylesheet" />
+<style>
+/* ====================================================================== */
+/*  CORE (ambient) PROTOTYPE — Engraver's Ledger, restrained-but-alive.    */
+/*  Bucket A only. NO living-guilloche motion, creatures, 3D mint, page-   */
+/*  turns, CRT, or sound. The honest "is the calm baseline alive?" test.   */
+/* ====================================================================== */
+:root{
+  --background:44 42% 93%; --foreground:167 28% 14%;
+  --card:46 52% 96.5%; --muted-foreground:160 10% 37%;
+  --primary:164 40% 22%; --accent:42 56% 44%;
+  --gold:42 56% 44%; --gold-soft:44 55% 86%;
+  --rule:152 10% 72%; --rule-strong:162 16% 38%;
+  --ink-wash:160 18% 90%; --paper-high:48 60% 98%;
+  --debit:8 62% 41%; --credit:162 45% 26%;
+  --chart-3:215 32% 40%;
+  --radius:0rem;
+  /* time-of-day ink (full-only in the real app; here pinned to neutral) */
+  --paper-warm:0deg;
+}
+.dark{
+  --background:168 30% 6.5%; --foreground:44 36% 87%;
+  --card:167 26% 9.5%; --muted-foreground:152 10% 56%;
+  --primary:156 30% 64%; --accent:43 62% 56%;
+  --gold:43 62% 56%; --gold-soft:45 30% 18%;
+  --rule:164 12% 20%; --rule-strong:154 16% 48%;
+  --ink-wash:166 20% 12%; --paper-high:166 22% 12%;
+  --debit:8 64% 58%; --credit:156 34% 56%; --chart-3:213 38% 62%;
+}
+*{box-sizing:border-box;border-color:hsl(var(--rule))}
+html{scrollbar-color:hsl(var(--rule-strong)/.5) transparent}
+body{
+  margin:0;min-height:100vh;background:hsl(var(--background));color:hsl(var(--foreground));
+  font-family:"Instrument Sans","Helvetica Neue",system-ui,sans-serif;font-feature-settings:"ss01" on;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  padding:2.5rem clamp(1rem,5vw,4rem) 6rem;position:relative;
+}
+h1,h2,h3,h4{font-family:"Fraunces",Georgia,serif;font-variation-settings:"opsz" 80;margin:0}
+::selection{background:hsl(var(--gold)/.85);color:hsl(167 30% 10%)}
+/* paper grain */
+body::after{content:"";position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:.05;mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")}
+.dark body::after{opacity:.07;mix-blend-mode:screen}
+
+/* ---- MOOD WATERMARK (carries meaning: solvent vs dipping) ---- */
+.mood-watermark{position:fixed;inset:0;z-index:0;pointer-events:none;display:grid;place-items:center;opacity:.05}
+.mood-watermark svg{width:min(70vw,640px);height:auto;color:hsl(var(--rule-strong))}
+.dark .mood-watermark{opacity:.08}
+
+.wrap{position:relative;z-index:1;max-width:1080px;margin:0 auto;display:grid;gap:2.25rem}
+.dept-label{font-size:.625rem;font-weight:600;letter-spacing:.32em;text-transform:uppercase;color:hsl(var(--muted-foreground))}
+.section-rule{display:flex;align-items:center;gap:.75rem;color:hsl(var(--muted-foreground));font-size:.7rem;letter-spacing:.28em;text-transform:uppercase}
+.section-rule::before,.section-rule::after{content:"";height:1px;flex:1;background:linear-gradient(to right,transparent,hsl(var(--rule-strong)/.5),transparent)}
+.microprint{font-family:"Spline Sans Mono",monospace;font-size:5.5px;letter-spacing:.22em;line-height:1;text-transform:uppercase;white-space:nowrap;overflow:hidden;color:hsl(var(--rule-strong)/.55);user-select:none}
+.intaglio{font-family:"Fraunces",Georgia,serif;font-variation-settings:"opsz" 144;font-weight:600;letter-spacing:-.01em;font-variant-numeric:lining-nums;
+  text-shadow:0 1px 0 hsl(var(--paper-high)),0 -1px 0 hsl(167 30% 12%/.18)}
+.dark .intaglio{text-shadow:0 1px 0 hsl(168 40% 3%/.9),0 -1px 0 hsl(44 36% 87%/.12)}
+.ledger-figures,.figure{font-family:"Spline Sans Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;filter:none!important;text-shadow:none!important}
+.serial{font-family:"Spline Sans Mono",monospace;font-size:.7rem;letter-spacing:.18em;color:hsl(var(--muted-foreground))}
+
+/* ---- PLATE w/ RAKING-LIGHT depth (Bucket A hover) ---- */
+.plate{position:relative;background:hsl(var(--card));border:1px solid hsl(var(--rule-strong)/.65);padding:1.5rem 1.6rem;
+  box-shadow:0 1px 0 hsl(var(--paper-high)) inset,0 2px 10px hsl(167 30% 12%/.07);
+  transition:box-shadow .25s ease, transform .25s ease;overflow:hidden;
+  /* raking light: a soft highlight follows the cursor via --mx/--my */
+  --mx:50%; --my:0%;
+}
+.plate::before{content:"";position:absolute;inset:3px;border:1px solid hsl(var(--rule-strong)/.28);pointer-events:none;z-index:2}
+.plate::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:1;opacity:0;transition:opacity .3s ease;
+  background:radial-gradient(420px circle at var(--mx) var(--my),hsl(var(--paper-high)/.9),transparent 45%)}
+.plate:hover{box-shadow:0 1px 0 hsl(var(--paper-high)) inset,0 10px 30px hsl(167 30% 12%/.13);transform:translateY(-2px)}
+.plate:hover::after{opacity:.7}
+.dark .plate{box-shadow:0 1px 0 hsl(44 36% 87%/.04) inset,0 2px 14px hsl(168 40% 2%/.5)}
+.dark .plate::after{background:radial-gradient(420px circle at var(--mx) var(--my),hsl(var(--gold)/.10),transparent 45%)}
+
+.press{transition:transform .15s ease,box-shadow .15s ease;cursor:pointer}
+.press:active{transform:translateY(1px);box-shadow:inset 0 2px 4px hsl(167 30% 12%/.25)}
+
+/* hero */
+.hero{display:grid;gap:1.4rem;grid-template-columns:1.3fr 1fr;align-items:center}
+@media (max-width:720px){.hero{grid-template-columns:1fr}}
+.guilloche-corner{position:absolute;top:-30px;right:-30px;width:180px;height:180px;color:hsl(var(--gold)/.32);z-index:0;pointer-events:none}
+.figure-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:hsl(var(--rule-strong)/.2);border:1px solid hsl(var(--rule-strong)/.3)}
+.figure-cell{background:hsl(var(--card));padding:.85rem 1rem}
+.figure-cell .dept-label{margin-bottom:.3rem}
+.figure-cell .v{font-family:"Spline Sans Mono",monospace;font-variant-numeric:tabular-nums;font-size:1.05rem}
+.ink-debit{color:hsl(var(--debit))} .ink-credit{color:hsl(var(--credit))}
+
+/* ---- SEA-CHART ---- */
+.seachart{position:relative}
+.sounding{position:absolute;display:grid;place-items:center;width:74px;height:74px;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,hsl(var(--gold)/.95),hsl(42 56% 34%));color:hsl(46 52% 96%);
+  font-family:"Spline Sans Mono",monospace;font-size:.78rem;text-align:center;line-height:1.05;
+  box-shadow:0 4px 14px hsl(167 30% 12%/.35);border:2px solid hsl(46 52% 96%/.4);transform:rotate(-8deg)}
+.sounding small{font-size:.5rem;letter-spacing:.1em;opacity:.85;text-transform:uppercase}
+
+/* ---- AGING WAX SEAL row ---- */
+.seal-row{display:flex;gap:1.5rem;flex-wrap:wrap;align-items:flex-end}
+.seal{position:relative;display:grid;place-items:center;border-radius:50%;
+  background:radial-gradient(circle at 36% 30%,hsl(var(--gold)/.95),hsl(42 56% 30%));
+  color:hsl(46 52% 96%);font-family:"Spline Sans Mono",monospace;text-align:center;
+  box-shadow:0 3px 10px hsl(167 30% 12%/.3)}
+.seal .lbl{font-size:.5rem;letter-spacing:.06em;text-transform:uppercase;line-height:1}
+.seal .n{font-family:"Fraunces",serif;font-weight:600}
+
+/* ---- EMPTY-STATE certificate ---- */
+.cert{position:relative;text-align:center;padding:3rem 2rem;border:2px double hsl(var(--rule-strong)/.6);background:hsl(var(--card))}
+.cert .frame{position:absolute;inset:10px;border:1px solid hsl(var(--gold)/.45);pointer-events:none}
+.cert h3{font-size:1.6rem;margin-bottom:.5rem}
+.cert p{color:hsl(var(--muted-foreground));max-width:30rem;margin:0 auto 1.25rem}
+
+/* star-chart (engraved document, static) */
+.starchart{position:relative;height:160px;border:1px solid hsl(var(--rule-strong)/.4);background:
+  radial-gradient(1px 1px at 20% 30%,hsl(var(--gold)/.8),transparent),
+  radial-gradient(1px 1px at 65% 55%,hsl(var(--foreground)/.5),transparent),
+  radial-gradient(2px 2px at 80% 25%,hsl(var(--gold)),transparent),
+  radial-gradient(1px 1px at 40% 70%,hsl(var(--foreground)/.5),transparent),
+  radial-gradient(1.5px 1.5px at 52% 40%,hsl(var(--gold)/.9),transparent),
+  hsl(var(--card))}
+
+.btn{font-family:"Instrument Sans",sans-serif;font-size:.8rem;font-weight:600;letter-spacing:.04em;
+  background:hsl(var(--primary));color:hsl(46 52% 96%);border:none;padding:.6rem 1.2rem;cursor:pointer}
+.row{display:grid;grid-template-columns:1fr auto auto;gap:1.5rem;padding:.7rem 0;border-bottom:1px solid hsl(var(--rule));align-items:center;font-family:"Spline Sans Mono",monospace;font-size:.85rem;transition:background-color .2s ease}
+.row:hover{background:hsl(var(--ink-wash)/.7)}
+.row .man{opacity:0;transform:translateX(-4px);transition:.2s;color:hsl(var(--gold))}
+.row:hover .man{opacity:1;transform:translateX(0)}
+
+/* entrances */
+@keyframes rise-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes ink-in{from{opacity:0;filter:blur(3px)}to{opacity:1;filter:blur(0)}}
+@keyframes stamp-in{0%{opacity:0;transform:scale(1.7) rotate(-14deg)}60%{opacity:1;transform:scale(.94) rotate(-7deg)}100%{opacity:1;transform:scale(1) rotate(-8deg)}}
+.animate-rise{animation:rise-in .5s cubic-bezier(.22,1,.36,1) both}
+.animate-ink{animation:ink-in .6s ease-out both}
+.delay-1{animation-delay:.06s}.delay-2{animation-delay:.12s}.delay-3{animation-delay:.18s}.delay-4{animation-delay:.24s}
+
+.toolbar{position:fixed;top:1rem;right:1rem;z-index:10000;display:flex;gap:.5rem;background:hsl(var(--card));border:1px solid hsl(var(--rule-strong)/.5);padding:.4rem}
+.toolbar button{font-family:"Spline Sans Mono",monospace;font-size:.7rem;background:transparent;border:1px solid hsl(var(--rule));padding:.3rem .6rem;cursor:pointer;color:hsl(var(--foreground))}
+.toolbar button.on{background:hsl(var(--gold)/.85);color:hsl(167 30% 10%)}
+
+@media (prefers-reduced-motion:reduce){
+  .animate-rise,.animate-ink{animation:none}
+  *{transition-duration:.01ms!important}
+}
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <button id="theme">◐ theme</button>
+  <button id="mood-toggle">⛅ mood: solvent</button>
+</div>
+
+<!-- MOOD WATERMARK (rising sun = solvent) -->
+<div class="mood-watermark" id="mood">
+  <svg viewBox="0 0 200 120" id="mood-svg" aria-hidden="true"><!-- sun --><g stroke="currentColor" stroke-width="1.2" fill="none"><circle cx="100" cy="95" r="26"/><g id="rays"></g><line x1="20" y1="95" x2="180" y2="95"/></g></svg>
+</div>
+
+<div class="wrap">
+  <header>
+    <p class="dept-label">Department of Personal Accounts · Core (ambient) preview</p>
+    <h1 style="font-size:clamp(1.8rem,4vw,2.8rem);margin-top:.4rem">The Engraver's Ledger</h1>
+    <p style="color:hsl(var(--muted-foreground));max-width:42rem;margin-top:.5rem">
+      Restrained-but-alive baseline. Hover the plates (raking light), watch the figures, toggle the mood.
+      None of the full-mode drama (living-guilloché motion, creatures, 3D mint, CRT) is here — this is what
+      the everyday <em>ambient</em> experience feels like.
+    </p>
+  </header>
+
+  <!-- HERO BANKNOTE: seeded guilloche shape + microprint + serial -->
+  <section class="plate animate-ink" data-tilt>
+    <svg class="guilloche-corner" id="guilloche" viewBox="-100 -100 200 200" aria-hidden="true"></svg>
+    <p class="dept-label">Projected balance · Form 90</p>
+    <div class="hero" style="margin-top:.6rem">
+      <div>
+        <div class="intaglio" style="font-size:clamp(2.4rem,7vw,4rem)" id="balance">$4,210.18</div>
+        <p style="color:hsl(var(--muted-foreground));margin:.5rem 0 0">starting from $3,180.00 · remains solvent</p>
+        <p class="serial" id="serial" style="margin-top:.8rem">No. — · seeded from your figures</p>
+      </div>
+      <div class="figure-grid">
+        <div class="figure-cell"><div class="dept-label">Lowest point</div><div class="v ink-credit">$240.10</div></div>
+        <div class="figure-cell"><div class="dept-label">Reached on</div><div class="v">06-22</div></div>
+        <div class="figure-cell"><div class="dept-label">Total outflows</div><div class="v ink-debit">$1,910.00</div></div>
+        <div class="figure-cell"><div class="dept-label">Net change</div><div class="v">+$1,030.18</div></div>
+      </div>
+    </div>
+    <div class="microprint" id="microprint" style="margin-top:1.2rem"></div>
+  </section>
+
+  <!-- SEA-CHART (self-inks once on load) -->
+  <p class="section-rule">Cashflow Sea-Chart</p>
+  <section class="plate seachart" data-tilt>
+    <svg viewBox="0 0 800 280" width="100%" height="280" id="sea" aria-label="Forecast as an engraved sea-chart">
+      <!-- depth bands (CI) drawn by JS -->
+    </svg>
+    <div class="sounding" id="sounding" style="left:62%;top:60%"><span><b>27%</b><br><small>overdraft</small></span></div>
+  </section>
+
+  <!-- AGING SEAL: progression you feel -->
+  <p class="section-rule">A streak seal ages as it grows</p>
+  <section class="plate seal-row">
+    <div style="text-align:center"><div class="seal" data-age="1"></div><p class="serial" style="margin-top:.5rem">1 week</p></div>
+    <div style="text-align:center"><div class="seal" data-age="5"></div><p class="serial" style="margin-top:.5rem">5 weeks</p></div>
+    <div style="text-align:center"><div class="seal" data-age="12"></div><p class="serial" style="margin-top:.5rem">12 weeks</p></div>
+    <div style="text-align:center"><div class="seal" data-age="52"></div><p class="serial" style="margin-top:.5rem">1 year</p></div>
+  </section>
+
+  <!-- LEDGER rows w/ manicule -->
+  <p class="section-rule">Ledger</p>
+  <section class="plate">
+    <div class="row"><span>06-12 · Whole Foods</span><span class="ink-debit">−$84.20</span><span class="man">☞</span></div>
+    <div class="row"><span>06-11 · Payroll</span><span class="ink-credit">+$2,400.00</span><span class="man">☞</span></div>
+    <div class="row"><span>06-10 · Con Edison</span><span class="ink-debit">−$140.00</span><span class="man">☞</span></div>
+  </section>
+
+  <!-- EMPTY STATE showpiece -->
+  <p class="section-rule">Showpiece empty state (new account)</p>
+  <section class="cert animate-rise">
+    <div class="frame"></div>
+    <p class="dept-label">Certificate of Account</p>
+    <h3>Awaiting First Entry</h3>
+    <p>This account has been issued but not yet inscribed. Record your first transaction to begin the ledger.</p>
+    <button class="btn press">Record first entry</button>
+  </section>
+
+  <!-- engraved star-chart (goals as a document, static) -->
+  <p class="section-rule">Goals · engraved star-chart (static; live starfield is full-mode only)</p>
+  <section class="plate"><div class="starchart"></div></section>
+</div>
+
+<script>
+// ---------- seeded PRNG (mirrors the app's mulberry32) ----------
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+// seed from "real data" (net worth) so the banknote is uniquely the user's
+const NET_WORTH=421018; // cents
+const seed=NET_WORTH%100000;
+const rng=mulberry32(seed);
+
+// ---------- data-seeded guilloche corner ----------
+(function(){
+  const svg=document.getElementById('guilloche');const NS='http://www.w3.org/2000/svg';
+  const rings=7;
+  for(let r=0;r<rings;r++){
+    const k1=3+Math.floor(rng()*9), k2=2+Math.floor(rng()*7), amp=60-r*5, phase=rng()*Math.PI*2;
+    let d='';
+    for(let a=0;a<=360;a+=2){const t=a*Math.PI/180;
+      const rad=amp*(0.6+0.4*Math.sin(k1*t+phase))*(0.7+0.3*Math.cos(k2*t));
+      const x=rad*Math.cos(t), y=rad*Math.sin(t); d+=(a===0?'M':'L')+x.toFixed(1)+' '+y.toFixed(1)}
+    d+='Z';
+    const p=document.createElementNS(NS,'path');p.setAttribute('d',d);p.setAttribute('fill','none');
+    p.setAttribute('stroke','currentColor');p.setAttribute('stroke-width','0.5');
+    p.setAttribute('vector-effect','non-scaling-stroke');p.setAttribute('opacity',(0.85-r*0.09).toFixed(2));
+    svg.appendChild(p)}
+})();
+
+// ---------- deterministic serial from data ----------
+(function(){
+  const L='ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const s=L[Math.floor(rng()*24)]+L[Math.floor(rng()*24)]+'-'+String(seed).padStart(5,'0');
+  document.getElementById('serial').textContent='No. '+s+' · issued '+new Date().toISOString().slice(0,10);
+})();
+
+// ---------- meaningful microprint (encodes real-ish data, repeated) ----------
+(function(){
+  const motto='PAY TO THE ORDER OF YOUR FUTURE SELF · ACCT 0042 · NET '+ (NET_WORTH/100).toFixed(2)+' · ';
+  document.getElementById('microprint').textContent=motto.repeat(20);
+})();
+
+// ---------- raking-light: plates respond to cursor ----------
+document.querySelectorAll('.plate').forEach(el=>{
+  el.addEventListener('pointermove',e=>{const r=el.getBoundingClientRect();
+    el.style.setProperty('--mx',((e.clientX-r.left)/r.width*100)+'%');
+    el.style.setProperty('--my',((e.clientY-r.top)/r.height*100)+'%')});
+});
+
+// ---------- sea-chart that self-inks once ----------
+(function(){
+  const svg=document.getElementById('sea');const NS='http://www.w3.org/2000/svg';
+  const W=800,H=280, n=40;
+  // a balance path that dips then recovers
+  const pts=[];let bal=H*0.35;
+  for(let i=0;i<=n;i++){bal+=(Math.sin(i/4)*8)+(i<22?6:-4)+(rng()-0.5)*6;pts.push([i/n*W,Math.max(40,Math.min(H-30,bal))])}
+  const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
+  const ink=getComputedStyle(document.documentElement);
+  const C=v=>`hsl(${ink.getPropertyValue(v)})`;
+  // depth bands (confidence interval) — concentric washes below the line
+  for(let b=3;b>=1;b--){
+    let d='M0 '+H+' ';pts.forEach(p=>d+='L'+p[0].toFixed(1)+' '+(p[1]+b*14).toFixed(1)+' ');d+='L'+W+' '+H+' Z';
+    const band=document.createElementNS(NS,'path');band.setAttribute('d',d);
+    band.setAttribute('fill',C('--chart-3'));band.setAttribute('opacity',(0.05*b).toFixed(2));
+    svg.appendChild(band)}
+  // shoal line (zero)
+  const zero=document.createElementNS(NS,'line');zero.setAttribute('x1',0);zero.setAttribute('x2',W);
+  zero.setAttribute('y1',H-30);zero.setAttribute('y2',H-30);zero.setAttribute('stroke',C('--debit'));
+  zero.setAttribute('stroke-dasharray','5 5');zero.setAttribute('opacity','.6');svg.appendChild(zero);
+  // coastline
+  let d='M'+pts[0][0]+' '+pts[0][1];pts.forEach(p=>d+=' L'+p[0].toFixed(1)+' '+p[1].toFixed(1));
+  const path=document.createElementNS(NS,'path');path.setAttribute('d',d);path.setAttribute('fill','none');
+  path.setAttribute('stroke',C('--chart-3'));path.setAttribute('stroke-width','2');svg.appendChild(path);
+  // ink-in animation (draw L->R) unless reduced motion
+  const len=path.getTotalLength();
+  if(!reduce){path.style.strokeDasharray=len;path.style.strokeDashoffset=len;
+    path.animate([{strokeDashoffset:len},{strokeDashoffset:0}],{duration:1100,easing:'cubic-bezier(.22,1,.36,1)',fill:'forwards'})}
+  // hatch the gridlines (engraving feel)
+  for(let gx=0;gx<=n;gx+=5){const l=document.createElementNS(NS,'line');l.setAttribute('x1',gx/n*W);l.setAttribute('x2',gx/n*W);l.setAttribute('y1',20);l.setAttribute('y2',H-30);l.setAttribute('stroke',C('--rule'));l.setAttribute('opacity','.4');svg.insertBefore(l,svg.firstChild)}
+})();
+
+// ---------- aging wax seals (detail scales with streak length) ----------
+document.querySelectorAll('.seal[data-age]').forEach(el=>{
+  const age=+el.dataset.age;
+  const size=44+Math.min(age,52)*0.9;        // grows up to ~91px
+  const teeth=20+Math.min(age,52);            // more milled teeth with age
+  el.style.width=el.style.height=size+'px';
+  // milled edge via conic ticks
+  el.style.background=`radial-gradient(circle at 36% 30%,hsl(var(--gold)/.95),hsl(42 56% ${34-Math.min(age,52)*0.12}%))`;
+  el.innerHTML=`<div><div class="n" style="font-size:${10+age*0.18}px">${age}</div><div class="lbl">wk</div></div>`;
+  // ornamentation ring (denser with age)
+  el.style.boxShadow=`0 3px 10px hsl(167 30% 12%/.3), 0 0 0 ${1+Math.floor(age/12)}px hsl(var(--gold)/.4)`;
+});
+
+// ---------- mood watermark rays ----------
+(function(){const rays=document.getElementById('rays');for(let a=200;a<=340;a+=14){const t=a*Math.PI/180;const x1=100+30*Math.cos(t),y1=95+30*Math.sin(t),x2=100+44*Math.cos(t),y2=95+44*Math.sin(t);rays.innerHTML+=`<line x1="${x1.toFixed(0)}" y1="${y1.toFixed(0)}" x2="${x2.toFixed(0)}" y2="${y2.toFixed(0)}"/>`}})();
+
+// ---------- toolbar ----------
+document.getElementById('theme').onclick=()=>document.documentElement.classList.toggle('dark');
+let solvent=true;
+document.getElementById('mood-toggle').onclick=e=>{
+  solvent=!solvent;e.target.textContent=solvent?'⛅ mood: solvent':'⛈ mood: dipping';
+  const svg=document.getElementById('mood-svg');
+  if(solvent){svg.innerHTML='<g stroke="currentColor" stroke-width="1.2" fill="none"><circle cx="100" cy="95" r="26"/><g id="rays"></g><line x1="20" y1="95" x2="180" y2="95"/></g>';
+    const rays=svg.querySelector('#rays');for(let a=200;a<=340;a+=14){const t=a*Math.PI/180;rays.innerHTML+=`<line x1="${(100+30*Math.cos(t)).toFixed(0)}" y1="${(95+30*Math.sin(t)).toFixed(0)}" x2="${(100+44*Math.cos(t)).toFixed(0)}" y2="${(95+44*Math.sin(t)).toFixed(0)}"/>`}}
+  else{// storm clouds
+    svg.innerHTML='<g stroke="currentColor" stroke-width="1.2" fill="none"><path d="M50 70 q-14 0 -14 -14 q0 -14 16 -13 q4 -16 22 -12 q10 -12 26 -2 q18 -6 22 12 q14 1 12 15 q-2 12 -16 11 Z"/><line x1="70" y1="86" x2="62" y2="104"/><line x1="96" y1="86" x2="88" y2="104"/><line x1="122" y1="86" x2="114" y2="104"/></g>'}
+};
+</script>
+</body>
+</html>

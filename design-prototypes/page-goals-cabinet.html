@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en" data-mode="full">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>persFin — (c) Goals constellation + Cabinet · on v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Spline+Sans+Mono:ital,wght@0,300..700;1,300..700&display=swap" rel="stylesheet" />
+<style>
+/* ====================================================================== */
+/*  (c) GOALS CONSTELLATION + CABINET — on the dynamic.html v2 baseline.    */
+/*  Goals = engraved star-CHART (document) in ambient; live particle       */
+/*  starfield + ignite-on-complete in full (per memory reframe).           */
+/*  Cabinet = collectible minted coins + aging wax seals — carries the v2  */
+/*  coin-strike + 3D-tilt vocabulary forward; seals patina with streak.    */
+/*  COLOR LAW: amber=game (stars/coins/seals); money $ = .figure.          */
+/* ====================================================================== */
+:root{
+  --background:44 42% 93%; --foreground:167 28% 14%;
+  --card:46 52% 96.5%; --muted-foreground:160 10% 37%;
+  --primary:164 40% 22%; --gold:42 56% 44%;
+  --rule:152 10% 72%; --rule-strong:162 16% 38%;
+  --ink-wash:160 18% 90%; --paper-high:48 60% 98%;
+  --debit:8 62% 41%; --credit:162 45% 26%;
+  --radius:0rem; --ease-out:cubic-bezier(.23,1,.32,1);
+}
+.dark{
+  --background:168 30% 6.5%; --foreground:44 36% 87%;
+  --card:167 26% 9.5%; --muted-foreground:152 10% 56%;
+  --primary:156 30% 64%; --gold:43 62% 56%;
+  --rule:164 12% 20%; --rule-strong:154 16% 48%;
+  --ink-wash:166 20% 12%; --paper-high:166 22% 12%;
+  --debit:8 64% 58%; --credit:156 34% 56%;
+}
+*{box-sizing:border-box;border-color:hsl(var(--rule))}
+body{margin:0;min-height:100vh;background:hsl(var(--background));color:hsl(var(--foreground));
+  font-family:"Instrument Sans",system-ui,sans-serif;font-feature-settings:"ss01" on;-webkit-font-smoothing:antialiased;
+  padding:2.5rem clamp(1rem,5vw,4rem) 8rem;position:relative;overflow-x:hidden;cursor:none}
+@media (pointer:coarse){body{cursor:auto}}
+h1,h2,h3,h4{font-family:"Fraunces",Georgia,serif;font-variation-settings:"opsz" 80;margin:0}
+::selection{background:hsl(var(--gold)/.85);color:hsl(167 30% 10%)}
+/* P0: engraved focus ring via outline */
+:focus-visible{outline:2px solid hsl(var(--gold));outline-offset:2px}
+body::after{content:"";position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:.05;mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")}
+.dark body::after{opacity:.07;mix-blend-mode:screen}
+#living{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.15}.dark #living{opacity:.2}
+#ink{position:fixed;inset:0;z-index:9000;pointer-events:none}
+#nib{position:fixed;z-index:10001;top:0;left:0;width:26px;height:26px;pointer-events:none;transform:translate(-3px,-2px);will-change:transform,color;color:hsl(var(--foreground));transition:color .15s var(--ease-out)}
+#nib g{transition:opacity .15s var(--ease-out),transform .18s var(--ease-out);transform-origin:13px 13px}
+#nib .g-manicule{opacity:0;transform:scale(.6) rotate(-12deg)}
+#nib.over-target{color:hsl(var(--gold))}
+#nib.over-target .g-burin{opacity:0;transform:scale(.6) rotate(12deg)}
+#nib.over-target .g-manicule{opacity:1;transform:scale(1) rotate(0)}
+@media (pointer:coarse){#nib,#ink{display:none}}
+
+.wrap{position:relative;z-index:1;max-width:1080px;margin:0 auto;display:grid;gap:2.4rem}
+.dept-label{font-size:.625rem;font-weight:600;letter-spacing:.32em;text-transform:uppercase;color:hsl(var(--muted-foreground))}
+.section-rule{display:flex;align-items:center;gap:.75rem;color:hsl(var(--muted-foreground));font-size:.7rem;letter-spacing:.28em;text-transform:uppercase}
+.section-rule::before,.section-rule::after{content:"";height:1px;flex:1;background:linear-gradient(to right,transparent,hsl(var(--rule-strong)/.5),transparent)}
+.figure{font-family:"Spline Sans Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;filter:none!important;text-shadow:none!important}
+.serial{font-family:"Spline Sans Mono",monospace;font-size:.7rem;letter-spacing:.18em;color:hsl(var(--muted-foreground))}
+.ink-credit{color:hsl(var(--credit))}
+
+.plate{position:relative;background:hsl(var(--card));border:1px solid hsl(var(--rule-strong)/.65);padding:1.6rem;
+  box-shadow:0 1px 0 hsl(var(--paper-high)) inset,0 2px 10px hsl(167 30% 12%/.07);overflow:hidden;
+  transform-style:preserve-3d;transition:box-shadow .25s var(--ease-out),transform .12s var(--ease-out)}
+.plate::before{content:"";position:absolute;inset:3px;border:1px solid hsl(var(--rule-strong)/.28);pointer-events:none;z-index:5;transform:translateZ(20px)}
+@media (hover:hover) and (pointer:fine){.plate:hover{box-shadow:0 1px 0 hsl(var(--paper-high)) inset,0 18px 50px hsl(167 30% 12%/.18)}}
+.plate>*{transform:translateZ(30px)}
+.btn{font-family:"Instrument Sans";font-size:.8rem;font-weight:600;letter-spacing:.04em;background:hsl(var(--primary));color:hsl(46 52% 96%);border:none;padding:.6rem 1.1rem;cursor:none;transition:transform .13s var(--ease-out),box-shadow .13s var(--ease-out)}
+@media (hover:hover) and (pointer:fine){.btn:hover{box-shadow:0 5px 16px hsl(167 30% 12%/.2)}}
+.btn:active{transform:scale(.97)}
+.btn.ghost{background:transparent;border:1px solid hsl(var(--rule-strong)/.4);color:hsl(var(--foreground))}
+
+/* ---- CONSTELLATION ---- */
+.sky{position:relative;height:300px;border:1px solid hsl(var(--rule-strong)/.4);overflow:hidden;background:radial-gradient(120% 100% at 50% 0%,hsl(var(--card)),hsl(var(--ink-wash)/.5))}
+.dark .sky{background:radial-gradient(120% 100% at 50% 0%,hsl(167 30% 12%),hsl(168 40% 5%))}
+#sky{display:block;width:100%;height:100%}
+.legend{display:flex;gap:1.2rem;margin-top:.7rem;font-family:"Spline Sans Mono",monospace;font-size:.7rem;color:hsl(var(--muted-foreground));flex-wrap:wrap;align-items:center}
+.legend i{display:inline-block;width:8px;height:8px;margin-right:.35rem;vertical-align:middle}
+.legend .lit{background:hsl(var(--gold));border-radius:50%;box-shadow:0 0 6px hsl(var(--gold))}
+.legend .dim{background:transparent;border:1px solid hsl(var(--rule-strong));border-radius:50%}
+
+/* ---- CABINET (collection of minted coins + aging seals) ---- */
+.cabinet{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:1px;background:hsl(var(--rule-strong)/.22);border:1px solid hsl(var(--rule-strong)/.3)}
+.slot{background:hsl(var(--card));padding:1.2rem .8rem;display:grid;gap:.55rem;justify-items:center;text-align:center;min-height:168px;align-content:center}
+.slot.empty{opacity:.5}
+.coin{width:84px;height:84px;border-radius:50%;position:relative;transform-style:preserve-3d;transition:transform .1s ease-out;cursor:none;
+  background:radial-gradient(circle at 38% 32%,hsl(var(--gold)),hsl(42 56% 26%));box-shadow:0 8px 22px hsl(167 30% 12%/.4),inset 0 0 0 3px hsl(46 52% 96%/.25);display:grid;place-items:center}
+.coin .face{font-family:"Fraunces",serif;font-weight:600;font-size:.6rem;color:hsl(46 52% 96%);text-align:center;line-height:1.05;transform:translateZ(8px);padding:0 .3rem}
+.coin .glint{position:absolute;inset:0;border-radius:50%;pointer-events:none;background:linear-gradient(115deg,transparent 30%,hsl(46 52% 99%/.7) 48%,transparent 60%);background-size:250% 250%;background-position:150% 150%}
+@keyframes strike{0%{transform:scale(2) rotateY(180deg);opacity:0}55%{transform:scale(.92) rotateY(0)}100%{transform:scale(1) rotateY(0)}}
+@keyframes glintsweep{from{background-position:150% 150%}to{background-position:-50% -50%}}
+.coin.struck{animation:strike .6s cubic-bezier(.34,1.4,.64,1) both}
+.coin.struck .glint{animation:glintsweep .7s ease-out .25s both}
+/* aging wax seal — patina with streak length */
+.seal{position:relative;display:grid;place-items:center;border-radius:50%;background:radial-gradient(circle at 36% 30%,hsl(var(--gold)/.95),hsl(42 56% 30%));color:hsl(46 52% 96%);font-family:"Spline Sans Mono",monospace;text-align:center;box-shadow:0 3px 10px hsl(167 30% 12%/.3)}
+.seal .n{font-family:"Fraunces",serif;font-weight:600}.seal .lbl{font-size:.46rem;letter-spacing:.06em;text-transform:uppercase;line-height:1}
+.slot .cap{font-family:"Spline Sans Mono",monospace;font-size:.64rem;color:hsl(var(--muted-foreground));letter-spacing:.04em}
+.slot .name{font-family:"Fraunces",serif;font-size:.84rem;font-weight:600}
+
+.toolbar{position:fixed;top:1rem;right:1rem;z-index:10000;display:flex;gap:.5rem;background:hsl(var(--card));border:1px solid hsl(var(--rule-strong)/.5);padding:.4rem}
+.toolbar button{font-family:"Spline Sans Mono",monospace;font-size:.7rem;background:transparent;border:1px solid hsl(var(--rule));padding:.3rem .6rem;cursor:none;color:hsl(var(--foreground))}
+.reveal{opacity:0;transform:translateY(24px);transition:opacity .7s var(--ease-out),transform .7s var(--ease-out)}
+.reveal.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation:none!important}.reveal{opacity:1;transform:none}body{cursor:auto}#nib,#ink{display:none}}
+</style>
+</head>
+<body>
+<canvas id="living" aria-hidden="true"></canvas>
+<canvas id="ink" aria-hidden="true"></canvas>
+<svg id="nib" viewBox="0 0 26 26" aria-hidden="true">
+  <g class="g-burin" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M3 23 L9 17 L13 21 L7 27 Z" transform="translate(0,-4)"/><path d="M9 17 L20 6 a2 2 0 0 1 3 3 L12 20 Z" transform="translate(0,-4)" fill="currentColor" fill-opacity="0.15"/></g>
+  <g class="g-manicule" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14 q-1 -3 2 -3 q1 -3 3 -2 q0 -4 3 -3 q1 -4 3 -2 l0 6 q3 -2 5 0 q2 1 1 4 q-1 5 -5 7 q-4 2 -8 -1 q-3 -2 -4 -6 q-1 -2 1 -3 q1 0 2 2" fill="currentColor" fill-opacity="0.12"/></g>
+</svg>
+<div class="toolbar"><button id="mode" aria-label="Switch game mode (full / ambient)">⛯ mode: full</button><button id="theme" aria-label="Toggle light or dark theme">◐ theme</button></div>
+
+<div class="wrap">
+  <header class="reveal">
+    <p class="dept-label">Department of Personal Accounts · Sheet IV — Goals & Cabinet</p>
+    <h1 style="font-size:clamp(1.8rem,4vw,2.8rem);margin-top:.4rem">Charted destinations</h1>
+    <p style="color:hsl(var(--muted-foreground));max-width:46rem;margin-top:.5rem">
+      Same living paper as the baseline. Goals are <strong>stars on an engraved sky</strong>; completing one
+      <em>ignites</em> it and mints a commemorative coin into your <strong>Cabinet</strong> below — where struck coins
+      and aging wax seals collect. Strike a coin (it tilts in 3-D, like the baseline). Amber is the game layer; the money stays literal.
+    </p>
+  </header>
+
+  <!-- CONSTELLATION -->
+  <p class="section-rule reveal">Goals · the constellation</p>
+  <section class="plate reveal" data-tilt>
+    <div class="sky"><canvas id="sky" role="img" aria-label="Goals as an engraved star chart: each goal is a star you navigate toward; completed goals are lit."></canvas></div>
+    <div class="legend">
+      <span><i class="lit"></i>ignited (reached)</span>
+      <span><i class="dim"></i>charted (in progress)</span>
+      <span style="margin-left:auto"><button class="btn ghost" id="ignite">Complete “Emergency fund” → mint its coin</button></span>
+    </div>
+  </section>
+
+  <!-- CABINET -->
+  <p class="section-rule reveal">The Cabinet · struck coins & aged seals</p>
+  <section class="plate reveal" style="padding:0">
+    <div class="cabinet" id="cabinet"></div>
+  </section>
+  <p class="serial reveal" style="text-align:center">Click any coin to re-strike · seals gain milled teeth and patina as the streak grows</p>
+</div>
+
+<script>
+const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
+const coarse=matchMedia('(pointer:coarse)').matches;
+const htmlEl=document.documentElement;
+const css=()=>getComputedStyle(htmlEl);const C=v=>`hsl(${css().getPropertyValue(v).trim()})`;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+/* ---- v2 living guilloché ---- */
+(function(){const cv=document.getElementById('living'),ctx=cv.getContext('2d');let W,H,DPR=Math.min(devicePixelRatio||1,2);const rng=mulberry32(421018%100000);
+  function size(){W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px'}size();addEventListener('resize',size);
+  const rings=9,params=[];for(let r=0;r<rings;r++)params.push({k1:3+Math.floor(rng()*9),k2:2+Math.floor(rng()*7),ph:rng()*6.28});let t=0;
+  function frame(){t+=0.005;ctx.clearRect(0,0,W,H);ctx.strokeStyle=C('--rule-strong');ctx.lineWidth=DPR*0.6;const cx=W*0.5,cy=H*0.5,base=Math.min(W,H)*0.46;
+    for(let r=0;r<rings;r++){const p=params[r];ctx.globalAlpha=(0.5-r*0.045);ctx.beginPath();const amp=base*(1-r*0.06)*(1+0.04*Math.sin(t*1.3+r));
+      for(let a=0;a<=6.2832;a+=0.03){const rad=amp*(0.6+0.4*Math.sin(p.k1*a+p.ph+t))*(0.75+0.25*Math.cos(p.k2*a));const x=cx+rad*Math.cos(a),y=cy+rad*Math.sin(a);a===0?ctx.moveTo(x,y):ctx.lineTo(x,y)}ctx.closePath();ctx.stroke()}
+    ctx.globalAlpha=1;if(!reduce)requestAnimationFrame(frame)}frame();})();
+
+/* ---- v2 burin ---- */
+(function(){if(coarse||reduce)return;const nib=document.getElementById('nib');const cv=document.getElementById('ink'),ctx=cv.getContext('2d');let W,H,DPR=Math.min(devicePixelRatio||1,2);
+  function size(){W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px'}size();addEventListener('resize',size);let px=null,py=null;
+  const INTERACTIVE='button,a,input,.summon,.opt,.mod,[role="button"],label,.coin';
+  addEventListener('pointermove',e=>{nib.style.transform=`translate(${e.clientX-3}px,${e.clientY-2}px)`;const t=e.target.closest&&e.target.closest(INTERACTIVE);nib.classList.toggle('over-target',!!t);if(px!=null){ctx.strokeStyle=C('--gold');ctx.lineWidth=DPR*1.1;ctx.lineCap='round';ctx.globalAlpha=0.5;ctx.beginPath();ctx.moveTo(px*DPR,py*DPR);ctx.lineTo(e.clientX*DPR,e.clientY*DPR);ctx.stroke();ctx.globalAlpha=1}px=e.clientX;py=e.clientY});
+  function fade(){ctx.globalCompositeOperation='destination-out';ctx.fillStyle='rgba(0,0,0,0.06)';ctx.fillRect(0,0,W,H);ctx.globalCompositeOperation='source-over';requestAnimationFrame(fade)}fade();
+  addEventListener('pointerdown',e=>{ctx.fillStyle=C('--gold');ctx.globalAlpha=.6;ctx.beginPath();ctx.arc(e.clientX*DPR,e.clientY*DPR,3*DPR,0,6.29);ctx.fill();ctx.globalAlpha=1});})();
+
+document.querySelectorAll('[data-tilt]').forEach(el=>{el.addEventListener('pointermove',e=>{if(reduce)return;const r=el.getBoundingClientRect();const px=(e.clientX-r.left)/r.width,py=(e.clientY-r.top)/r.height;el.style.transform=`perspective(900px) rotateX(${(0.5-py)*4}deg) rotateY(${(px-0.5)*5}deg)`});el.addEventListener('pointerleave',()=>el.style.transform='')});
+
+/* ---- CONSTELLATION ---- */
+let mintEmergency=null; // hook so igniting mints a coin
+(function(){
+  const cv=document.getElementById('sky'),ctx=cv.getContext('2d');let W,H,DPR=Math.min(devicePixelRatio||1,2);const r=mulberry32(7);
+  const stars=[{x:.22,y:.34,lit:true,name:'Card paid'},{x:.5,y:.22,lit:true,name:'1mo cushion'},{x:.72,y:.42,lit:false,name:'Emergency fund',target:true},{x:.42,y:.64,lit:false,name:'Vacation'},{x:.82,y:.72,lit:false,name:'New laptop'}];
+  const dust=Array.from({length:70},()=>({x:r(),y:r(),s:r()*1.2+0.2,a:r()*0.4+0.18}));
+  let ignition=0,raf;
+  function size(){const rc=cv.getBoundingClientRect();W=cv.width=rc.width*DPR;H=cv.height=rc.height*DPR}
+  function draw(){size();ctx.clearRect(0,0,W,H);
+    dust.forEach(d=>{ctx.globalAlpha=d.a;ctx.fillStyle=C('--rule-strong');ctx.beginPath();ctx.arc(d.x*W,d.y*H,d.s*DPR,0,6.29);ctx.fill()});ctx.globalAlpha=1;
+    ctx.strokeStyle=C('--gold');ctx.globalAlpha=0.3;ctx.lineWidth=DPR;ctx.setLineDash([4*DPR,5*DPR]);ctx.beginPath();ctx.moveTo(stars[0].x*W,stars[0].y*H);ctx.lineTo(stars[1].x*W,stars[1].y*H);ctx.lineTo(stars[2].x*W,stars[2].y*H);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;
+    stars.forEach(s=>{const lit=s.lit||(s.target&&ignition>=1);const x=s.x*W,y=s.y*H;const glow=s.target?ignition:(lit?1:0);
+      if(glow>0){const g=ctx.createRadialGradient(x,y,0,x,y,28*DPR*(0.5+glow*0.8));g.addColorStop(0,C('--gold'));g.addColorStop(1,'transparent');ctx.globalAlpha=0.5*glow;ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,28*DPR*(0.5+glow*0.8),0,6.29);ctx.fill();ctx.globalAlpha=1}
+      ctx.fillStyle=lit?C('--gold'):'transparent';ctx.strokeStyle=lit?C('--gold'):C('--rule-strong');ctx.lineWidth=(lit?1.4:1.8)*DPR;ctx.beginPath();ctx.arc(x,y,(lit?3.4:3)*DPR,0,6.29);lit?ctx.fill():ctx.stroke();
+      ctx.fillStyle=lit?C('--credit'):C('--foreground');ctx.font=`${10.5*DPR}px "Spline Sans Mono",monospace`;ctx.textAlign='center';ctx.globalAlpha=lit?1:0.72;ctx.fillText(s.name,x,y+18*DPR);ctx.globalAlpha=1})}
+  function igniteStar(){if(reduce){ignition=1;draw();mintEmergency&&mintEmergency();return}cancelAnimationFrame(raf);const t0=performance.now();let minted=false;
+    (function step(now){const k=Math.min(1,(now-t0)/900);ignition=1-Math.pow(1-k,3);draw();if(!minted&&k>=1){minted=true;mintEmergency&&mintEmergency()}if(k<1)raf=requestAnimationFrame(step)})(t0)}
+  document.getElementById('ignite').onclick=igniteStar;draw();addEventListener('resize',draw);
+})();
+
+/* ---- CABINET: minted coins + aging seals ---- */
+(function(){
+  const cab=document.getElementById('cabinet');
+  // [type, label, line2 / age]
+  const items=[
+    {t:'coin',name:'Card Paid',face:'CARD<br>PAID'},
+    {t:'coin',name:'1-Month Cushion',face:'ONE<br>MONTH'},
+    {t:'seal',name:'12-week streak',age:12},
+    {t:'seal',name:'1-year streak',age:52},
+    {t:'coin',name:'No-Spend Week',face:'NO<br>SPEND'},
+    {t:'empty',name:'Emergency Fund',cap:'awaiting'},
+  ];
+  function coinEl(it){
+    const slot=document.createElement('div');slot.className='slot';
+    slot.innerHTML=`<div class="coin"><div class="face">${it.face}</div><div class="glint"></div></div><div class="name">${it.name}</div><div class="cap">minted</div>`;
+    const coin=slot.querySelector('.coin');
+    function strike(){coin.classList.remove('struck');void coin.offsetWidth;coin.classList.add('struck')}
+    coin.addEventListener('click',strike);
+    coin.addEventListener('pointermove',e=>{if(reduce)return;const r=coin.getBoundingClientRect();const px=(e.clientX-r.left)/r.width,py=(e.clientY-r.top)/r.height;coin.style.transform=`perspective(600px) rotateX(${(0.5-py)*26}deg) rotateY(${(px-0.5)*30}deg)`});
+    coin.addEventListener('pointerleave',()=>coin.style.transform='');
+    return {slot,strike};
+  }
+  function sealEl(it){
+    const slot=document.createElement('div');slot.className='slot';
+    const size=44+Math.min(it.age,52)*0.7,teeth=20+Math.min(it.age,52);
+    slot.innerHTML=`<div class="seal"></div><div class="name">${it.name}</div><div class="cap">${it.age} wk</div>`;
+    const seal=slot.querySelector('.seal');seal.style.width=seal.style.height=size+'px';
+    seal.style.background=`radial-gradient(circle at 36% 30%,hsl(var(--gold)/.95),hsl(42 56% ${34-Math.min(it.age,52)*0.12}%))`;
+    seal.style.boxShadow=`0 3px 10px hsl(167 30% 12%/.3),0 0 0 ${1+Math.floor(it.age/12)}px hsl(var(--gold)/.4)`;
+    seal.innerHTML=`<div><div class="n" style="font-size:${10+it.age*0.16}px">${it.age}</div><div class="lbl">wk</div></div>`;
+    return slot;
+  }
+  let emergencySlot=null;
+  items.forEach(it=>{
+    if(it.t==='coin'){const {slot}=coinEl(it);cab.appendChild(slot)}
+    else if(it.t==='seal'){cab.appendChild(sealEl(it))}
+    else{const slot=document.createElement('div');slot.className='slot empty';
+      slot.innerHTML=`<div class="coin" style="background:none;box-shadow:inset 0 0 0 2px hsl(var(--rule-strong)/.4)"><div class="face" style="color:hsl(var(--muted-foreground))">?</div></div><div class="name">${it.name}</div><div class="cap">${it.cap}</div>`;
+      cab.appendChild(slot);emergencySlot=slot}
+  });
+  // expose: igniting the Emergency goal mints its coin into the empty slot
+  window.__mintEmergency=()=>{
+    if(!emergencySlot||emergencySlot.dataset.minted)return;emergencySlot.dataset.minted='1';emergencySlot.classList.remove('empty');
+    emergencySlot.innerHTML=`<div class="coin"><div class="face">EMERGENCY<br>FUNDED</div><div class="glint"></div></div><div class="name">Emergency Fund</div><div class="cap">just minted</div>`;
+    const coin=emergencySlot.querySelector('.coin');
+    if(!reduce){coin.classList.add('struck')}
+    coin.addEventListener('click',()=>{coin.classList.remove('struck');void coin.offsetWidth;coin.classList.add('struck')});
+    coin.addEventListener('pointermove',e=>{if(reduce)return;const r=coin.getBoundingClientRect();const px=(e.clientX-r.left)/r.width,py=(e.clientY-r.top)/r.height;coin.style.transform=`perspective(600px) rotateX(${(0.5-py)*26}deg) rotateY(${(px-0.5)*30}deg)`});
+    coin.addEventListener('pointerleave',()=>coin.style.transform='');
+    emergencySlot.scrollIntoView({behavior:reduce?'auto':'smooth',block:'center'});
+  };
+})();
+// wire the constellation's ignite → cabinet mint
+mintEmergency=()=>window.__mintEmergency&&window.__mintEmergency();
+
+let modeI=2;const modes=['off','ambient','full'];
+document.getElementById('mode').onclick=e=>{modeI=(modeI+1)%3;htmlEl.setAttribute('data-mode',modes[modeI]);e.target.textContent='⛯ mode: '+modes[modeI];dispatchEvent(new Event('resize'))};
+document.getElementById('theme').onclick=()=>{htmlEl.classList.toggle('dark');dispatchEvent(new Event('resize'))};
+const io=new IntersectionObserver(es=>es.forEach(x=>{if(x.isIntersecting)x.target.classList.add('in')}),{threshold:.12});
+document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+</script>
+</body>
+</html>

@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>persFin — Living Guilloché (WebGL) prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Spline+Sans+Mono:ital,wght@0,300..700;1,300..700&display=swap" rel="stylesheet" />
+<style>
+/* ====================================================================== */
+/*  LIVING GUILLOCHÉ (WebGL) PROTOTYPE — Tier-1 ambient signature.         */
+/*  Proves the riskiest tech bet before we commit the OGL dependency.      */
+/*                                                                         */
+/*  Mode dial (the boldness dial from the motion spec):                   */
+/*    off     → frozen static SVG (the current app guilloché). $0 GPU.     */
+/*    ambient → OGL shader, gentle breathing drift only. Calm.            */
+/*    full    → + cursor-warp (magnetic field) + faint phosphor bloom.    */
+/*                                                                         */
+/*  Budget rules enforced (motion spec):                                  */
+/*   • DPR capped at 1.5; rAF paused when tab hidden (visibilitychange).   */
+/*   • prefers-reduced-motion → WebGL disabled entirely, static SVG shows. */
+/*   • WebGL init wrapped in try/catch → ANY failure falls back to SVG.    */
+/*   • The shape is data-SEEDED (mulberry32) so it's literally the user's. */
+/*   • COLOR LAW: the field is rule-strong ink only; money figures sit     */
+/*     ABOVE it as .figure (filter:none), never tinted by the field.       */
+/* ====================================================================== */
+:root{
+  --background:44 42% 93%; --foreground:167 28% 14%;
+  --card:46 52% 96.5%; --muted-foreground:160 10% 37%;
+  --primary:164 40% 22%; --accent:42 56% 44%;
+  --gold:42 56% 44%; --rule:152 10% 72%; --rule-strong:162 16% 38%;
+  --ink-wash:160 18% 90%; --paper-high:48 60% 98%;
+  --debit:8 62% 41%; --credit:162 45% 26%;
+  --radius:0rem; --ease-out:cubic-bezier(.23,1,.32,1);
+}
+.dark{
+  --background:168 30% 6.5%; --foreground:44 36% 87%;
+  --card:167 26% 9.5%; --muted-foreground:152 10% 56%;
+  --primary:156 30% 64%; --accent:43 62% 56%;
+  --gold:43 62% 56%; --rule:164 12% 20%; --rule-strong:154 16% 48%;
+  --ink-wash:166 20% 12%; --paper-high:166 22% 12%;
+  --debit:8 64% 58%; --credit:156 34% 56%;
+}
+*{box-sizing:border-box;border-color:hsl(var(--rule))}
+body{margin:0;min-height:100vh;background:hsl(var(--background));color:hsl(var(--foreground));
+  font-family:"Instrument Sans",system-ui,sans-serif;font-feature-settings:"ss01" on;-webkit-font-smoothing:antialiased;
+  padding:2.5rem clamp(1rem,5vw,4rem) 6rem;position:relative;overflow-x:hidden}
+h1,h2,h3{font-family:"Fraunces",Georgia,serif;font-variation-settings:"opsz" 80;margin:0}
+::selection{background:hsl(var(--gold)/.85);color:hsl(167 30% 10%)}
+body::after{content:"";position:fixed;inset:0;z-index:50;pointer-events:none;opacity:.05;mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")}
+.dark body::after{opacity:.07;mix-blend-mode:screen}
+
+/* the field lives BEHIND content (z 0); content z 1; figures sit above, untouched */
+#gl,#svgfield{position:fixed;inset:0;z-index:0;pointer-events:none}
+#gl{opacity:.4}.dark #gl{opacity:.5}
+#svgfield{display:grid;place-items:center;opacity:.16}.dark #svgfield{opacity:.22}
+#svgfield svg{width:min(86vw,860px);height:auto;color:hsl(var(--rule-strong))}
+html[data-mode="off"] #gl{display:none}
+html[data-mode="off"] #svgfield{display:grid}
+html:not([data-mode="off"]) #svgfield{display:none}
+html.no-webgl #gl{display:none!important}
+html.no-webgl #svgfield{display:grid!important}
+
+.wrap{position:relative;z-index:1;max-width:1000px;margin:0 auto;display:grid;gap:2.25rem}
+.dept-label{font-size:.625rem;font-weight:600;letter-spacing:.32em;text-transform:uppercase;color:hsl(var(--muted-foreground))}
+.section-rule{display:flex;align-items:center;gap:.75rem;color:hsl(var(--muted-foreground));font-size:.7rem;letter-spacing:.28em;text-transform:uppercase}
+.section-rule::before,.section-rule::after{content:"";height:1px;flex:1;background:linear-gradient(to right,transparent,hsl(var(--rule-strong)/.5),transparent)}
+.intaglio{font-family:"Fraunces",Georgia,serif;font-variation-settings:"opsz" 144;font-weight:600;letter-spacing:-.01em;
+  text-shadow:0 1px 0 hsl(var(--paper-high)),0 -1px 0 hsl(167 30% 12%/.18)}
+.dark .intaglio{text-shadow:0 1px 0 hsl(168 40% 3%/.9),0 -1px 0 hsl(44 36% 87%/.12)}
+.figure{font-family:"Spline Sans Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;filter:none!important;text-shadow:none!important}
+.serial{font-family:"Spline Sans Mono",monospace;font-size:.7rem;letter-spacing:.18em;color:hsl(var(--muted-foreground))}
+.ink-credit{color:hsl(var(--credit))}.ink-debit{color:hsl(var(--debit))}
+
+.plate{position:relative;background:hsl(var(--card)/.86);backdrop-filter:blur(.5px);border:1px solid hsl(var(--rule-strong)/.65);padding:1.5rem 1.6rem;
+  box-shadow:0 1px 0 hsl(var(--paper-high)) inset,0 2px 10px hsl(167 30% 12%/.07)}
+.plate::before{content:"";position:absolute;inset:3px;border:1px solid hsl(var(--rule-strong)/.28);pointer-events:none}
+.hero{display:grid;gap:1.4rem;grid-template-columns:1.3fr 1fr;align-items:center}
+@media (max-width:720px){.hero{grid-template-columns:1fr}}
+.figure-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:hsl(var(--rule-strong)/.2);border:1px solid hsl(var(--rule-strong)/.3)}
+.figure-cell{background:hsl(var(--card));padding:.85rem 1rem}
+.figure-cell .v{font-family:"Spline Sans Mono",monospace;font-variant-numeric:tabular-nums;font-size:1.05rem;margin-top:.25rem}
+
+.toolbar{position:fixed;top:1rem;right:1rem;z-index:60;display:flex;gap:.4rem;background:hsl(var(--card));border:1px solid hsl(var(--rule-strong)/.5);padding:.4rem;flex-wrap:wrap;max-width:min(92vw,520px)}
+.toolbar button{font-family:"Spline Sans Mono",monospace;font-size:.68rem;background:transparent;border:1px solid hsl(var(--rule));padding:.3rem .55rem;cursor:pointer;color:hsl(var(--foreground));transition:background-color .15s}
+.toolbar button.on{background:hsl(var(--gold)/.85);color:hsl(167 30% 10%)}
+.toolbar .sep{width:1px;background:hsl(var(--rule));margin:0 .15rem}
+#status{position:fixed;bottom:1rem;left:1rem;z-index:60;font-family:"Spline Sans Mono",monospace;font-size:.66rem;color:hsl(var(--muted-foreground));
+  background:hsl(var(--card)/.8);border:1px solid hsl(var(--rule));padding:.35rem .6rem;line-height:1.5}
+#status b{color:hsl(var(--gold))}
+
+@media (prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation:none!important}}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="svgfield"><svg id="svg" viewBox="-110 -110 220 220" aria-hidden="true"></svg></div>
+
+<div class="toolbar">
+  <button data-mode="off">off · frozen</button>
+  <button data-mode="ambient" class="on">ambient · drift</button>
+  <button data-mode="full">full · warp</button>
+  <span class="sep"></span>
+  <button id="theme">◐ theme</button>
+</div>
+
+<div class="wrap">
+  <header>
+    <p class="dept-label">Department of Personal Accounts · Living guilloché preview</p>
+    <h1 style="font-size:clamp(1.8rem,4vw,2.8rem);margin-top:.4rem">The engraving is alive</h1>
+    <p style="color:hsl(var(--muted-foreground));max-width:46rem;margin-top:.5rem">
+      The background rosette is generated from <em>your</em> data (a seeded mulberry32), so each person's banknote is
+      literally theirs. Switch the mode dial: <strong>off</strong> freezes to a static SVG (the current app);
+      <strong>ambient</strong> breathes gently; <strong>full</strong> warps toward your cursor like a magnetic field and
+      blooms a faint phosphor. Move your mouse in <em>full</em>. The money figures below sit <em>above</em> the field and never distort.
+    </p>
+  </header>
+
+  <section class="plate">
+    <p class="dept-label">Projected balance · Form 90</p>
+    <div class="hero" style="margin-top:.6rem">
+      <div>
+        <div class="intaglio figure" style="font-size:clamp(2.4rem,7vw,4rem)">$4,210.18</div>
+        <p style="color:hsl(var(--muted-foreground));margin:.5rem 0 0">remains solvent · seeded from your net worth</p>
+        <p class="serial" style="margin-top:.8rem" id="serial">No. — </p>
+      </div>
+      <div class="figure-grid">
+        <div class="figure-cell"><div class="dept-label">Lowest point</div><div class="v figure ink-credit">$240.10</div></div>
+        <div class="figure-cell"><div class="dept-label">Reached on</div><div class="v figure">06-22</div></div>
+        <div class="figure-cell"><div class="dept-label">Total outflows</div><div class="v figure ink-debit">$1,910.00</div></div>
+        <div class="figure-cell"><div class="dept-label">Net change</div><div class="v figure">+$1,030.18</div></div>
+      </div>
+    </div>
+  </section>
+
+  <p class="section-rule">The point of the test</p>
+  <section class="plate">
+    <p style="color:hsl(var(--muted-foreground));margin:0;max-width:52rem">
+      This proves three things before we add OGL to the real app: (1) the shader degrades cleanly — kill WebGL or set
+      reduced-motion and the static SVG takes over with zero layout shift; (2) it stays cheap — DPR is capped and the
+      loop pauses on a hidden tab; (3) the color law holds — the field is ink behind glass, and not one figure is tinted by it.
+    </p>
+  </section>
+</div>
+
+<div id="status">renderer: <b id="r-mode">—</b> · gpu: <b id="r-gpu">—</b> · <b id="r-fps">—</b></div>
+
+<!-- OGL via CDN (in the app this is `npm i ogl`, lazy-imported behind a dynamic import) -->
+<script type="module">
+const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
+const htmlEl=document.documentElement;
+
+// ---- seeded shape (mirrors app mulberry32) ----
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const NET_WORTH=421018, seed=NET_WORTH%100000, rng=mulberry32(seed);
+const rings=Array.from({length:7},(_,r)=>({k1:3+Math.floor(rng()*9),k2:2+Math.floor(rng()*7),ph:rng()*6.2832,r}));
+(function(){const L='ABCDEFGHJKLMNPQRSTUVWXYZ';document.getElementById('serial').textContent='No. '+L[(seed*7)%24]+L[(seed*13)%24]+'-'+String(seed).padStart(5,'0')+' · seeded';})();
+
+// ---- static SVG fallback (the `off` mode + the no-WebGL / reduced-motion path) ----
+(function(){
+  const svg=document.getElementById('svg'),NS='http://www.w3.org/2000/svg';
+  rings.forEach(p=>{
+    let d='';const amp=95-p.r*8;
+    for(let a=0;a<=360;a+=2){const t=a*Math.PI/180;
+      const rad=amp*(0.6+0.4*Math.sin(p.k1*t+p.ph))*(0.72+0.28*Math.cos(p.k2*t));
+      d+=(a===0?'M':'L')+(rad*Math.cos(t)).toFixed(1)+' '+(rad*Math.sin(t)).toFixed(1)}
+    d+='Z';const path=document.createElementNS(NS,'path');path.setAttribute('d',d);
+    path.setAttribute('fill','none');path.setAttribute('stroke','currentColor');path.setAttribute('stroke-width','0.5');
+    path.setAttribute('vector-effect','non-scaling-stroke');path.setAttribute('opacity',(0.85-p.r*0.09).toFixed(2));
+    svg.appendChild(path)});
+})();
+
+// mode dial
+let mode='ambient';
+htmlEl.setAttribute('data-mode',mode);
+document.querySelectorAll('.toolbar [data-mode]').forEach(b=>b.onclick=()=>{
+  mode=b.dataset.mode;htmlEl.setAttribute('data-mode',mode);
+  document.querySelectorAll('.toolbar [data-mode]').forEach(x=>x.classList.toggle('on',x===b));
+  document.getElementById('r-mode').textContent=glReady?(mode==='off'?'static SVG':'OGL · '+mode):'static SVG';
+});
+document.getElementById('theme').onclick=()=>htmlEl.classList.toggle('dark');
+
+// ---- WebGL via OGL, fully guarded ----
+let glReady=false;
+const rModeEl=document.getElementById('r-mode'),rGpuEl=document.getElementById('r-gpu'),rFpsEl=document.getElementById('r-fps');
+
+if(reduce){
+  htmlEl.classList.add('no-webgl');
+  rModeEl.textContent='static SVG (reduced-motion)';rGpuEl.textContent='disabled';rFpsEl.textContent='—';
+}else{
+  try{
+    const {Renderer,Program,Mesh,Triangle,Vec2,Vec3}=await import('https://cdn.jsdelivr.net/npm/ogl@1.0.11/+esm');
+    const canvas=document.getElementById('gl');
+    const DPR=Math.min(devicePixelRatio||1,1.5); // capped
+    const renderer=new Renderer({canvas,dpr:DPR,alpha:true,antialias:true});
+    const gl=renderer.gl;gl.clearColor(0,0,0,0);
+    // read GPU name for the status readout
+    const dbg=gl.getExtension('WEBGL_debug_renderer_info');
+    rGpuEl.textContent=dbg?gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL).slice(0,28):'webgl';
+
+    // ink color comes from the CSS token so light/dark + theme just work
+    function inkVec(){const c=getComputedStyle(htmlEl).getPropertyValue('--rule-strong').trim().split(/\s+/);
+      // hsl -> rough rgb for the shader tint (cheap; good enough for a line tint)
+      const h=parseFloat(c[0])/360,s=parseFloat(c[1])/100,l=parseFloat(c[2])/100;
+      const a=s*Math.min(l,1-l),f=n=>{const k=(n+h*12)%12;return l-a*Math.max(-1,Math.min(k-3,9-k,1))};
+      return new Vec3(f(0),f(8),f(4))}
+
+    const vertex=`attribute vec2 position;varying vec2 vUv;void main(){vUv=position*0.5+0.5;gl_Position=vec4(position,0.0,1.0);}`;
+    // guilloché as a distance-field of layered sinusoidal rosettes; warps toward the cursor in `full`.
+    const fragment=`
+      precision highp float;
+      varying vec2 vUv;
+      uniform float uTime; uniform vec2 uRes; uniform vec2 uMouse;
+      uniform float uWarp; uniform float uBloom; uniform vec3 uInk;
+      uniform float uK1[7]; uniform float uK2[7]; uniform float uPh[7];
+      float line(float d,float w){return smoothstep(w,0.0,abs(d));}
+      void main(){
+        vec2 uv=(vUv-0.5);
+        uv.x*=uRes.x/uRes.y;
+        // magnetic warp: pull the field toward the cursor (full only; uWarp=0 in ambient)
+        vec2 m=uMouse; m.x*=uRes.x/uRes.y;
+        vec2 d=uv-m; float dist=length(d);
+        uv -= normalize(d+1e-4)*uWarp*0.06/(dist*6.0+0.4);
+        float r=length(uv); float a=atan(uv.y,uv.x);
+        float acc=0.0;
+        for(int i=0;i<7;i++){
+          float k1=uK1[i],k2=uK2[i],ph=uPh[i];
+          float ring=0.40 - float(i)*0.045;
+          // breathing: radius wobbles slowly over time
+          float amp=ring*(1.0+0.04*sin(uTime*0.6+float(i)));
+          float petal=amp*(0.6+0.4*sin(k1*a+ph+uTime*0.25))*(0.72+0.28*cos(k2*a));
+          acc += line(r-petal,0.004);
+        }
+        float intensity=clamp(acc,0.0,1.0);
+        // faint phosphor bloom in full: lift near the cursor
+        float bloom=uBloom*exp(-dist*3.2)*0.5;
+        vec3 col=uInk + bloom*vec3(0.9,0.75,0.35);
+        gl_FragColor=vec4(col, intensity*0.9 + bloom*0.25);
+      }`;
+
+    const program=new Program(gl,{vertex,fragment,transparent:true,uniforms:{
+      uTime:{value:0},uRes:{value:new Vec2(1,1)},uMouse:{value:new Vec2(0,0)},
+      uWarp:{value:0},uBloom:{value:0},uInk:{value:inkVec()},
+      uK1:{value:rings.map(r=>r.k1)},uK2:{value:rings.map(r=>r.k2)},uPh:{value:rings.map(r=>r.ph)},
+    }});
+    const mesh=new Mesh(gl,{geometry:new Triangle(gl),program});
+
+    function resize(){renderer.setSize(innerWidth,innerHeight);program.uniforms.uRes.value.set(gl.canvas.width,gl.canvas.height)}
+    resize();addEventListener('resize',resize);
+
+    // pointer → smoothed mouse uniform (lerp = the "spring" feel without a lib)
+    let tx=0,ty=0;
+    addEventListener('pointermove',e=>{tx=(e.clientX/innerWidth-0.5);ty=-(e.clientY/innerHeight-0.5)});
+    // re-read ink on theme toggle
+    new MutationObserver(()=>program.uniforms.uInk.value=inkVec()).observe(htmlEl,{attributes:true,attributeFilter:['class']});
+
+    glReady=true;rModeEl.textContent='OGL · '+mode;
+
+    let running=true,last=performance.now(),fpsT=0,frames=0;
+    document.addEventListener('visibilitychange',()=>{running=!document.hidden;if(running){last=performance.now();requestAnimationFrame(loop)}});
+    function loop(now){
+      if(!running)return;
+      const dt=(now-last)/1000;last=now;
+      // mode → warp/bloom targets
+      const warpTarget=mode==='full'?1:0, bloomTarget=mode==='full'?1:0, drift=mode==='off'?0:1;
+      // ease the mouse uniform toward target (decorative spring)
+      const mu=program.uniforms.uMouse.value;mu.x+=(tx-mu.x)*0.08;mu.y+=(ty-mu.y)*0.08;
+      program.uniforms.uWarp.value+=(warpTarget-program.uniforms.uWarp.value)*0.06;
+      program.uniforms.uBloom.value+=(bloomTarget-program.uniforms.uBloom.value)*0.06;
+      if(mode!=='off')program.uniforms.uTime.value+=dt*drift;
+      renderer.render({scene:mesh});
+      // readout always reflects truth: off = SVG path, otherwise the live OGL mode
+      rModeEl.textContent = mode==='off' ? 'static SVG (off)' : 'OGL · '+mode;
+      // fps readout (blank when the field is frozen so it can't imply a running loop)
+      frames++;fpsT+=dt;if(fpsT>=0.5){rFpsEl.textContent=(mode==='off'?'—':Math.round(frames/fpsT)+' fps');frames=0;fpsT=0}
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  }catch(err){
+    // ANY failure → static SVG, no broken state
+    console.warn('WebGL guilloché unavailable, falling back to static SVG:',err);
+    htmlEl.classList.add('no-webgl');
+    rModeEl.textContent='static SVG (no webgl)';rGpuEl.textContent='unavailable';rFpsEl.textContent='—';
+  }
+}
+</script>
+</body>
+</html>

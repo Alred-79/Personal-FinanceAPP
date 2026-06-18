@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Ledger — Landing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Spline+Sans+Mono:ital,wght@0,300..700;1,300..700&display=swap" rel="stylesheet" />
+<style>
+/* ====================================================================== */
+/*  THE LEDGER — public LANDING page (sits BEFORE /login).                 */
+/*  Built on the dynamic.html v2 baseline: same tokens, same primitives    */
+/*  (burin cursor, breathing guilloché, plate parallax, reveal-on-scroll,  */
+/*  magnetic CTAs, coin strike). Modern landing structure, fully re-skinned */
+/*  to "The Engraver's Ledger". Color law intact: money figures never glow.*/
+/* ====================================================================== */
+:root{
+  --background:44 42% 93%; --foreground:167 28% 14%;
+  --card:46 52% 96.5%; --muted-foreground:160 10% 37%;
+  --primary:164 40% 22%; --accent:42 56% 44%;
+  --gold:42 56% 44%; --gold-soft:44 55% 86%;
+  --rule:152 10% 72%; --rule-strong:162 16% 38%;
+  --ink-wash:160 18% 90%; --paper-high:48 60% 98%;
+  --debit:8 62% 41%; --credit:162 45% 26%; --chart-3:215 32% 40%;
+  --radius:0rem;
+}
+.dark{
+  --background:168 30% 6.5%; --foreground:44 36% 87%;
+  --card:167 26% 9.5%; --muted-foreground:152 10% 56%;
+  --primary:156 30% 64%; --accent:43 62% 56%;
+  --gold:43 62% 56%; --gold-soft:45 30% 18%;
+  --rule:164 12% 20%; --rule-strong:154 16% 48%;
+  --ink-wash:166 20% 12%; --paper-high:166 22% 12%;
+  --debit:8 64% 58%; --credit:156 34% 56%; --chart-3:213 38% 62%;
+}
+*{box-sizing:border-box;border-color:hsl(var(--rule))}
+html{scroll-behavior:smooth}
+body{margin:0;min-height:100vh;background:hsl(var(--background));color:hsl(var(--foreground));
+  font-family:"Instrument Sans",system-ui,sans-serif;font-feature-settings:"ss01" on;-webkit-font-smoothing:antialiased;
+  position:relative;overflow-x:hidden;cursor:none}
+@media (pointer:coarse){body{cursor:auto}}
+h1,h2,h3{font-family:"Fraunces",Georgia,serif;font-variation-settings:"opsz" 80;margin:0;line-height:1.05}
+p{margin:0}
+a{color:inherit}
+::selection{background:hsl(var(--gold)/.85);color:hsl(167 30% 10%)}
+/* paper grain veil */
+body::after{content:"";position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:.05;mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")}
+.dark body::after{opacity:.07;mix-blend-mode:screen}
+
+#living{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.13}
+.dark #living{opacity:.18}
+#ink{position:fixed;inset:0;z-index:9000;pointer-events:none}
+#nib{position:fixed;z-index:9500;top:0;left:0;width:26px;height:26px;pointer-events:none;transform:translate(-3px,-2px);will-change:transform}
+@media (pointer:coarse){#nib,#ink{display:none}}
+
+/* ---------- shared typographic primitives (from the system) ---------- */
+.dept-label{font-size:.625rem;font-weight:600;letter-spacing:.32em;text-transform:uppercase;color:hsl(var(--muted-foreground))}
+.section-rule{display:flex;align-items:center;gap:.75rem;color:hsl(var(--muted-foreground));font-size:.7rem;letter-spacing:.28em;text-transform:uppercase;margin:0 auto;max-width:1080px}
+.section-rule::before,.section-rule::after{content:"";height:1px;flex:1;background:linear-gradient(to right,transparent,hsl(var(--rule-strong)/.5),transparent)}
+.intaglio{font-family:"Fraunces",Georgia,serif;font-variation-settings:"opsz" 144;font-weight:600;letter-spacing:-.01em;font-variant-numeric:lining-nums;
+  text-shadow:0 1px 0 hsl(var(--paper-high)),0 -1px 0 hsl(167 30% 12%/.18)}
+.dark .intaglio{text-shadow:0 1px 0 hsl(168 40% 3%/.9),0 -1px 0 hsl(44 36% 87%/.12)}
+.figure{font-family:"Spline Sans Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;filter:none!important;text-shadow:none!important}
+.serial{font-family:"Spline Sans Mono",monospace;font-size:.7rem;letter-spacing:.18em;color:hsl(var(--muted-foreground))}
+.ink-debit{color:hsl(var(--debit))} .ink-credit{color:hsl(var(--credit))}
+
+/* ---------- top register (nav) ---------- */
+.register{position:fixed;top:0;left:0;right:0;z-index:8000;display:flex;align-items:center;justify-content:space-between;
+  padding:.85rem clamp(1rem,5vw,3rem);background:hsl(var(--background)/.82);backdrop-filter:blur(8px);
+  border-bottom:1px solid hsl(var(--rule-strong)/.35);transition:padding .3s ease,background .3s ease}
+.register.shrunk{padding:.55rem clamp(1rem,5vw,3rem)}
+.brand{display:flex;align-items:center;gap:.7rem}
+.seal{width:34px;height:34px;display:grid;place-items:center;border-radius:50%;
+  background:radial-gradient(circle at 38% 32%,hsl(var(--gold)),hsl(42 56% 26%));color:hsl(46 52% 96%);
+  font-family:"Fraunces",serif;font-weight:600;box-shadow:inset 0 0 0 2px hsl(46 52% 96%/.3),0 2px 8px hsl(167 30% 12%/.3)}
+.brand b{font-family:"Fraunces",serif;font-weight:600;font-size:1.05rem;letter-spacing:.01em}
+.nav-links{display:flex;gap:1.8rem;align-items:center}
+.nav-links a{font-size:.82rem;letter-spacing:.03em;color:hsl(var(--muted-foreground));text-decoration:none;transition:color .2s}
+.nav-links a:hover{color:hsl(var(--foreground))}
+@media(max-width:760px){.nav-links a:not(.ghost):not(.btn){display:none}}
+
+/* ---------- buttons ---------- */
+.btn{font-family:"Instrument Sans";font-size:.82rem;font-weight:600;letter-spacing:.04em;background:hsl(var(--primary));color:hsl(46 52% 96%);
+  border:none;padding:.7rem 1.4rem;cursor:none;position:relative;transition:transform .15s ease,box-shadow .15s ease;will-change:transform;text-decoration:none;display:inline-block}
+.btn:active{transform:translateY(1px) scale(.98)!important;box-shadow:inset 0 2px 4px hsl(167 30% 12%/.35)}
+.btn.ghost{background:transparent;color:hsl(var(--foreground));border:1px solid hsl(var(--rule-strong)/.6)}
+.btn.lg{padding:.95rem 1.9rem;font-size:.9rem}
+@media (pointer:coarse){.btn{cursor:pointer}}
+
+/* ---------- layout ---------- */
+.wrap{position:relative;z-index:1;max-width:1080px;margin:0 auto;padding:0 clamp(1rem,5vw,3rem)}
+section{position:relative;z-index:1}
+
+/* ---------- HERO ---------- */
+.hero{min-height:92vh;display:grid;align-content:start;gap:1.4rem;padding-top:clamp(7rem,16vh,11rem);text-align:center}
+.hero .kicker{justify-content:center}
+.hero h1{font-size:clamp(2.6rem,7vw,5.2rem);font-variation-settings:"opsz" 144}
+.hero h1 .ul{position:relative;white-space:nowrap}
+.hero h1 .ul::after{content:"";position:absolute;left:0;right:0;bottom:.08em;height:.09em;background:hsl(var(--gold));
+  transform:scaleX(0);transform-origin:left;animation:underline 1s cubic-bezier(.22,1,.36,1) .7s forwards}
+@keyframes underline{to{transform:scaleX(1)}}
+.hero .lede{color:hsl(var(--muted-foreground));max-width:40rem;margin:0 auto;font-size:clamp(1rem,2.2vw,1.22rem);line-height:1.55}
+.hero .cta-row{display:flex;gap:.9rem;justify-content:center;flex-wrap:wrap;margin-top:.4rem}
+.hero .assurances{display:flex;gap:1.6rem;justify-content:center;flex-wrap:wrap;margin-top:1rem;font-size:.72rem;letter-spacing:.04em;color:hsl(var(--muted-foreground))}
+.hero .assurances span{display:flex;align-items:center;gap:.4rem}
+.hero .assurances svg{color:hsl(var(--gold))}
+
+/* the hero specimen note (a banknote-as-product-shot) */
+.specimen{margin:3rem auto 0;max-width:760px}
+.note{position:relative;background:hsl(var(--card));border:1px solid hsl(var(--rule-strong)/.65);padding:1.5rem 1.6rem;
+  box-shadow:0 1px 0 hsl(var(--paper-high)) inset,0 24px 60px hsl(167 30% 12%/.16);overflow:hidden;
+  transform-style:preserve-3d;transition:box-shadow .25s ease,transform .12s ease-out;text-align:left}
+.note::before{content:"";position:absolute;inset:5px;border:1px solid hsl(var(--rule-strong)/.3);pointer-events:none;z-index:5;transform:translateZ(20px)}
+.note>*{transform:translateZ(28px)}
+.note-band{height:14px;width:100%;margin-bottom:1.1rem;overflow:hidden}
+.note-top{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem}
+.note .balance{font-size:clamp(2rem,6vw,3.4rem);margin-top:.2rem}
+.note-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:hsl(var(--rule-strong)/.2);border:1px solid hsl(var(--rule-strong)/.3);margin-top:1.2rem}
+.note-cell{background:hsl(var(--card));padding:.7rem .9rem}
+.note-cell .v{font-family:"Spline Sans Mono",monospace;font-variant-numeric:tabular-nums;font-size:.98rem;margin-top:.3rem}
+@media(max-width:560px){.note-grid{grid-template-columns:1fr 1fr}}
+
+/* ---------- reveal ---------- */
+.reveal{opacity:0;transform:translateY(26px);transition:opacity .8s cubic-bezier(.22,1,.36,1),transform .8s cubic-bezier(.22,1,.36,1)}
+.reveal.in{opacity:1;transform:none}
+.reveal.d1{transition-delay:.08s}.reveal.d2{transition-delay:.16s}.reveal.d3{transition-delay:.24s}
+
+/* ---------- proof strip ---------- */
+.proof{margin-top:7rem;text-align:center}
+.proof .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:hsl(var(--rule-strong)/.25);border:1px solid hsl(var(--rule-strong)/.35);margin-top:1.4rem}
+.proof .stat{background:hsl(var(--card));padding:1.7rem 1rem}
+.proof .stat .n{font-size:clamp(1.6rem,4vw,2.4rem)}
+.proof .stat .l{font-size:.66rem;letter-spacing:.16em;text-transform:uppercase;color:hsl(var(--muted-foreground));margin-top:.4rem}
+@media(max-width:620px){.proof .stats{grid-template-columns:1fr}}
+
+/* ---------- features (plates) ---------- */
+.features{margin-top:7rem}
+.features-head{text-align:center;max-width:42rem;margin:1.2rem auto 0}
+.features-head h2{font-size:clamp(1.8rem,4.5vw,2.8rem)}
+.features-head p{color:hsl(var(--muted-foreground));margin-top:.7rem;font-size:1.02rem}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.1rem;margin-top:2.4rem}
+@media(max-width:860px){.grid{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.grid{grid-template-columns:1fr}}
+.plate{position:relative;background:hsl(var(--card));border:1px solid hsl(var(--rule-strong)/.6);padding:1.5rem;
+  box-shadow:0 1px 0 hsl(var(--paper-high)) inset,0 2px 10px hsl(167 30% 12%/.07);overflow:hidden;
+  transform-style:preserve-3d;transition:box-shadow .25s ease,transform .12s ease-out;height:100%}
+.plate::before{content:"";position:absolute;inset:3px;border:1px solid hsl(var(--rule-strong)/.26);pointer-events:none;z-index:5;transform:translateZ(20px)}
+.plate:hover{box-shadow:0 1px 0 hsl(var(--paper-high)) inset,0 18px 46px hsl(167 30% 12%/.17)}
+.plate>*{transform:translateZ(26px)}
+.plate .icon{width:44px;height:44px;display:grid;place-items:center;border:1px solid hsl(var(--rule-strong)/.5);color:hsl(var(--gold));margin-bottom:1rem}
+.plate h3{font-size:1.22rem}
+.plate p{color:hsl(var(--muted-foreground));margin-top:.55rem;font-size:.92rem;line-height:1.5}
+.plate .no{position:absolute;top:1rem;right:1.1rem;font-family:"Spline Sans Mono",monospace;font-size:.66rem;letter-spacing:.16em;color:hsl(var(--muted-foreground))}
+
+/* ---------- how it works (ledger rows) ---------- */
+.how{margin-top:7rem}
+.steps{margin-top:2.2rem;border-top:1px solid hsl(var(--rule-strong)/.4)}
+.step{display:grid;grid-template-columns:auto 1fr auto;gap:1.6rem;align-items:center;padding:1.5rem .3rem;
+  border-bottom:1px solid hsl(var(--rule));transition:background-color .25s,transform .25s}
+.step:hover{background:hsl(var(--ink-wash)/.6);transform:translateX(5px)}
+.step .idx{font-family:"Fraunces",serif;font-size:1.8rem;color:hsl(var(--gold));width:2.4rem}
+.step h3{font-size:1.18rem}
+.step p{color:hsl(var(--muted-foreground));margin-top:.3rem;font-size:.92rem}
+.step .man{font-size:1.1rem;color:hsl(var(--gold));opacity:0;transform:translateX(-6px);transition:.25s}
+.step:hover .man{opacity:1;transform:translateX(0)}
+
+/* ---------- mint / reward strip ---------- */
+.mint{margin-top:7rem;display:grid;grid-template-columns:auto 1fr;gap:2.5rem;align-items:center}
+@media(max-width:680px){.mint{grid-template-columns:1fr;text-align:center;justify-items:center}}
+.coin{width:130px;height:130px;border-radius:50%;position:relative;transform-style:preserve-3d;transition:transform .1s ease-out;cursor:none;
+  background:radial-gradient(circle at 38% 32%,hsl(var(--gold)),hsl(42 56% 26%));box-shadow:0 10px 30px hsl(167 30% 12%/.4),inset 0 0 0 4px hsl(46 52% 96%/.25);display:grid;place-items:center}
+@media (pointer:coarse){.coin{cursor:pointer}}
+.coin .face{font-family:"Fraunces",serif;font-weight:600;color:hsl(46 52% 96%);text-align:center;transform:translateZ(8px);font-size:.85rem;letter-spacing:.04em}
+.coin .glint{position:absolute;inset:0;border-radius:50%;pointer-events:none;background:linear-gradient(115deg,transparent 30%,hsl(46 52% 99%/.7) 48%,transparent 60%);background-size:250% 250%;background-position:150% 150%}
+@keyframes strike{0%{transform:scale(2) rotateY(180deg);opacity:0}55%{transform:scale(.92) rotateY(0)}100%{transform:scale(1) rotateY(0)}}
+@keyframes glintsweep{from{background-position:150% 150%}to{background-position:-50% -50%}}
+.coin.struck{animation:strike .6s cubic-bezier(.34,1.4,.64,1) both}
+.coin.struck .glint{animation:glintsweep .7s ease-out .25s both}
+.mint h2{font-size:clamp(1.6rem,4vw,2.4rem)}
+.mint p{color:hsl(var(--muted-foreground));margin-top:.7rem;max-width:32rem;line-height:1.55}
+
+/* ---------- final CTA ---------- */
+.finale{margin:7rem auto 0;text-align:center;position:relative;padding:4rem clamp(1.2rem,5vw,4rem);
+  background:hsl(var(--card));border:1px solid hsl(var(--rule-strong)/.6);overflow:hidden}
+.finale::before{content:"";position:absolute;inset:6px;border:1px solid hsl(var(--rule-strong)/.3);pointer-events:none}
+.finale h2{font-size:clamp(2rem,5vw,3.4rem);position:relative}
+.finale p{color:hsl(var(--muted-foreground));margin:.9rem auto 0;max-width:34rem;position:relative}
+.finale .cta-row{margin-top:1.8rem;display:flex;gap:.9rem;justify-content:center;flex-wrap:wrap;position:relative}
+
+/* ---------- footer (colophon) ---------- */
+footer{margin-top:5rem;padding:2.4rem 0 3rem;border-top:1px solid hsl(var(--rule-strong)/.4)}
+.colophon{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;max-width:1080px;margin:0 auto;padding:0 clamp(1rem,5vw,3rem)}
+.colophon .links{display:flex;gap:1.4rem}
+.colophon a{font-size:.78rem;color:hsl(var(--muted-foreground));text-decoration:none}
+.colophon a:hover{color:hsl(var(--foreground))}
+
+.toolbar{position:fixed;bottom:1rem;right:1rem;z-index:10000;display:flex;gap:.5rem;background:hsl(var(--card));border:1px solid hsl(var(--rule-strong)/.5);padding:.4rem}
+.toolbar button{font-family:"Spline Sans Mono",monospace;font-size:.7rem;background:transparent;border:1px solid hsl(var(--rule));padding:.3rem .6rem;cursor:none;color:hsl(var(--foreground))}
+@media (pointer:coarse){.toolbar button{cursor:pointer}}
+@media (prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation:none!important}.reveal{opacity:1;transform:none}.hero h1 .ul::after{transform:scaleX(1)}}
+</style>
+</head>
+<body>
+<canvas id="living"></canvas>
+<canvas id="ink"></canvas>
+<svg id="nib" viewBox="0 0 26 26" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M3 23 L9 17 L13 21 L7 27 Z" transform="translate(0,-4)"/><path d="M9 17 L20 6 a2 2 0 0 1 3 3 L12 20 Z" transform="translate(0,-4)" fill="currentColor" fill-opacity="0.15"/></g></svg>
+
+<!-- top register -->
+<nav class="register" id="register">
+  <div class="brand">
+    <span class="seal">£</span>
+    <b>The Ledger</b>
+  </div>
+  <div class="nav-links">
+    <a href="#features">Instruments</a>
+    <a href="#how">How it works</a>
+    <a href="#vault">The Vault</a>
+    <a href="#login" class="btn ghost" data-magnetic>Sign in</a>
+    <a href="#login" class="btn" data-magnetic>Open an account</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <!-- HERO -->
+  <header class="hero">
+    <p class="dept-label kicker reveal">Department of Personal Accounts · Est. MMXXVI</p>
+    <h1 class="reveal d1">Keep your money<br>in <span class="ul">good standing</span>.</h1>
+    <p class="lede reveal d2">The Ledger turns your accounts into engraved instruments you can actually read — a forecast you can drag, goals you can mint, and an assistant that proposes before it acts. No spreadsheets. No surprises.</p>
+    <div class="cta-row reveal d3">
+      <a href="#login" class="btn lg" data-magnetic>Open your ledger — free</a>
+      <a href="#features" class="btn ghost lg" data-magnetic>See the instruments</a>
+    </div>
+    <div class="assurances reveal d3">
+      <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> No card required</span>
+      <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Your data stays yours</span>
+      <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Read-only by default</span>
+    </div>
+
+    <!-- specimen note = product shot -->
+    <div class="specimen reveal d3">
+      <div class="note" data-tilt>
+        <canvas class="note-band" id="band" height="14"></canvas>
+        <div class="note-top">
+          <div>
+            <p class="dept-label">Projected balance · Form 90</p>
+            <div class="balance intaglio" id="balance">$4,210.18</div>
+            <p style="color:hsl(var(--muted-foreground));margin-top:.4rem;font-size:.85rem">accruing today · <span class="figure ink-credit" id="accrual">+$0.0000</span></p>
+          </div>
+          <p class="serial" id="serial">No. —</p>
+        </div>
+        <div class="note-grid">
+          <div class="note-cell"><div class="dept-label">Lowest point</div><div class="v ink-credit figure">$240.10</div></div>
+          <div class="note-cell"><div class="dept-label">Reached on</div><div class="v figure">06-22</div></div>
+          <div class="note-cell"><div class="dept-label">Outflows</div><div class="v ink-debit figure">$1,910.00</div></div>
+          <div class="note-cell"><div class="dept-label">Net change</div><div class="v figure">+$1,030.18</div></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- PROOF -->
+  <section class="proof reveal" id="vault">
+    <p class="section-rule">Held in good standing</p>
+    <div class="stats">
+      <div class="stat"><div class="n intaglio">12,400+</div><div class="l">accounts opened</div></div>
+      <div class="stat"><div class="n intaglio">$48M</div><div class="l">forecast to the cent</div></div>
+      <div class="stat"><div class="n intaglio">0</div><div class="l">surprise overdrafts</div></div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="features" id="features">
+    <div class="features-head reveal">
+      <p class="dept-label">The Instruments</p>
+      <h2>Every figure, engraved and accountable.</h2>
+      <p>Not another dashboard of charts you ignore. Each tool is a working instrument — it does one thing, shows its reasoning, and never moves real money without your stamp.</p>
+    </div>
+    <div class="grid">
+      <article class="plate reveal" data-tilt><span class="no">No. 01</span>
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 17c3-6 6-6 9 0s6 6 9 0"/><path d="M3 21h18"/></svg></div>
+        <h3>The Sea-Chart</h3>
+        <p>Your cash-flow forecast as a coastline. Drag the line to model a what-if and watch your overdraft probability re-sound in real time. Probabilistic, not a flat guess.</p>
+      </article>
+      <article class="plate reveal d1" data-tilt><span class="no">No. 02</span>
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <h3>The Clerk</h3>
+        <p>An assistant that drafts the move — re-budget, schedule, reconcile — then hands you a diff plate to authorize. It proposes; you stamp. Nothing happens behind your back.</p>
+      </article>
+      <article class="plate reveal d2" data-tilt><span class="no">No. 03</span>
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8"/><path d="M12 4v3M12 17v3M4 12h3M17 12h3"/></svg></div>
+        <h3>Minted Goals</h3>
+        <p>Fund a goal and strike a coin for the cabinet. Saving becomes a collection of specimens you actually want to complete — the only game your money should play.</p>
+      </article>
+      <article class="plate reveal" data-tilt><span class="no">No. 04</span>
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5h16M4 12h16M4 19h10"/></svg></div>
+        <h3>Import Anything</h3>
+        <p>Messy statements, mystery CSVs, duplicate rows. The Detangler reads them, reconciles them, and hands back a clean register — no manual category roulette.</p>
+      </article>
+      <article class="plate reveal d1" data-tilt><span class="no">No. 05</span>
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2 4 6v6c0 5 8 8 8 8s8-3 8-8V6Z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <h3>Nightly Auditor</h3>
+        <p>While you sleep, it reconciles the day, flags the odd charge, and leaves a short note in the margin. You wake up to an account already balanced.</p>
+      </article>
+      <article class="plate reveal d2" data-tilt><span class="no">No. 06</span>
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="4" width="16" height="16"/><path d="M8 9h8M8 13h5"/></svg></div>
+        <h3>Tax, Filed Quietly</h3>
+        <p>1099s, deductions, quarterly estimates — tracked all year and stamped into a packet at season's end. The dread becomes a form you just sign.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="how" id="how">
+    <p class="section-rule reveal">Three entries to open</p>
+    <div class="steps">
+      <div class="step reveal" data-tilt>
+        <div class="idx">i</div>
+        <div><h3>Open an account</h3><p>Sign the register. No card, no commitment — read-only access to start so nothing can move without you.</p></div>
+        <span class="man">☞</span>
+      </div>
+      <div class="step reveal d1" data-tilt>
+        <div class="idx">ii</div>
+        <div><h3>Bring your records</h3><p>Connect or import any statement. The Detangler cleans the mess and your first sea-chart inks itself within minutes.</p></div>
+        <span class="man">☞</span>
+      </div>
+      <div class="step reveal d2" data-tilt>
+        <div class="idx">iii</div>
+        <div><h3>Keep good standing</h3><p>The Clerk proposes, you stamp, the Auditor watches the nights. Your money stays legible, forever.</p></div>
+        <span class="man">☞</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- MINT -->
+  <section class="mint">
+    <div class="coin reveal" id="coin" title="strike the coin"><div class="face">GOOD<br>STANDING</div><div class="glint"></div></div>
+    <div class="reveal d1">
+      <p class="dept-label">A reward worth keeping</p>
+      <h2>Saving you'll actually finish.</h2>
+      <p>Strike the coin. Every funded goal mints a specimen for your cabinet — proof of progress you can hold, not a streak you'll abandon. Try it: <em>click the coin</em>.</p>
+    </div>
+  </section>
+
+  <!-- FINAL CTA -->
+  <section class="finale reveal" id="login">
+    <span class="seal" style="margin:0 auto 1.2rem;width:48px;height:48px;font-size:1.3rem">£</span>
+    <h2>Your accounts, in good standing.</h2>
+    <p>Open the ledger today. It takes about two minutes, and you can read everything before you connect a thing.</p>
+    <div class="cta-row">
+      <a href="#" class="btn lg" data-magnetic>Open your ledger — free</a>
+      <a href="#" class="btn ghost lg" data-magnetic>Sign in</a>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <div class="colophon">
+    <div class="brand"><span class="seal" style="width:28px;height:28px;font-size:.85rem">£</span><b style="font-size:.9rem">The Ledger</b></div>
+    <div class="links">
+      <a href="#">Privacy</a><a href="#">Security</a><a href="#">Terms</a><a href="#">Contact</a>
+    </div>
+    <p class="serial" id="footserial">No. —</p>
+  </div>
+</footer>
+
+<div class="toolbar"><button id="theme">◐ theme</button></div>
+
+<script>
+const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
+const css=getComputedStyle(document.documentElement);
+const C=v=>`hsl(${css.getPropertyValue(v)})`;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const seed=421018%100000, rng=mulberry32(seed);
+(function(){const L='ABCDEFGHJKLMNPQRSTUVWXYZ';const s='No. '+L[(seed*7)%24]+L[(seed*13)%24]+'-'+String(seed).padStart(5,'0');
+  document.getElementById('serial').textContent=s;document.getElementById('footserial').textContent=s;})();
+
+// ---------- LIVING GUILLOCHE: breathes, fixed center ----------
+(function(){
+  const cv=document.getElementById('living'),ctx=cv.getContext('2d');
+  let W,H,DPR=Math.min(devicePixelRatio||1,2);
+  function size(){W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px'}
+  size();addEventListener('resize',size);
+  const rings=9,params=[];for(let r=0;r<rings;r++)params.push({k1:3+Math.floor(rng()*9),k2:2+Math.floor(rng()*7),ph:rng()*6.28});
+  let t=0;
+  function frame(){
+    t+=0.005;ctx.clearRect(0,0,W,H);ctx.strokeStyle=C('--rule-strong');ctx.lineWidth=DPR*0.6;
+    const cx=W*0.5,cy=H*0.42,base=Math.min(W,H)*0.5;
+    for(let r=0;r<rings;r++){const p=params[r];ctx.globalAlpha=(0.5-r*0.045);ctx.beginPath();
+      const amp=base*(1-r*0.06)*(1+0.04*Math.sin(t*1.3+r));
+      for(let a=0;a<=6.2832;a+=0.03){const rad=amp*(0.6+0.4*Math.sin(p.k1*a+p.ph+t))*(0.75+0.25*Math.cos(p.k2*a));
+        const x=cx+rad*Math.cos(a),y=cy+rad*Math.sin(a);a===0?ctx.moveTo(x,y):ctx.lineTo(x,y)}
+      ctx.closePath();ctx.stroke()}
+    ctx.globalAlpha=1;if(!reduce)requestAnimationFrame(frame)}
+  frame();
+})();
+
+// ---------- guilloche BAND on the specimen note ----------
+(function(){
+  const cv=document.getElementById('band');if(!cv)return;const ctx=cv.getContext('2d');
+  let DPR=Math.min(devicePixelRatio||1,2),W,H=14;
+  function size(){W=cv.width=cv.clientWidth*DPR;cv.height=H*DPR;cv.style.height=H+'px'}
+  size();addEventListener('resize',()=>{size();draw()});
+  function draw(){ctx.clearRect(0,0,W,cv.height);ctx.strokeStyle=C('--gold');ctx.globalAlpha=.5;ctx.lineWidth=DPR;
+    for(let k=0;k<3;k++){ctx.beginPath();for(let x=0;x<=W;x+=2){const y=cv.height/2+Math.sin(x/(7*DPR)+k*2)*4*DPR*Math.cos(x/(40*DPR));x===0?ctx.moveTo(x,y):ctx.lineTo(x,y)}ctx.stroke()}
+    ctx.globalAlpha=1}
+  draw();
+})();
+
+// ---------- ENGRAVER'S BURIN: nib + fading ink trail ----------
+(function(){
+  if(matchMedia('(pointer:coarse)').matches)return;
+  const nib=document.getElementById('nib');nib.style.color=C('--foreground');
+  const cv=document.getElementById('ink'),ctx=cv.getContext('2d');
+  let W,H,DPR=Math.min(devicePixelRatio||1,2);
+  function size(){W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px'}
+  size();addEventListener('resize',size);
+  let px=null,py=null;
+  addEventListener('pointermove',e=>{
+    nib.style.transform=`translate(${e.clientX-3}px,${e.clientY-2}px)`;
+    if(reduce)return;
+    if(px!=null){ctx.strokeStyle=C('--gold');ctx.lineWidth=DPR*1.1;ctx.lineCap='round';ctx.globalAlpha=0.5;
+      ctx.beginPath();ctx.moveTo(px*DPR,py*DPR);ctx.lineTo(e.clientX*DPR,e.clientY*DPR);ctx.stroke();ctx.globalAlpha=1;}
+    px=e.clientX;py=e.clientY;
+  });
+  function fade(){ctx.globalCompositeOperation='destination-out';ctx.fillStyle='rgba(0,0,0,0.06)';ctx.fillRect(0,0,W,H);
+    ctx.globalCompositeOperation='source-over';requestAnimationFrame(fade)}
+  if(!reduce)fade();
+  addEventListener('pointerdown',e=>{if(reduce)return;ctx.fillStyle=C('--gold');ctx.globalAlpha=.6;ctx.beginPath();ctx.arc(e.clientX*DPR,e.clientY*DPR,3*DPR,0,6.29);ctx.fill();ctx.globalAlpha=1});
+})();
+
+// ---------- pointer-parallax tilt ----------
+document.querySelectorAll('[data-tilt]').forEach(el=>{
+  el.addEventListener('pointermove',e=>{if(reduce)return;const r=el.getBoundingClientRect();
+    const px=(e.clientX-r.left)/r.width,py=(e.clientY-r.top)/r.height;
+    el.style.transform=`perspective(900px) rotateX(${(0.5-py)*4}deg) rotateY(${(px-0.5)*5}deg)`});
+  el.addEventListener('pointerleave',()=>{el.style.transform=''});
+});
+
+// ---------- magnetic buttons ----------
+document.querySelectorAll('[data-magnetic]').forEach(el=>{
+  el.addEventListener('pointermove',e=>{if(reduce)return;const r=el.getBoundingClientRect();
+    el.style.transform=`translate(${(e.clientX-r.left-r.width/2)*0.22}px,${(e.clientY-r.top-r.height/2)*0.3}px)`});
+  el.addEventListener('pointerleave',()=>el.style.transform='');
+});
+
+// ---------- accrual ticker ----------
+(function(){let v=0;const el=document.getElementById('accrual');if(!el)return;setInterval(()=>{v+=0.0007+Math.random()*0.0006;el.textContent='+$'+v.toFixed(4)},120)})();
+
+// ---------- MINT coin ----------
+(function(){
+  const coin=document.getElementById('coin');if(!coin)return;
+  function strike(){coin.classList.remove('struck');void coin.offsetWidth;coin.classList.add('struck')}
+  coin.addEventListener('click',strike);
+  coin.addEventListener('pointermove',e=>{if(reduce)return;const r=coin.getBoundingClientRect();
+    const px=(e.clientX-r.left)/r.width,py=(e.clientY-r.top)/r.height;
+    coin.style.transform=`perspective(600px) rotateX(${(0.5-py)*26}deg) rotateY(${(px-0.5)*30}deg)`});
+  coin.addEventListener('pointerleave',()=>coin.style.transform='');
+})();
+
+// ---------- reveal on scroll ----------
+const io=new IntersectionObserver(es=>es.forEach(x=>{if(x.isIntersecting){x.target.classList.add('in');io.unobserve(x.target)}}),{threshold:.14});
+document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+
+// ---------- shrink register on scroll + strike coin when in view ----------
+const reg=document.getElementById('register');
+addEventListener('scroll',()=>{reg.classList.toggle('shrunk',scrollY>40)},{passive:true});
+new IntersectionObserver(es=>es.forEach(x=>{if(x.isIntersecting&&!reduce){const c=document.getElementById('coin');c.classList.remove('struck');void c.offsetWidth;c.classList.add('struck')}}),{threshold:.6}).observe(document.querySelector('.mint'));
+
+document.getElementById('theme').onclick=()=>document.documentElement.classList.toggle('dark');
+</script>
+</body>
+</html>

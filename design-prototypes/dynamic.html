@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>persFin — Dynamic / interactive prototype v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Spline+Sans+Mono:ital,wght@0,300..700;1,300..700&display=swap" rel="stylesheet" />
+<style>
+/* ====================================================================== */
+/*  DYNAMIC PROTOTYPE v2 — engraved paper, alive on INTERACTION.           */
+/*  Changes from v1 (per feedback):                                        */
+/*   • Cursor = engraver's BURIN leaving a fading ink trail (not light).   */
+/*   • Background guilloche BREATHES but does NOT follow the cursor.       */
+/*   • Sea-chart: DRAG THE COASTLINE itself (1:1, intuitive). No buoy.     */
+/*   • Kept: 3D parallax tilt on plates, coin strike + 3D tilt.           */
+/*  Color law intact: money figures never get glow/animation chrome.      */
+/* ====================================================================== */
+:root{
+  --background:44 42% 93%; --foreground:167 28% 14%;
+  --card:46 52% 96.5%; --muted-foreground:160 10% 37%;
+  --primary:164 40% 22%; --accent:42 56% 44%;
+  --gold:42 56% 44%; --gold-soft:44 55% 86%;
+  --rule:152 10% 72%; --rule-strong:162 16% 38%;
+  --ink-wash:160 18% 90%; --paper-high:48 60% 98%;
+  --debit:8 62% 41%; --credit:162 45% 26%; --chart-3:215 32% 40%;
+  --radius:0rem;
+}
+.dark{
+  --background:168 30% 6.5%; --foreground:44 36% 87%;
+  --card:167 26% 9.5%; --muted-foreground:152 10% 56%;
+  --primary:156 30% 64%; --accent:43 62% 56%;
+  --gold:43 62% 56%; --gold-soft:45 30% 18%;
+  --rule:164 12% 20%; --rule-strong:154 16% 48%;
+  --ink-wash:166 20% 12%; --paper-high:166 22% 12%;
+  --debit:8 64% 58%; --credit:156 34% 56%; --chart-3:213 38% 62%;
+}
+*{box-sizing:border-box;border-color:hsl(var(--rule))}
+/* hide the system cursor over the page so the burin reads as THE cursor */
+body{margin:0;min-height:100vh;background:hsl(var(--background));color:hsl(var(--foreground));
+  font-family:"Instrument Sans",system-ui,sans-serif;font-feature-settings:"ss01" on;-webkit-font-smoothing:antialiased;
+  padding:2.5rem clamp(1rem,5vw,4rem) 8rem;position:relative;overflow-x:hidden;cursor:none}
+@media (pointer:coarse){body{cursor:auto}}            /* touch: keep native */
+h1,h2,h3{font-family:"Fraunces",Georgia,serif;font-variation-settings:"opsz" 80;margin:0}
+::selection{background:hsl(var(--gold)/.85);color:hsl(167 30% 10%)}
+body::after{content:"";position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:.05;mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")}
+.dark body::after{opacity:.07;mix-blend-mode:screen}
+
+#living{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.15}
+.dark #living{opacity:.2}
+/* the burin ink-trail canvas sits above content but ignores pointer */
+#ink{position:fixed;inset:0;z-index:9000;pointer-events:none}
+/* the nib glyph */
+#nib{position:fixed;z-index:9500;top:0;left:0;width:26px;height:26px;pointer-events:none;transform:translate(-3px,-2px);will-change:transform}
+@media (pointer:coarse){#nib,#ink{display:none}}
+
+.wrap{position:relative;z-index:1;max-width:1080px;margin:0 auto;display:grid;gap:2.25rem}
+.dept-label{font-size:.625rem;font-weight:600;letter-spacing:.32em;text-transform:uppercase;color:hsl(var(--muted-foreground))}
+.section-rule{display:flex;align-items:center;gap:.75rem;color:hsl(var(--muted-foreground));font-size:.7rem;letter-spacing:.28em;text-transform:uppercase}
+.section-rule::before,.section-rule::after{content:"";height:1px;flex:1;background:linear-gradient(to right,transparent,hsl(var(--rule-strong)/.5),transparent)}
+.intaglio{font-family:"Fraunces",Georgia,serif;font-variation-settings:"opsz" 144;font-weight:600;letter-spacing:-.01em;font-variant-numeric:lining-nums;
+  text-shadow:0 1px 0 hsl(var(--paper-high)),0 -1px 0 hsl(167 30% 12%/.18)}
+.dark .intaglio{text-shadow:0 1px 0 hsl(168 40% 3%/.9),0 -1px 0 hsl(44 36% 87%/.12)}
+.figure,.ledger-figures{font-family:"Spline Sans Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;filter:none!important;text-shadow:none!important}
+.serial{font-family:"Spline Sans Mono",monospace;font-size:.7rem;letter-spacing:.18em;color:hsl(var(--muted-foreground))}
+.ink-debit{color:hsl(var(--debit))} .ink-credit{color:hsl(var(--credit))}
+
+/* PLATE with pointer-PARALLAX (kept) */
+.plate{position:relative;background:hsl(var(--card));border:1px solid hsl(var(--rule-strong)/.65);padding:1.6rem;
+  box-shadow:0 1px 0 hsl(var(--paper-high)) inset,0 2px 10px hsl(167 30% 12%/.07);overflow:hidden;
+  transform-style:preserve-3d;transition:box-shadow .25s ease,transform .12s ease-out}
+.plate::before{content:"";position:absolute;inset:3px;border:1px solid hsl(var(--rule-strong)/.28);pointer-events:none;z-index:5;transform:translateZ(20px)}
+.plate:hover{box-shadow:0 1px 0 hsl(var(--paper-high)) inset,0 18px 50px hsl(167 30% 12%/.18)}
+.plate>*{transform:translateZ(30px)}
+
+.hero{display:grid;gap:1.4rem;grid-template-columns:1.3fr 1fr;align-items:center}
+@media (max-width:720px){.hero{grid-template-columns:1fr}}
+.figure-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:hsl(var(--rule-strong)/.2);border:1px solid hsl(var(--rule-strong)/.3)}
+.figure-cell{background:hsl(var(--card));padding:.8rem 1rem}
+.figure-cell .v{font-family:"Spline Sans Mono",monospace;font-variant-numeric:tabular-nums;font-size:1.05rem;margin-top:.25rem}
+
+.btn{font-family:"Instrument Sans";font-size:.82rem;font-weight:600;letter-spacing:.04em;background:hsl(var(--primary));color:hsl(46 52% 96%);
+  border:none;padding:.7rem 1.3rem;cursor:none;position:relative;transition:transform .15s ease,box-shadow .15s ease;will-change:transform}
+.btn:active{transform:translateY(1px) scale(.98)!important;box-shadow:inset 0 2px 4px hsl(167 30% 12%/.35)}
+
+/* SEA-CHART: drag the coastline itself */
+.seachart{position:relative}
+#sea{display:block;width:100%;height:300px;cursor:none}
+.handle-hint{position:absolute;top:.8rem;right:1rem;font-family:"Spline Sans Mono",monospace;font-size:.62rem;letter-spacing:.1em;color:hsl(var(--muted-foreground));pointer-events:none}
+.sounding{position:absolute;display:grid;place-items:center;width:72px;height:72px;border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle at 35% 30%,hsl(var(--gold)/.95),hsl(42 56% 34%));color:hsl(46 52% 96%);
+  font-family:"Spline Sans Mono",monospace;font-size:.78rem;text-align:center;line-height:1.05;
+  box-shadow:0 4px 14px hsl(167 30% 12%/.35);border:2px solid hsl(46 52% 96%/.4);transform:rotate(-8deg)}
+.sounding small{font-size:.5rem;letter-spacing:.1em;opacity:.85;text-transform:uppercase}
+.reset{margin-top:.8rem}
+
+/* MINT coin (kept) */
+.mint-stage{display:flex;gap:2rem;align-items:center;flex-wrap:wrap}
+.coin{width:120px;height:120px;border-radius:50%;position:relative;transform-style:preserve-3d;transition:transform .1s ease-out;cursor:none;
+  background:radial-gradient(circle at 38% 32%,hsl(var(--gold)),hsl(42 56% 26%));box-shadow:0 10px 30px hsl(167 30% 12%/.4),inset 0 0 0 4px hsl(46 52% 96%/.25);display:grid;place-items:center}
+.coin .face{font-family:"Fraunces",serif;font-weight:600;color:hsl(46 52% 96%);text-align:center;transform:translateZ(8px)}
+.coin .glint{position:absolute;inset:0;border-radius:50%;pointer-events:none;background:linear-gradient(115deg,transparent 30%,hsl(46 52% 99%/.7) 48%,transparent 60%);background-size:250% 250%;background-position:150% 150%}
+@keyframes strike{0%{transform:scale(2) rotateY(180deg);opacity:0}55%{transform:scale(.92) rotateY(0)}100%{transform:scale(1) rotateY(0)}}
+@keyframes glintsweep{from{background-position:150% 150%}to{background-position:-50% -50%}}
+.coin.struck{animation:strike .6s cubic-bezier(.34,1.4,.64,1) both}
+.coin.struck .glint{animation:glintsweep .7s ease-out .25s both}
+
+.row{display:grid;grid-template-columns:1fr auto auto;gap:1.5rem;padding:.7rem 0;border-bottom:1px solid hsl(var(--rule));align-items:center;font-family:"Spline Sans Mono",monospace;font-size:.85rem;transition:background-color .2s,transform .2s}
+.row:hover{background:hsl(var(--ink-wash)/.7);transform:translateX(4px)}
+.row .man{opacity:0;transform:translateX(-4px);transition:.2s;color:hsl(var(--gold))}
+.row:hover .man{opacity:1;transform:translateX(0)}
+.tick{font-family:"Spline Sans Mono",monospace;font-variant-numeric:tabular-nums}
+.reveal{opacity:0;transform:translateY(24px);transition:opacity .7s cubic-bezier(.22,1,.36,1),transform .7s cubic-bezier(.22,1,.36,1)}
+.reveal.in{opacity:1;transform:none}
+.toolbar{position:fixed;top:1rem;right:1rem;z-index:10000;display:flex;gap:.5rem;background:hsl(var(--card));border:1px solid hsl(var(--rule-strong)/.5);padding:.4rem}
+.toolbar button{font-family:"Spline Sans Mono",monospace;font-size:.7rem;background:transparent;border:1px solid hsl(var(--rule));padding:.3rem .6rem;cursor:none;color:hsl(var(--foreground))}
+@media (prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation:none!important}.reveal{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<canvas id="living"></canvas>
+<canvas id="ink"></canvas>
+<svg id="nib" viewBox="0 0 26 26" aria-hidden="true"><!-- engraver's nib/burin --><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M3 23 L9 17 L13 21 L7 27 Z" transform="translate(0,-4)"/><path d="M9 17 L20 6 a2 2 0 0 1 3 3 L12 20 Z" transform="translate(0,-4)" fill="currentColor" fill-opacity="0.15"/></g></svg>
+<div class="toolbar"><button id="theme">◐ theme</button></div>
+
+<div class="wrap">
+  <header class="reveal">
+    <p class="dept-label">Department of Personal Accounts · Dynamic preview v2</p>
+    <h1 style="font-size:clamp(1.8rem,4vw,2.8rem);margin-top:.4rem">Etch the plate</h1>
+    <p style="color:hsl(var(--muted-foreground));max-width:46rem;margin-top:.5rem">
+      Your cursor is an engraver's <em>burin</em> — it leaves a fading ink trail as you move. The guilloché behind breathes on its own (no longer chasing the mouse).
+      Hover the plates to tilt them. On the sea-chart, <strong>drag the coastline up or down</strong> to model what-ifs. Strike the coin.
+    </p>
+  </header>
+
+  <section class="plate reveal" data-tilt>
+    <p class="dept-label">Projected balance · Form 90</p>
+    <div class="hero" style="margin-top:.6rem">
+      <div>
+        <div class="intaglio" style="font-size:clamp(2.4rem,7vw,4rem)" id="balance">$4,210.18</div>
+        <p style="color:hsl(var(--muted-foreground));margin:.5rem 0 0">accruing today · <span class="tick ink-credit" id="accrual">+$0.0000</span></p>
+        <p class="serial" id="serial" style="margin-top:.8rem"></p>
+      </div>
+      <div class="figure-grid">
+        <div class="figure-cell"><div class="dept-label">Lowest point</div><div class="v ink-credit">$240.10</div></div>
+        <div class="figure-cell"><div class="dept-label">Reached on</div><div class="v">06-22</div></div>
+        <div class="figure-cell"><div class="dept-label">Total outflows</div><div class="v ink-debit">$1,910.00</div></div>
+        <div class="figure-cell"><div class="dept-label">Net change</div><div class="v">+$1,030.18</div></div>
+      </div>
+    </div>
+  </section>
+
+  <p class="section-rule reveal">Cashflow Sea-Chart · drag the coastline</p>
+  <section class="plate seachart reveal" data-tilt>
+    <span class="handle-hint">drag the line ↕ to model what-ifs</span>
+    <canvas id="sea"></canvas>
+    <div class="sounding" id="sounding"><span><b id="odprob">27%</b><br><small>overdraft</small></span></div>
+    <button class="btn reset" id="resetchart" data-magnetic>Reset to baseline</button>
+  </section>
+
+  <p class="section-rule reveal">Mint a specimen · click the coin</p>
+  <section class="plate mint-stage reveal" data-tilt>
+    <div class="coin" id="coin" title="click to strike"><div class="face">EMERGENCY<br>FUNDED</div><div class="glint"></div></div>
+    <div>
+      <h3 style="font-size:1.3rem">Goal reached</h3>
+      <p style="color:hsl(var(--muted-foreground));max-width:24rem">Click to strike again. Hover the coin — it tilts in 3-D and catches the light. In the app this fires when a goal completes; coins collect in your cabinet.</p>
+      <button class="btn" id="restrike" data-magnetic>Strike again</button>
+    </div>
+  </section>
+
+  <p class="section-rule reveal">Ledger</p>
+  <section class="plate reveal" data-tilt>
+    <div class="row"><span>06-12 · Whole Foods</span><span class="ink-debit">−$84.20</span><span class="man">☞</span></div>
+    <div class="row"><span>06-11 · Payroll</span><span class="ink-credit">+$2,400.00</span><span class="man">☞</span></div>
+    <div class="row"><span>06-10 · Con Edison</span><span class="ink-debit">−$140.00</span><span class="man">☞</span></div>
+  </section>
+</div>
+
+<script>
+const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
+const css=getComputedStyle(document.documentElement);
+const C=v=>`hsl(${css.getPropertyValue(v)})`;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const seed=421018%100000, rng=mulberry32(seed);
+(function(){const L='ABCDEFGHJKLMNPQRSTUVWXYZ';document.getElementById('serial').textContent='No. '+L[(seed*7)%24]+L[(seed*13)%24]+'-'+String(seed).padStart(5,'0')})();
+
+// ---------- LIVING GUILLOCHE: breathes only, fixed center (no cursor follow) ----------
+(function(){
+  const cv=document.getElementById('living'),ctx=cv.getContext('2d');
+  let W,H,DPR=Math.min(devicePixelRatio||1,2);
+  function size(){W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px'}
+  size();addEventListener('resize',size);
+  const rings=9,params=[];for(let r=0;r<rings;r++)params.push({k1:3+Math.floor(rng()*9),k2:2+Math.floor(rng()*7),ph:rng()*6.28});
+  let t=0;
+  function frame(){
+    t+=0.005;ctx.clearRect(0,0,W,H);ctx.strokeStyle=C('--rule-strong');ctx.lineWidth=DPR*0.6;
+    const cx=W*0.5,cy=H*0.5,base=Math.min(W,H)*0.46;       // FIXED center
+    for(let r=0;r<rings;r++){const p=params[r];ctx.globalAlpha=(0.5-r*0.045);ctx.beginPath();
+      const amp=base*(1-r*0.06)*(1+0.04*Math.sin(t*1.3+r)); // breathing only
+      for(let a=0;a<=6.2832;a+=0.03){const rad=amp*(0.6+0.4*Math.sin(p.k1*a+p.ph+t))*(0.75+0.25*Math.cos(p.k2*a));
+        const x=cx+rad*Math.cos(a),y=cy+rad*Math.sin(a);a===0?ctx.moveTo(x,y):ctx.lineTo(x,y)}
+      ctx.closePath();ctx.stroke()}
+    ctx.globalAlpha=1;if(!reduce)requestAnimationFrame(frame)}
+  frame();
+})();
+
+// ---------- ENGRAVER'S BURIN: nib follows pointer + leaves a fading ink trail ----------
+(function(){
+  if(matchMedia('(pointer:coarse)').matches)return;
+  const nib=document.getElementById('nib');nib.style.color=C('--foreground');
+  const cv=document.getElementById('ink'),ctx=cv.getContext('2d');
+  let W,H,DPR=Math.min(devicePixelRatio||1,2);
+  function size(){W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px'}
+  size();addEventListener('resize',size);
+  let px=null,py=null;
+  addEventListener('pointermove',e=>{
+    nib.style.transform=`translate(${e.clientX-3}px,${e.clientY-2}px)`;
+    if(reduce)return;
+    if(px!=null){
+      // draw a hairline ink segment that will fade
+      ctx.strokeStyle=C('--gold');ctx.lineWidth=DPR*1.1;ctx.lineCap='round';ctx.globalAlpha=0.5;
+      ctx.beginPath();ctx.moveTo(px*DPR,py*DPR);ctx.lineTo(e.clientX*DPR,e.clientY*DPR);ctx.stroke();ctx.globalAlpha=1;
+    }
+    px=e.clientX;py=e.clientY;
+  });
+  // fade the trail every frame (paint a faint background-colored veil)
+  function fade(){
+    ctx.globalCompositeOperation='destination-out';
+    ctx.fillStyle='rgba(0,0,0,0.06)';ctx.fillRect(0,0,W,H);
+    ctx.globalCompositeOperation='source-over';
+    requestAnimationFrame(fade)}
+  if(!reduce)fade();
+  // press: a small ink "bite" on click
+  addEventListener('pointerdown',e=>{if(reduce)return;ctx.fillStyle=C('--gold');ctx.globalAlpha=.6;ctx.beginPath();ctx.arc(e.clientX*DPR,e.clientY*DPR,3*DPR,0,6.29);ctx.fill();ctx.globalAlpha=1});
+})();
+
+// ---------- pointer-parallax tilt on plates (kept) ----------
+document.querySelectorAll('[data-tilt]').forEach(el=>{
+  el.addEventListener('pointermove',e=>{if(reduce)return;const r=el.getBoundingClientRect();
+    const px=(e.clientX-r.left)/r.width,py=(e.clientY-r.top)/r.height;
+    el.style.transform=`perspective(900px) rotateX(${(0.5-py)*5}deg) rotateY(${(px-0.5)*6}deg)`});
+  el.addEventListener('pointerleave',()=>{el.style.transform=''});
+});
+
+// ---------- magnetic buttons (kept) ----------
+document.querySelectorAll('[data-magnetic]').forEach(el=>{
+  el.addEventListener('pointermove',e=>{if(reduce)return;const r=el.getBoundingClientRect();
+    el.style.transform=`translate(${(e.clientX-r.left-r.width/2)*0.25}px,${(e.clientY-r.top-r.height/2)*0.35}px)`});
+  el.addEventListener('pointerleave',()=>el.style.transform='');
+});
+
+// ---------- accrual ticker (today delta, not the balance) ----------
+(function(){let v=0;const el=document.getElementById('accrual');setInterval(()=>{v+=0.0007+Math.random()*0.0006;el.textContent='+$'+v.toFixed(4)},120)})();
+
+// ---------- SEA-CHART: DRAG THE COASTLINE itself (1:1, intuitive) ----------
+(function(){
+  const cv=document.getElementById('sea'),ctx=cv.getContext('2d');
+  const sounding=document.getElementById('sounding'),odp=document.getElementById('odprob');
+  let W,H,DPR=Math.min(devicePixelRatio||1,2);
+  const n=44;
+  const base=[];for(let i=0;i<=n;i++)base.push(0.42+Math.sin(i/4)*0.04+(i<22?i*0.004:-(i-22)*0.003));
+  let pts=base.slice();
+  function size(){const r=cv.getBoundingClientRect();W=cv.width=r.width*DPR;H=cv.height=r.height*DPR;cv.style.height='300px'}
+  const yToVal=y=>1-(y/300);const valToY=v=>(1-v)*300;
+  function draw(){
+    size();ctx.clearRect(0,0,W,H);
+    ctx.strokeStyle=C('--rule');ctx.globalAlpha=.4;ctx.lineWidth=DPR;
+    for(let g=0;g<=n;g+=5){ctx.beginPath();ctx.moveTo(g/n*W,0);ctx.lineTo(g/n*W,H*.88);ctx.stroke()}
+    ctx.globalAlpha=1;
+    for(let b=3;b>=1;b--){ctx.beginPath();ctx.moveTo(0,H);pts.forEach((p,i)=>ctx.lineTo(i/n*W,(1-p)*H*0.82+b*12*DPR));ctx.lineTo(W,H);ctx.closePath();ctx.fillStyle=C('--chart-3');ctx.globalAlpha=0.05*b;ctx.fill()}
+    ctx.globalAlpha=1;
+    ctx.strokeStyle=C('--debit');ctx.globalAlpha=.6;ctx.setLineDash([5*DPR,5*DPR]);ctx.beginPath();ctx.moveTo(0,H*.88);ctx.lineTo(W,H*.88);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;
+    // coastline + draggable node dots
+    ctx.strokeStyle=C('--chart-3');ctx.lineWidth=2*DPR;ctx.beginPath();
+    pts.forEach((p,i)=>{const x=i/n*W,y=(1-p)*H*0.82;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)});ctx.stroke();
+    // node markers every few points to signal draggability
+    ctx.fillStyle=C('--gold');for(let i=0;i<=n;i+=4){const x=i/n*W,y=(1-pts[i])*H*0.82;ctx.beginPath();ctx.arc(x,y,3*DPR,0,6.29);ctx.fill()}
+    const low=Math.min(...pts);odp.textContent=Math.min(98,Math.round(Math.max(0,(0.4-low))*180))+'%';
+    sounding.style.left='62%';sounding.style.top=Math.min(70,Math.max(20,(1-pts[Math.round(0.62*n)])*82))+'%';
+  }
+  draw();addEventListener('resize',draw);
+  // drag the nearest coastline point up/down (and feather neighbors)
+  let dragIdx=null;
+  function idxFromX(clientX){const r=cv.getBoundingClientRect();return Math.round(((clientX-r.left)/r.width)*n)}
+  cv.addEventListener('pointerdown',e=>{dragIdx=Math.max(0,Math.min(n,idxFromX(e.clientX)));cv.setPointerCapture(e.pointerId);move(e)});
+  cv.addEventListener('pointermove',move);
+  cv.addEventListener('pointerup',()=>dragIdx=null);
+  function move(e){if(dragIdx==null)return;const r=cv.getBoundingClientRect();
+    const v=Math.max(0.08,Math.min(0.95,yToVal(e.clientY-r.top)));
+    // 1:1 on the grabbed point, feather to neighbors so the coastline stays smooth
+    for(let d=-3;d<=3;d++){const i=dragIdx+d;if(i<0||i>n)continue;const w=Math.max(0,1-Math.abs(d)/4);
+      pts[i]=pts[i]*(1-w)+v*w}
+    draw()}
+  document.getElementById('resetchart').addEventListener('click',()=>{pts=base.slice();draw()});
+})();
+
+// ---------- MINT coin (kept) ----------
+(function(){
+  const coin=document.getElementById('coin');
+  function strike(){coin.classList.remove('struck');void coin.offsetWidth;coin.classList.add('struck')}
+  coin.addEventListener('click',strike);document.getElementById('restrike').addEventListener('click',strike);
+  coin.addEventListener('pointermove',e=>{if(reduce)return;const r=coin.getBoundingClientRect();
+    const px=(e.clientX-r.left)/r.width,py=(e.clientY-r.top)/r.height;
+    coin.style.transform=`perspective(600px) rotateX(${(0.5-py)*28}deg) rotateY(${(px-0.5)*32}deg)`});
+  coin.addEventListener('pointerleave',()=>coin.style.transform='');
+  setTimeout(strike,400);
+})();
+
+const io=new IntersectionObserver(es=>es.forEach(x=>{if(x.isIntersecting)x.target.classList.add('in')}),{threshold:.15});
+document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+document.getElementById('theme').onclick=()=>document.documentElement.classList.toggle('dark');
+</script>
+</body>
+</html>
