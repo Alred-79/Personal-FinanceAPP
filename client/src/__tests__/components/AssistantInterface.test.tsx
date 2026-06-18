@@ -106,3 +106,100 @@ describe("AssistantInterface — proposal frame", () => {
     );
   });
 });
+
+// W2 — cite sources (verifiable AI). A token answer followed by a ``sources``
+// frame shows "Based on N transactions" under the figure; expanding lists the
+// cited rows. A pure-chat turn (no sources frame) shows no citation.
+const SOURCES_STREAM = (frames: string[]) => sseStream(frames);
+
+const TOKEN_FRAME = (text: string) =>
+  `event: token\ndata: ${JSON.stringify(text)}\n\n`;
+
+const SOURCES_FRAME = (body: unknown) =>
+  `event: sources\ndata: ${JSON.stringify(body)}\n\n`;
+
+const DONE_FRAME = `event: done\ndata: {}\n\n`;
+
+describe("AssistantInterface — sources frame (W2)", () => {
+  it("renders 'Based on N transactions' and expands to the cited rows", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: SOURCES_STREAM([
+          TOKEN_FRAME("You spent $64.50 this week."),
+          SOURCES_FRAME({
+            data: [
+              { id: 1, title: "Coffee", date: "2026-06-01", amount: 4.5 },
+              { id: 2, title: "Groceries", date: "2026-06-02", amount: 60 },
+            ],
+            count: 2,
+            total: 2,
+            capped: false,
+          }),
+          DONE_FRAME,
+        ]),
+      })
+    );
+    open();
+    const input = await screen.findByPlaceholderText(/ask/i);
+    fireEvent.change(input, { target: { value: "how much did I spend?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    const cite = await screen.findByTestId("sources-citation");
+    expect(cite).toHaveTextContent("Based on 2 transactions");
+
+    // Rows are hidden until expanded.
+    expect(screen.queryByTestId("sources-list")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Based on 2 transactions/ }));
+    expect(screen.getByTestId("sources-list")).toBeInTheDocument();
+    expect(screen.getByText("Coffee")).toBeInTheDocument();
+    expect(screen.getByText("Groceries")).toBeInTheDocument();
+  });
+
+  it("labels 'N of M' when the read tool truncated its output", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: SOURCES_STREAM([
+          TOKEN_FRAME("Here's a summary."),
+          SOURCES_FRAME({
+            data: [{ id: 1, title: "A", date: "2026-06-01", amount: 1 }],
+            count: 1,
+            total: 137,
+            capped: true,
+          }),
+          DONE_FRAME,
+        ]),
+      })
+    );
+    open();
+    const input = await screen.findByPlaceholderText(/ask/i);
+    fireEvent.change(input, { target: { value: "show me everything" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    const cite = await screen.findByTestId("sources-citation");
+    expect(cite).toHaveTextContent("Based on 1 of 137 transactions");
+  });
+
+  it("shows no citation for a pure-chat turn (no sources frame)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: SOURCES_STREAM([TOKEN_FRAME("Hi there!"), DONE_FRAME]),
+      })
+    );
+    open();
+    const input = await screen.findByPlaceholderText(/ask/i);
+    fireEvent.change(input, { target: { value: "hello" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await screen.findByText("Hi there!");
+    expect(screen.queryByTestId("sources-citation")).not.toBeInTheDocument();
+  });
+});

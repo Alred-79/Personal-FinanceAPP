@@ -114,6 +114,156 @@ def _find_proposal(frames):
     return None
 
 
+def _find_sources(frames):
+    for f in frames:
+        if f.startswith("event: sources\n"):
+            return json.loads(f.split("data: ", 1)[1])
+    return None
+
+
+async def _drive_chat_with_read_events(user, events):
+    """Run the real ``chat`` generator with a faked executor that emits a
+    sequence of *events* (each a dict the astream_events loop understands), then
+    finishes. Returns the SSE frame strings the generator yielded.
+
+    Unlike ``_drive_chat_with_tool_event`` this lets a test emit zero, one, or
+    several ``on_tool_end`` read events plus a model-stream token, to exercise the
+    W2 cite-sources path end to end.
+    """
+    from cachetools import TTLCache
+
+    service = AssistantService.__new__(AssistantService)
+    service.agents = TTLCache(maxsize=8, ttl=1800)
+    service.actions = {}
+    service.preprocessors = {}
+
+    executor = MagicMock()
+
+    async def _events(*args, **kwargs):
+        for ev in events:
+            yield ev
+
+    executor.astream_events = _events
+    service.agents[user.id] = executor
+
+    frames = []
+    async for frame in service.chat(_as_userindb(user), "how much did I spend?"):
+        frames.append(frame)
+    return frames
+
+
+class _Chunk:
+    """Minimal stand-in for a streamed model chunk (carries ``.content``)."""
+
+    def __init__(self, content):
+        self.content = content
+
+
+def _model_stream(text):
+    return {"event": "on_chat_model_stream", "data": {"chunk": _Chunk(text)}}
+
+
+def _read_tool_end(name, output):
+    return {"event": "on_tool_end", "name": name, "data": {"output": output}}
+
+
+@pytest.mark.asyncio
+async def test_numeric_answer_emits_sources_frame(monkeypatch, db_session, _engine):
+    """A turn that calls a transaction read tool emits a ``sources`` frame whose
+    rows are scrubbed {id,title,date,amount} — the W2 cite-sources contract."""
+    monkeypatch.setattr(svc_mod.settings, "assistant_firewall_enabled", False)
+    _bind_session(monkeypatch, _engine)
+    user, _ = _user(db_session)
+
+    rows = [
+        {"id": 1, "title": "Coffee", "amount": 4.5, "date": "2026-06-01"},
+        {"id": 2, "title": "Groceries", "amount": 60.0, "date": "2026-06-02"},
+    ]
+    events = [
+        {"event": "on_chat_model_start", "name": "ChatGroq", "data": {}},
+        _read_tool_end("get_transactions_by_date_range", rows),
+        _model_stream("You spent $64.50 across 2 transactions."),
+    ]
+    frames = await _drive_chat_with_read_events(user, events)
+
+    body = _find_sources(frames)
+    assert body is not None, f"no sources frame in {frames}"
+    assert body["count"] == 2
+    assert body["total"] == 2
+    assert body["capped"] is False
+    cited = body["data"]
+    assert {r["id"] for r in cited} == {1, 2}
+    # Only the four whitelisted fields ride along — no stray PII columns.
+    for r in cited:
+        assert set(r.keys()) == {"id", "title", "date", "amount"}
+
+
+@pytest.mark.asyncio
+async def test_no_tool_answer_emits_no_sources_frame(monkeypatch, db_session, _engine):
+    """A pure-chat turn (no read tool) emits NO sources frame at all."""
+    monkeypatch.setattr(svc_mod.settings, "assistant_firewall_enabled", False)
+    _bind_session(monkeypatch, _engine)
+    user, _ = _user(db_session)
+
+    events = [
+        {"event": "on_chat_model_start", "name": "ChatGroq", "data": {}},
+        _model_stream("Hello! How can I help with your finances today?"),
+    ]
+    frames = await _drive_chat_with_read_events(user, events)
+    assert _find_sources(frames) is None, f"unexpected sources frame in {frames}"
+
+
+@pytest.mark.asyncio
+async def test_truncated_read_labels_n_of_m(monkeypatch, db_session, _engine):
+    """A ``_cap_rows``-truncated tool output yields capped=True + a real total so
+    the client can render 'based on N of M'."""
+    monkeypatch.setattr(svc_mod.settings, "assistant_firewall_enabled", False)
+    _bind_session(monkeypatch, _engine)
+    user, _ = _user(db_session)
+
+    rows = [
+        {"id": 1, "title": "A", "amount": 1.0, "date": "2026-06-01"},
+        {"id": 2, "title": "B", "amount": 2.0, "date": "2026-06-02"},
+        {"_truncated": True, "shown": 2, "total": 137},
+    ]
+    events = [
+        {"event": "on_chat_model_start", "name": "ChatGroq", "data": {}},
+        _read_tool_end("get_transactions_by_category", rows),
+        _model_stream("Here is a summary."),
+    ]
+    frames = await _drive_chat_with_read_events(user, events)
+    body = _find_sources(frames)
+    assert body is not None
+    assert body["count"] == 2
+    assert body["total"] == 137
+    assert body["capped"] is True
+
+
+@pytest.mark.asyncio
+async def test_multiple_read_tools_merge_and_dedupe(monkeypatch, db_session, _engine):
+    """Two read tools in one turn merge into a single sources frame, de-duped."""
+    monkeypatch.setattr(svc_mod.settings, "assistant_firewall_enabled", False)
+    _bind_session(monkeypatch, _engine)
+    user, _ = _user(db_session)
+
+    rows_a = [{"id": 1, "title": "Coffee", "amount": 4.5, "date": "2026-06-01"}]
+    rows_b = [
+        {"id": 1, "title": "Coffee", "amount": 4.5, "date": "2026-06-01"},  # dup
+        {"id": 9, "title": "Rent", "amount": 1200.0, "date": "2026-06-03"},
+    ]
+    events = [
+        {"event": "on_chat_model_start", "name": "ChatGroq", "data": {}},
+        _read_tool_end("get_transactions_by_date_range", rows_a),
+        _read_tool_end("get_transactions_per_account", rows_b),
+        _model_stream("Summary."),
+    ]
+    frames = await _drive_chat_with_read_events(user, events)
+    body = _find_sources(frames)
+    assert body is not None
+    assert body["count"] == 2  # de-duped on id
+    assert {r["id"] for r in body["data"]} == {1, 9}
+
+
 @pytest.mark.asyncio
 async def test_create_rule_emits_proposal_frame_with_decodable_token(
     monkeypatch, db_session, _engine

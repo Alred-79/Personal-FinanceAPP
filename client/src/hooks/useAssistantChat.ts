@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Message, ActionMessage, AssistantProposal, AssistantBridge } from "@/types";
+import { Message, ActionMessage, AssistantProposal, AssistantBridge, AssistantSources } from "@/types";
 import { apiBase } from "@/lib/apiBase";
 
 async function refreshAuth(): Promise<boolean> {
@@ -34,7 +34,7 @@ export interface AssistantChat {
  * The Clerk's chat engine, lifted out of {@link AssistantInterface} so more than
  * one surface can drive it. It owns the SSE round-trip to `/assistant/chat/`
  * (401→refresh→retry), the `\n\n`-framed event parsing (tool / proposal /
- * assisted_action / token / crisis / dispute / tax_resource / done), and the
+ * assisted_action / token / sources / crisis / dispute / tax_resource / done), and the
  * resulting transcript + proposal/bridge state. The propose→confirm cards live
  * in the VIEW layer (so their testids and DOM are owned there); this hook only
  * surfaces the `proposal` / `bridge` payloads.
@@ -139,6 +139,21 @@ export function useAssistantChat(): AssistantChat {
                 return next;
               }
               return [...next, { role: "assistant", content: assistantMessage }];
+            });
+          } else if (eventType === "sources") {
+            // W2 — cite-sources: the read-tool rows behind this turn's figures.
+            // Attach to the current assistant message so the view can render
+            // "based on these N transactions" under the answer. A turn with no
+            // read tool never sends this frame, so the chip only shows when the
+            // Clerk actually grounded its answer in data.
+            const sources = data as AssistantSources;
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant") {
+                next[next.length - 1] = { ...last, sources };
+              }
+              return next;
             });
           } else if (
             eventType === "crisis" ||

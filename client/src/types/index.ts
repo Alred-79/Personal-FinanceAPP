@@ -93,6 +93,10 @@ export interface TransactionDialogProps {
 export interface Message {
   role: "user" | "assistant";
   content: string;
+  /** W2 — the transaction rows the assistant cited for this turn (read-tool
+   *  evidence behind the figures). Rendered as "based on these N transactions".
+   *  Absent on a pure-chat turn (no read tool) and on user messages. */
+  sources?: AssistantSources;
 }
 
 // Notifications and subscriptions
@@ -332,6 +336,28 @@ export interface AssistantBridge {
       goal_id?: number;
     };
   };
+}
+
+/**
+ * The assistant's ``sources`` SSE frame (W2 — verifiable AI / cite-sources). When
+ * a turn calls a transaction read tool, the server emits the rows behind the
+ * figure it just narrated, already PII-scrubbed. The chat shows "based on these N
+ * transactions" so the anti-hallucination architecture is visible. A pure-chat
+ * turn (no read tool) emits NO frame. ``capped`` + ``total`` let the UI render
+ * "based on N of M" when the tool truncated its output.
+ */
+export interface AssistantSourceRow {
+  id: number | null;
+  title: string | null;
+  date: string | null;
+  amount: number | null;
+}
+
+export interface AssistantSources {
+  data: AssistantSourceRow[];
+  count: number;
+  total: number;
+  capped: boolean;
 }
 
 /** A fact the assistant has learned about the user (Pillar 1A). Mirrors the

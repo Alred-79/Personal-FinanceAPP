@@ -23,6 +23,7 @@ import styles from "./AssistantInterface.module.css";
 import { useAssistantChat } from "@/hooks/useAssistantChat";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { ProposalCard } from "./ProposalCard";
+import { SourcesCitation } from "./SourcesCitation";
 import BridgeCard from "@/components/custom/BridgeCard/BridgeCard";
 
 const EXAMPLE_QUESTIONS = [
@@ -138,6 +139,9 @@ export function AssistantInterface() {
                     }`}
                   >
                     {message.content}
+                    {message.role === "assistant" && message.sources && (
+                      <SourcesCitation sources={message.sources} />
+                    )}
                   </div>
                 </div>
               ))}

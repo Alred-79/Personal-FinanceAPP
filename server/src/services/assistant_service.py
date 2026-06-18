@@ -232,6 +232,121 @@ _PROPOSAL_FRAME_TOOLS: frozenset[str] = frozenset(
 )
 
 
+# ── W2: "Cite sources" (verifiable AI) ────────────────────────────────────────
+# Read tools whose finished output is a list of transaction-shaped rows
+# ({id,title,amount,date}) we can cite back to the user as the evidence behind a
+# figure. These are the THREE transaction readers; ``get_accounts``/``get_goals``
+# are deliberately EXCLUDED — accounts carry the account-number PII risk the spec
+# calls out, and goals aren't the "based on these N transactions" evidence the
+# user wants under a figure. Every row here already passed through
+# ``_safe_for_llm`` inside the tool body (PII-scrubbed, merchant-minimized), so
+# the sources frame carries only already-screened data — never a raw account
+# number. The cap below also bounds count.
+_READ_SOURCE_TOOLS: frozenset[str] = frozenset(
+    {
+        "get_transactions_by_date_range",
+        "get_transactions_by_category",
+        "get_transactions_per_account",
+    }
+)
+
+# Hard cap on how many sources a single turn cites. Mirrors the tool's own row
+# cap (``assistant_tool_max_rows``) so the frame can never be larger than what
+# the model actually saw; ``_truncated`` markers from ``_cap_rows`` let us still
+# render "based on N of M".
+_MAX_SOURCES = 25
+
+
+def _unwrap_tool_output(raw: Any) -> Any:
+    """Return a tool's finished output as a Python object.
+
+    ``on_tool_end`` may hand us either the tool's raw return (a list of dict
+    rows — the live LangChain path for a tool that returns a list) or a
+    ``ToolMessage`` whose ``.content`` is the JSON/text serialization (and the
+    fakes in tests pass the object directly). Unwrap to ``.content`` when present
+    and JSON-decode a string payload; otherwise pass the object through.
+    """
+    content = getattr(raw, "content", raw)
+    if isinstance(content, str):
+        try:
+            return json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            return content
+    return content
+
+
+def _collect_sources(output: Any, acc: list[dict], seen: set, meta: dict) -> None:
+    """Fold one read-tool output into the per-turn sources accumulator.
+
+    *output* is the (already PII-scrubbed via ``_safe_for_llm``) list of rows.
+    We keep only ``{id,title,date,amount}`` — never any other field, so an
+    account number or token that somehow rode along on a row is dropped here too
+    (belt-and-suspenders over the upstream scrub). Multiple read tools in one
+    turn merge into the same accumulator, de-duped by id. A ``_cap_rows`` marker
+    (``{"_truncated": True, "shown", "total"}``) is recorded in *meta* so the
+    frame can carry enough to render "based on N of M".
+    """
+    if not isinstance(output, list):
+        return
+    for row in output:
+        if not isinstance(row, dict):
+            continue
+        if row.get("_truncated"):
+            # The tool capped its rows; remember the real total for "N of M".
+            shown = row.get("shown")
+            total = row.get("total")
+            if isinstance(total, int):
+                meta["total"] = meta.get("total", 0) + total
+            if isinstance(shown, int):
+                meta["shown"] = meta.get("shown", 0) + shown
+            continue
+        rid = row.get("id")
+        title = row.get("title")
+        if rid is None and title is None:
+            continue
+        key = (rid, title)
+        if key in seen:
+            continue
+        seen.add(key)
+        acc.append(
+            {
+                "id": rid,
+                "title": title,
+                "date": row.get("date"),
+                "amount": row.get("amount"),
+            }
+        )
+
+
+def _sources_frame(acc: list[dict], meta: dict) -> str | None:
+    """Build the ``sources`` SSE frame for a turn, or None when nothing was read.
+
+    No read-tool rows → no frame at all (the "pure chat / no tool call" case).
+    Caps the cited rows at ``_MAX_SOURCES``; when either the cap bites OR a tool
+    reported ``_truncated``, the frame carries ``total`` (and ``capped``) so the
+    client can say "based on N of M". ``total`` is the real population size when
+    known (a tool's reported total), else the number actually cited.
+    """
+    if not acc:
+        return None
+    shown = acc[: _MAX_SOURCES]
+    # Real population: a tool's reported total dominates; otherwise the rows we
+    # actually gathered. If our own cap trimmed the list, that also counts.
+    gathered = len(acc)
+    reported_total = meta.get("total", 0)
+    total = max(reported_total, gathered)
+    capped = total > len(shown)
+    return _sse(
+        "sources",
+        {
+            "data": shown,
+            "count": len(shown),
+            "total": total,
+            "capped": capped,
+        },
+    )
+
+
 class _NoArgs(BaseModel):
     """Schema for tools that take no real input.
 
@@ -2822,6 +2937,15 @@ class AssistantService:
         # without the firewall to survive).
         tax_soften = firewall_on and settings.tax_features_enabled
         buffer = ""
+        # W2 — "Cite sources" (verifiable AI). Accumulate the transaction rows the
+        # read tools returned THIS turn so we can emit a single ``sources`` frame at
+        # turn end ("based on these N transactions"). The rows are already
+        # PII-scrubbed by ``_safe_for_llm`` in each tool body; ``_collect_sources``
+        # keeps only id/title/date/amount. A turn with no read-tool call leaves
+        # ``_sources`` empty → no frame (the pure-chat no-op the spec requires).
+        sources_acc: list[dict] = []
+        sources_seen: set = set()
+        sources_meta: dict = {}
 
         try:
             async for event in executor.astream_events(
@@ -2873,6 +2997,17 @@ class AssistantService:
                     frame = _proposal_frame(event)
                     if frame is not None:
                         yield frame
+                elif kind == "on_tool_end" and event.get("name") in _READ_SOURCE_TOOLS:
+                    # W2 — a transaction read tool finished. Fold its (already
+                    # PII-scrubbed) rows into the per-turn sources accumulator; the
+                    # ``sources`` frame is emitted once at turn end, not per tool,
+                    # so multiple reads in one turn merge into a single citation.
+                    output = _unwrap_tool_output(
+                        (event.get("data") or {}).get("output")
+                    )
+                    _collect_sources(
+                        output, sources_acc, sources_seen, sources_meta
+                    )
                 elif kind == "on_chat_model_stream":
                     chunk = event["data"].get("chunk")
                     content = getattr(chunk, "content", "") if chunk else ""
@@ -2901,6 +3036,12 @@ class AssistantService:
                         verdict = screen_output(sentence, plain=True)
                         if verdict.blocked:
                             yield _sse("token", verdict.safe_text)
+                            # The answer was blocked, but the figures it WOULD have
+                            # cited still came from real read-tool rows; emit them so
+                            # the cite-sources contract holds even on a firewall stop.
+                            src = _sources_frame(sources_acc, sources_meta)
+                            if src is not None:
+                                yield src
                             yield _sse("done", {})
                             return
                         yield _sse("token", sentence)
@@ -2910,6 +3051,11 @@ class AssistantService:
                     buffer = soften_tax_narration(buffer)
                 verdict = screen_output(buffer, plain=True)
                 yield _sse("token", verdict.safe_text if verdict.blocked else buffer)
+            # W2 — emit the turn's cited sources just before ``done``. Returns None
+            # (no frame) when no read tool ran this turn — the pure-chat no-op.
+            src = _sources_frame(sources_acc, sources_meta)
+            if src is not None:
+                yield src
             yield _sse("done", {})
 
         except Exception as e:
