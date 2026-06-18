@@ -18,6 +18,7 @@ from server.src.db.models import (
     User as UserORM,
 )
 from server.src.services.merchant_lifecycle_service import (
+    _MIN_MERCHANTS_FOR_FIT,
     BGNBDParams,
     MerchantLifecycleService,
     price_creep_pct,
@@ -153,6 +154,41 @@ def test_refresh_is_deterministic_and_idempotent(db_session, planted):
 def test_disabled_flag_is_noop(db_session, planted, monkeypatch):
     monkeypatch.setattr(settings, "merchant_lifecycle_enabled", False)
     assert MerchantLifecycleService(db_session).refresh(planted.id, as_of=date(2026, 6, 2)) == []
+
+
+def test_cold_start_below_min_merchants_skips_gracefully(db_session, monkeypatch):
+    """Cold start: a user with fewer than ``_MIN_MERCHANTS_FOR_FIT`` repeat
+    merchants self-skips the pooled fit (the population is too small to be
+    trustworthy). The refresh must run WITHOUT crashing, fit nothing (no pymc
+    invoked), and write NO snapshot rows — the ship-dark guardrail for a sparse
+    new user. The flag is ON, so this isolates the population-floor skip from the
+    feature-flag skip covered above."""
+    monkeypatch.setattr(settings, "merchant_lifecycle_enabled", True)
+    user, acct = _seed_user(db_session)
+
+    # Only 3 repeat merchants (< the 5-merchant floor), each clearly fittable
+    # on its own (monthly, charges right up to as_of) — so the ONLY reason to
+    # skip is the population floor, not a per-merchant min-charge cutoff.
+    assert _MIN_MERCHANTS_FOR_FIT == 5
+    for name in ("Spotify", "Netflix", "Hulu"):
+        _add_charges(db_session, acct.id, name, _monthly_dates(13, (2025, 6)), 15_00)
+    db_session.flush()
+
+    # Guard: if the fit were ever reached it would call pymc; assert it is NOT.
+    import server.src.services.merchant_lifecycle_service as mls
+
+    def _boom(*_a, **_k):
+        raise AssertionError("fit_bgnbd must not run below the merchant floor")
+
+    monkeypatch.setattr(mls, "fit_bgnbd", _boom)
+
+    snaps = MerchantLifecycleService(db_session).refresh(user.id, as_of=date(2026, 6, 2))
+
+    assert snaps == []  # nothing fitted, nothing returned
+    n_rows = db_session.query(MerchantLifecycleORM).filter(
+        MerchantLifecycleORM.user_id == user.id
+    ).count()
+    assert n_rows == 0  # no MerchantLifecycle rows written
 
 
 def test_subscriptions_router_enriches_with_lifecycle(db_session, planted):

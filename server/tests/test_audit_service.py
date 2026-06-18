@@ -138,3 +138,24 @@ def test_auditor_disabled_is_noop(db_session, planted, monkeypatch):
     monkeypatch.setattr(settings, "auditor_enabled", False)
     assert scheduler.job_auditor(db_session, AS_OF) == 0
     assert _count(db_session, planted.id, "audit_digest") == 0
+
+
+def test_auditor_zero_transaction_user_emits_nothing(db_session, monkeypatch):
+    """Cold start (both flags ON): a user with NO transactions has nothing for
+    any detector to fire on — no anomalies, no budget overruns, no fittable
+    lifecycle population. The audit must run WITHOUT crashing, create zero
+    findings, and write NO notifications at all (not even an empty digest)."""
+    monkeypatch.setattr(settings, "auditor_enabled", True)
+    monkeypatch.setattr(settings, "merchant_lifecycle_enabled", True)
+    user, _acct = _seed_user(db_session)  # account, but zero expenses/budgets
+
+    result = AuditService(db_session).run(user.id, as_of=AS_OF)
+    db_session.flush()
+
+    assert result["findings"] == 0
+    assert result["created"] == 0
+    assert result["digest"] is False
+    # No notifications of any type were written for this user.
+    assert db_session.query(NotificationORM).filter(
+        NotificationORM.user_id == user.id
+    ).count() == 0
