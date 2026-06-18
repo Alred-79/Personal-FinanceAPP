@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     # external trigger exists (production backlog). Enforced at startup in
     # main.py and documented in docs/v5 execution.
     scheduler_enabled: bool = True
+    # Multi-worker seam for the single-worker scheduler invariant above. With >1
+    # worker, set this False on every worker except one so jobs schedule once
+    # cluster-wide instead of once per worker. This is a static gate; the real
+    # implementation later is leader election (e.g. a Postgres
+    # ``pg_try_advisory_lock``). Default True = current single-worker behavior.
+    scheduler_leader: bool = True
     # The Detangler's nightly pass (transfer/refund/duplicate flagging). On by
     # default; the per-pair notification dedup makes a re-fire harmless. Disable
     # to silence the nightly job without affecting the on-demand endpoint.
@@ -112,6 +118,11 @@ class Settings(BaseSettings):
     # fixture in conftest). Contrast ``mcp_rate_limit_enabled``, which the MCP
     # throttle DOES read fresh per request.
     rate_limit_enabled: bool = True
+    # Storage backend for the slowapi/``limits`` rate limiter. ``memory://`` is
+    # per-process (the single-worker invariant). The multi-worker seam: set this
+    # to ``redis://host:6379`` and every worker shares one counter — a config
+    # change only, no code change. See server/src/limiter.py.
+    ratelimit_storage_uri: str = "memory://"
     login_rate_limit: str = "5/minute"
     refresh_rate_limit: str = "10/minute"
     # Receipt scanning calls the paid Groq vision API, so it gets a limit too.

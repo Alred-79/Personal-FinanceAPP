@@ -50,4 +50,8 @@ def _client_key(request: Request) -> str:
 limiter = Limiter(
     key_func=_client_key,
     enabled=settings.rate_limit_enabled,
+    # Per-process ``memory://`` by default (single-worker invariant). Point
+    # ``ratelimit_storage_uri`` at ``redis://...`` to share one counter across
+    # workers — a config change only. See settings.ratelimit_storage_uri.
+    storage_uri=settings.ratelimit_storage_uri,
 )

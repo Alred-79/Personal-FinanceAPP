@@ -480,6 +480,11 @@ def start_scheduler():
     if not settings.scheduler_enabled:
         logger.info("game scheduler disabled (scheduler_enabled=false)")
         return None
+    if not settings.scheduler_leader:
+        # Multi-worker seam: only the elected leader schedules jobs. Until real
+        # leader election exists, set scheduler_leader=False on all-but-one worker.
+        logger.info("game scheduler skipped on this worker (scheduler_leader=false)")
+        return None
     try:
         scheduler = build_scheduler()
         scheduler.start()

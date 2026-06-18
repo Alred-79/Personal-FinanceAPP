@@ -2317,6 +2317,53 @@ class ProposeAssistedActionTool(BaseTool):
         )
 
 
+class AgentConversationCache:
+    """Per-user store for the assistant's cached ``AgentExecutor`` and its
+    conversation memory.
+
+    Today it wraps an in-process ``cachetools.TTLCache`` — the single-worker
+    invariant (a second worker has its own cache, so a user's follow-up turn
+    routed there loses history). This class is the SEAM for going multi-worker:
+    a future Redis-backed implementation would persist the conversation HISTORY
+    only (LangChain executors are not serializable), have ``get`` return ``None``
+    so each request rebuilds the executor, and back ``history`` / ``clear_history``
+    onto the shared store. Every call site goes through these methods so that
+    swap stays contained to this class — see docs/MULTI-TENANT-DO-NOW.md (WS3)
+    and docs/MULTI-TENANT-DEFERRED.md (Item 1, Redis).
+
+    Kept deliberately mapping-compatible (``in`` / ``[]`` / ``get`` / ``pop`` /
+    ``clear`` / ``len``) so call sites use plain dict operations and a Redis-
+    backed subclass can override just these to persist history without touching
+    callers.
+    """
+
+    def __init__(self, maxsize: int = 128, ttl: int = 1800):
+        self._agents: TTLCache[int, AgentExecutor] = TTLCache(
+            maxsize=maxsize, ttl=ttl
+        )
+
+    def __contains__(self, user_id: int) -> bool:
+        return user_id in self._agents
+
+    def __getitem__(self, user_id: int) -> "AgentExecutor":
+        return self._agents[user_id]
+
+    def __setitem__(self, user_id: int, executor: "AgentExecutor") -> None:
+        self._agents[user_id] = executor
+
+    def __len__(self) -> int:
+        return len(self._agents)
+
+    def get(self, user_id: int, default=None):
+        return self._agents.get(user_id, default)
+
+    def pop(self, user_id: int, default=None):
+        return self._agents.pop(user_id, default)
+
+    def clear(self) -> None:
+        self._agents.clear()
+
+
 class AssistantService:
     def __init__(self):
         self.llm = ChatGroq(
@@ -2327,9 +2374,7 @@ class AssistantService:
         )
 
         # Initialize the agent
-        self.agents: TTLCache[int, AgentExecutor] = TTLCache(
-            maxsize=128, ttl=1800,
-        )
+        self.agents = AgentConversationCache(maxsize=128, ttl=1800)
         self.actions = {
             "get_transactions_by_date_range": "Retrieving transaction data from {start_date} to {end_date}...",
             "get_transactions_by_category": "Retrieving transaction data for {category}...",
