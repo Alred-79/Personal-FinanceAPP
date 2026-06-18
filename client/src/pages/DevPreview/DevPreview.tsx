@@ -11,9 +11,10 @@ import type { Forecast } from "@/store/store";
 import TimelineCard from "@/components/custom/Overview/TimelineCard";
 import NotificationBell from "@/components/custom/NotificationBell/NotificationBell";
 import { CommandDeck } from "@/components/custom/CommandDeck/CommandDeck";
+import { ChroniclerDrawer } from "@/components/custom/ChroniclerDrawer/ChroniclerDrawer";
 
 type Dataset = "rich" | "sparse" | "empty";
-type Surface = "timeline" | "notifications" | "deck";
+type Surface = "timeline" | "notifications" | "deck" | "chronicler";
 
 function dayOffset(n: number): string {
   const d = new Date();
@@ -165,7 +166,7 @@ export default function DevPreview() {
       <div className="mx-auto max-w-2xl space-y-6">
         <div className="flex flex-wrap items-center gap-2 border-b border-rule-strong/30 pb-4">
           <span className="dept-label mr-2">Dev Preview</span>
-          {(["timeline", "notifications", "deck"] as Surface[]).map((s) => (
+          {(["timeline", "notifications", "deck", "chronicler"] as Surface[]).map((s) => (
             <button key={s} className={btn(surface === s)} onClick={() => setSurface(s)}>
               {s}
             </button>
@@ -205,6 +206,16 @@ export default function DevPreview() {
               onConnectBank={() => alert("link bank (harness no-op)")}
               canConnectBank
             />
+          </div>
+        )}
+        {surface === "chronicler" && (
+          <div className="space-y-3">
+            <p className="font-sans text-xs text-muted-foreground">
+              The Chronicler drawer (the `/` key surface) opens from the right.
+              Sending needs the backend; the header, empty state, canned chips and
+              input render here. Game mode is off, so the title reads "Assistant".
+            </p>
+            <ChroniclerDrawer defaultOpen />
           </div>
         )}
       </div>
