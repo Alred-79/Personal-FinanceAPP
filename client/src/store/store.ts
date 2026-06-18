@@ -190,8 +190,14 @@ interface StoreState {
   notificationsLoaded: boolean;
   subscriptions: Subscription[];
   subscriptionsLoaded: boolean;
+  /** Command Deck → "add transaction": a consume-once request the Transactions
+   *  page reads to open its TransactionDialog (so the deck never mutates money
+   *  directly — the manual form + validation stays the single entry point). */
+  addTxnRequested: boolean;
 
   // Actions
+  requestAddTransaction: () => void;
+  consumeAddTransaction: () => void;
   fetchInitialData: () => Promise<void>;
   fetchTransactionsAndExpenses: () => Promise<void>;
   fetchRecentTransactions: () => Promise<void>;
@@ -375,6 +381,7 @@ const initialState = {
   notificationsLoaded: false,
   subscriptions: [] as Subscription[],
   subscriptionsLoaded: false,
+  addTxnRequested: false,
   scenarios: [] as Scenario[],
   scenariosLoaded: false,
   activeScenarioResult: null as ScenarioDiff | null,
@@ -389,6 +396,10 @@ const initialState = {
  */
 export const useStore = create<StoreState>((set, get) => ({
   ...initialState,
+
+  // Command Deck → Transactions hand-off (consume-once; see addTxnRequested).
+  requestAddTransaction: () => set({ addTxnRequested: true }),
+  consumeAddTransaction: () => set({ addTxnRequested: false }),
 
   setSelectedAccountId: (accountId: string) => {
     set({ selectedAccountId: accountId });

@@ -5,10 +5,12 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import NotificationBell from "@/components/custom/NotificationBell/NotificationBell";
 import { useTheme } from "@/hooks/theme";
 import { useStore } from "@/store/store";
+import { useFlags } from "@/store/gameMode";
 import { Brandmark } from "./Brandmark";
 import { LevelPip } from "@/components/custom/LevelPip/LevelPip";
 import Sidebar from "./Sidebar";
 import { NavPalette } from "@/components/custom/NavPalette/NavPalette";
+import { CommandDeck } from "@/components/custom/CommandDeck/CommandDeck";
 
 interface HeaderProps {
   /** Page title (kept for API compatibility; rendered via PageHeader now). */
@@ -31,6 +33,7 @@ export default function Header({
   onLogout,
 }: HeaderProps) {
   const { theme, toggleTheme } = useTheme();
+  const { commandDeck } = useFlags();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
@@ -142,7 +145,16 @@ export default function Header({
         </div>
       </div>
 
-      <NavPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      {commandDeck ? (
+        <CommandDeck
+          open={paletteOpen}
+          onOpenChange={setPaletteOpen}
+          onConnectBank={onConnectBank}
+          canConnectBank={canConnectBank}
+        />
+      ) : (
+        <NavPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      )}
     </header>
   );
 }

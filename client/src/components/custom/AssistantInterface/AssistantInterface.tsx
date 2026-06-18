@@ -20,13 +20,9 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import styles from "./AssistantInterface.module.css";
-import { Message, ActionMessage, AssistantProposal, AssistantBridge } from "@/types";
-import { apiBase } from "@/lib/apiBase";
+import { useAssistantChat } from "@/hooks/useAssistantChat";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
-import { AnimatedNumber } from "@/components/engraving/AnimatedNumber";
-import { Sparkline } from "@/components/engraving/Sparkline";
-import { formatCurrency } from "@/lib/format";
-import ConfirmCard from "@/components/custom/ConfirmCard/ConfirmCard";
+import { ProposalCard } from "./ProposalCard";
 import BridgeCard from "@/components/custom/BridgeCard/BridgeCard";
 
 const EXAMPLE_QUESTIONS = [
@@ -38,28 +34,20 @@ const EXAMPLE_QUESTIONS = [
   "What subscriptions am I paying for?",
 ];
 
-async function refreshAuth(): Promise<boolean> {
-  try {
-    const res = await fetch(`${apiBase}/refresh/`, {
-      method: "POST",
-      credentials: "include",
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 export function AssistantInterface() {
   const navigate = useNavigate();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const chat = useAssistantChat();
   const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [actionMessages, setActionMessages] = useState<ActionMessage[]>([]);
-  const [proposal, setProposal] = useState<AssistantProposal | null>(null);
-  const [bridge, setBridge] = useState<AssistantBridge | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const voice = useVoiceInput();
+
+  // Resolve the message (typed or an example chip), clear the box, and send.
+  const submit = (override?: string) => {
+    const message = (override ?? input).trim();
+    if (!message || chat.isLoading) return;
+    setInput("");
+    void chat.send(message);
+  };
 
   // Toggle the mic: first tap records, second tap stops + transcribes. The
   // transcript is APPENDED into the editable input box for the user to review —
@@ -78,177 +66,16 @@ export function AssistantInterface() {
       "[data-radix-scroll-area-viewport]"
     ) as HTMLElement | null;
     if (viewport) viewport.scrollTop = viewport.scrollHeight;
-  }, [messages]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = Date.now();
-      setActionMessages((prev) =>
-        prev.filter((msg) => now - msg.timestamp < 5000)
-      );
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleSend = async (overrideMessage?: string) => {
-    const userMessage = (overrideMessage ?? input).trim();
-    if (!userMessage || isLoading) return;
-
-    setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
-    setIsLoading(true);
-    setActionMessages([]);
-    setProposal(null);
-
-    const chatUrl = `${apiBase}/assistant/chat/?message=${encodeURIComponent(userMessage)}`;
-
-    const doFetch = () =>
-      fetch(chatUrl, {
-        method: "POST",
-        credentials: "include",
-      });
-
-    try {
-      let response = await doFetch();
-
-      if (response.status === 401) {
-        const refreshed = await refreshAuth();
-        if (!refreshed) {
-          navigate("/login");
-          return;
-        }
-        response = await doFetch();
-      }
-
-      if (!response.ok) {
-        throw new Error("Failed to send message");
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) return;
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let assistantMessage = "";
-      let assistantStarted = false;
-
-      const handleFrame = (frame: string) => {
-        let eventType = "message";
-        let dataStr = "";
-        for (const line of frame.split("\n")) {
-          if (line.startsWith("event:")) eventType = line.slice(6).trim();
-          else if (line.startsWith("data:")) dataStr += line.slice(5).trim();
-        }
-        if (!dataStr) return;
-
-        let data: unknown;
-        try {
-          data = JSON.parse(dataStr);
-        } catch {
-          return;
-        }
-
-        if (eventType === "tool") {
-          const { text } = data as { text: string };
-          setActionMessages((prev) => [
-            ...prev,
-            { id: Date.now(), text, timestamp: Date.now() },
-          ]);
-        } else if (eventType === "proposal") {
-          // A what-if commit offer: render an inline diff + the shared
-          // ConfirmCard so the user can approve it without leaving the chat.
-          setProposal(data as AssistantProposal);
-          setIsLoading(false);
-        } else if (eventType === "assisted_action") {
-          // The Assisted Action Bridge (Pillar 2C): a deduced real-world action
-          // with its own richer card (amount, from→to, why, execute affordance).
-          setBridge(data as AssistantBridge);
-          setIsLoading(false);
-        } else if (eventType === "token") {
-          assistantMessage += data as string;
-          if (!assistantStarted) {
-            assistantStarted = true;
-            setIsLoading(false);
-          }
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last?.role === "assistant") {
-              last.content = assistantMessage;
-              return next;
-            }
-            return [...next, { role: "assistant", content: assistantMessage }];
-          });
-        } else if (
-          eventType === "crisis" ||
-          eventType === "dispute" ||
-          eventType === "tax_resource"
-        ) {
-          // Safety/compliance short-circuits (988 crisis line, charge-dispute
-          // guidance, tax-organization-not-advice). The server also emits the
-          // same text as a `token` frame, which renders the body; here we just
-          // make sure the spinner stops so the static resource shows immediately
-          // and no model reply is awaited.
-          setIsLoading(false);
-        } else if (eventType === "done") {
-          setIsLoading(false);
-        }
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        let idx: number;
-        while ((idx = buffer.indexOf("\n\n")) !== -1) {
-          const frame = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 2);
-          if (frame.trim()) handleFrame(frame);
-        }
-      }
-      setIsLoading(false);
-    } catch (error) {
-      console.error("Error sending message:", error);
-      setIsLoading(false);
-    }
-  };
+  }, [chat.messages]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      submit();
     }
   };
 
-  const handleClear = async () => {
-    const clearUrl = `${apiBase}/assistant/clear/`;
-    const doFetch = () =>
-      fetch(clearUrl, { method: "POST", credentials: "include" });
-
-    try {
-      let response = await doFetch();
-
-      if (response.status === 401) {
-        const refreshed = await refreshAuth();
-        if (!refreshed) {
-          navigate("/login");
-          return;
-        }
-        response = await doFetch();
-      }
-
-      if (!response.ok) throw new Error("Failed to clear chat history");
-
-      setMessages([]);
-    } catch (error) {
-      console.error("Error clearing chat:", error);
-    }
-  };
-
-  const isEmpty = messages.length === 0;
+  const isEmpty = chat.messages.length === 0;
 
   return (
     <Sheet>
@@ -286,8 +113,8 @@ export function AssistantInterface() {
                   <button
                     key={q}
                     className={styles.exampleChip}
-                    onClick={() => handleSend(q)}
-                    disabled={isLoading}
+                    onClick={() => submit(q)}
+                    disabled={chat.isLoading}
                   >
                     {q}
                   </button>
@@ -296,7 +123,7 @@ export function AssistantInterface() {
             </div>
           ) : (
             <div className={styles.messageContainer}>
-              {messages.map((message, index) => (
+              {chat.messages.map((message, index) => (
                 <div
                   key={index}
                   className={`${styles.messageWrapper} ${
@@ -314,17 +141,17 @@ export function AssistantInterface() {
                   </div>
                 </div>
               ))}
-              {proposal && (
+              {chat.proposal && (
                 <ProposalCard
-                  proposal={proposal}
-                  onDismiss={() => setProposal(null)}
+                  proposal={chat.proposal}
+                  onDismiss={chat.dismissProposal}
                   onView={(id) => navigate(`/forecast?scenario=${id}`)}
                 />
               )}
-              {bridge && (
-                <BridgeCard bridge={bridge} onDismiss={() => setBridge(null)} />
+              {chat.bridge && (
+                <BridgeCard bridge={chat.bridge} onDismiss={chat.dismissBridge} />
               )}
-              {isLoading && (
+              {chat.isLoading && (
                 <div className={styles.loadingMessage}>
                   <div className={styles.loadingBubble}>
                     <span className={styles.loadingDot} />
@@ -338,9 +165,9 @@ export function AssistantInterface() {
         </ScrollArea>
 
         <div className={styles.actionContainer}>
-          {actionMessages.length > 0 && (
+          {chat.actionMessages.length > 0 && (
             <div className={styles.actionText}>
-              {actionMessages.map((action) => (
+              {chat.actionMessages.map((action) => (
                 <div key={action.id} className={styles.actionMessage}>
                   {action.text}
                 </div>
@@ -357,7 +184,7 @@ export function AssistantInterface() {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={handleClear}
+                onClick={() => void chat.clear()}
                 className={styles.clearButton}
                 title="Clear chat"
               >
@@ -371,7 +198,7 @@ export function AssistantInterface() {
               placeholder={
                 voice.isRecording ? "Listening… tap to stop" : "Ask about your finances…"
               }
-              disabled={isLoading || voice.isRecording || voice.isTranscribing}
+              disabled={chat.isLoading || voice.isRecording || voice.isTranscribing}
               className={styles.messageInput}
             />
             {voice.supported && (
@@ -379,7 +206,7 @@ export function AssistantInterface() {
                 variant="ghost"
                 size="icon"
                 onClick={handleMicToggle}
-                disabled={isLoading || voice.isTranscribing}
+                disabled={chat.isLoading || voice.isTranscribing}
                 title={
                   voice.isRecording ? "Stop recording" : "Speak your message"
                 }
@@ -399,8 +226,8 @@ export function AssistantInterface() {
             )}
             <Button
               size="icon"
-              onClick={() => handleSend()}
-              disabled={!input.trim() || isLoading || voice.isRecording}
+              onClick={() => submit()}
+              disabled={!input.trim() || chat.isLoading || voice.isRecording}
             >
               <Send className={styles.iconSize} />
             </Button>
@@ -408,74 +235,5 @@ export function AssistantInterface() {
         </div>
       </SheetContent>
     </Sheet>
-  );
-}
-
-/**
- * Inline what-if proposal (v6 doc 08): a compact diff (AnimatedNumber +
- * Sparkline) over the shared ConfirmCard, with a "View on Forecast" deep link.
- */
-function ProposalCard({
-  proposal,
-  onDismiss,
-  onView,
-}: {
-  proposal: AssistantProposal;
-  onDismiss: () => void;
-  onView: (scenarioId: number) => void;
-}) {
-  const diff = proposal.diff;
-  const spark = (diff?.timeline ?? []).map((p) => p.balance);
-  const endingDelta = diff?.ending_balance ?? 0;
-
-  // The approve label fits the action: a what-if commits a plan, a rule is
-  // created, anything else just gets a neutral "Approve". The shared ConfirmCard
-  // handles every write tool's proposal (Pillar 2.0).
-  const approveLabel =
-    proposal.action === "create_rule"
-      ? "Create rule"
-      : proposal.action === "scenario_commit"
-        ? "Commit this plan"
-        : "Approve";
-
-  return (
-    <div className="my-2" data-testid="assistant-proposal">
-      <ConfirmCard
-        summary={proposal.summary}
-        token={proposal.confirm_token}
-        approveLabel={approveLabel}
-        onConfirmed={onDismiss}
-        onDecline={onDismiss}
-      >
-        {diff && (
-          <div className="space-y-2 rounded-none border border-rule/60 bg-card/60 p-3">
-            <div className="flex items-center justify-between gap-4">
-              <span className="font-sans text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                Projected ending Δ
-              </span>
-              <span
-                className={`ledger-figures text-base ${
-                  endingDelta < 0 ? "ink-debit" : "ink-credit"
-                }`}
-              >
-                <AnimatedNumber value={endingDelta} format={(n) => formatCurrency(n)} />
-              </span>
-            </div>
-            {spark.length > 1 && (
-              <Sparkline data={spark} width={220} height={32} />
-            )}
-            {proposal.scenario_id != null && (
-              <button
-                type="button"
-                className="font-sans text-xs text-gold underline-offset-2 hover:underline"
-                onClick={() => onView(proposal.scenario_id as number)}
-              >
-                View on Forecast →
-              </button>
-            )}
-          </div>
-        )}
-      </ConfirmCard>
-    </div>
   );
 }

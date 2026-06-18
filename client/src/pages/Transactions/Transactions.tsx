@@ -73,12 +73,24 @@ export default function Transactions() {
     addTransaction,
     deleteTransaction,
     setSelectedAccountId,
+    addTxnRequested,
+    consumeAddTransaction,
   } = useStore();
 
   // Reset to page 1 when account changes
   useEffect(() => {
     setPage(1);
   }, [selectedAccountId]);
+
+  // The Command Deck's "add transaction" action navigates here and raises a
+  // consume-once flag; open the dialog and clear it so a later visit doesn't.
+  useEffect(() => {
+    if (addTxnRequested) {
+      setPendingDraft(null);
+      setDialogOpen(true);
+      consumeAddTransaction();
+    }
+  }, [addTxnRequested, consumeAddTransaction]);
 
   // Fetch when filters/page/account/refresh change
   useEffect(() => {
