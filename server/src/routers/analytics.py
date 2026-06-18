@@ -68,6 +68,11 @@ async def spending_aggregation(
     if start is not None:
         query = query.where(model.date >= start.isoformat())
     if end is not None:
+        # HOUSE RULE: ranges are conceptually half-open ``[start, nextday)``. For
+        # the date-only ISO strings stored here, an inclusive ``<= end`` is
+        # exactly equivalent (it includes the whole ``end`` day) and is kept for
+        # clarity; any future range over a *time-bearing* column must use the
+        # half-open form ``< (end + 1 day)`` so the last day isn't dropped.
         query = query.where(model.date <= end.isoformat())
     if not include_recurring:
         query = query.where(model.recurrence.is_(None))

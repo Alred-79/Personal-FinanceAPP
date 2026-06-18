@@ -36,6 +36,10 @@ def _apply_filters(model, account_ids, q, category, date_from, date_to, amount_m
     if date_from:
         conditions.append(model.date >= date_from)
     if date_to:
+        # HOUSE RULE: ranges are conceptually half-open ``[start, nextday)``.
+        # ``date`` is a date-only ISO string, so inclusive ``<= date_to`` is
+        # equivalent (includes the whole end day); a future time-bearing column
+        # must switch to the half-open ``< (date_to + 1 day)`` form.
         conditions.append(model.date <= date_to)
     if amount_min is not None:
         conditions.append(model.amount >= dollars_to_cents(amount_min))

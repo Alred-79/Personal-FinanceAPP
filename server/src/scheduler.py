@@ -411,7 +411,7 @@ def build_scheduler():
     # Month-close + fade + graduation: just after midnight on the 1st.
     scheduler.add_job(
         _monthly_tick,
-        CronTrigger(day=1, hour=0, minute=5),
+        CronTrigger(day=1, hour=0, minute=5, timezone="UTC"),
         id="game_monthly",
         replace_existing=True,
         misfire_grace_time=3600,
@@ -421,7 +421,7 @@ def build_scheduler():
     # path): early Monday.
     scheduler.add_job(
         _weekly_tick,
-        CronTrigger(day_of_week="mon", hour=0, minute=10),
+        CronTrigger(day_of_week="mon", hour=0, minute=10, timezone="UTC"),
         id="game_weekly",
         replace_existing=True,
         misfire_grace_time=3600,
@@ -431,7 +431,7 @@ def build_scheduler():
     # cadence + active-only scope + ref dedup keep it cheap and double-fire safe.
     scheduler.add_job(
         _drift_tick,
-        CronTrigger(hour=0, minute=20),
+        CronTrigger(hour=0, minute=20, timezone="UTC"),
         id="plan_drift",
         replace_existing=True,
         misfire_grace_time=3600,
@@ -442,7 +442,7 @@ def build_scheduler():
     # dedup keeps a double-fire harmless.
     scheduler.add_job(
         _detangle_tick,
-        CronTrigger(hour=0, minute=30),
+        CronTrigger(hour=0, minute=30, timezone="UTC"),
         id="detangle",
         replace_existing=True,
         misfire_grace_time=3600,
@@ -453,7 +453,7 @@ def build_scheduler():
     # harmless (one reminder per user/year/quarter).
     scheduler.add_job(
         _tax_reminder_tick,
-        CronTrigger(hour=0, minute=40),
+        CronTrigger(hour=0, minute=40, timezone="UTC"),
         id="tax_quarterly_reminder",
         replace_existing=True,
         misfire_grace_time=3600,
@@ -464,7 +464,7 @@ def build_scheduler():
     # dedup keeps a re-fire harmless.
     scheduler.add_job(
         _auditor_tick,
-        CronTrigger(hour=0, minute=50),
+        CronTrigger(hour=0, minute=50, timezone="UTC"),
         id="auditor",
         replace_existing=True,
         misfire_grace_time=3600,
