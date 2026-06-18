@@ -6,6 +6,8 @@ import {
   TrendingUp,
   FileText,
   CheckCheck,
+  Store,
+  Waves,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -31,6 +33,14 @@ const NOTICE: Record<
 > = {
   budget_overrun: { icon: AlertTriangle, tone: "debit", to: "/budgets", verb: "Review budget" },
   anomaly: { icon: TrendingUp, tone: "gold", to: "/transactions", verb: "Inspect ledger" },
+  // F2 — merchant lifecycle (the nightly Auditor emits these).
+  merchant_lifecycle: { icon: Store, tone: "gold", to: "/subscriptions", verb: "Review subscription" },
+  price_creep: { icon: TrendingUp, tone: "debit", to: "/subscriptions", verb: "Check price" },
+  // F1/F3 — calibrated overdraft risk + plan drift, deep-linking to the forecast.
+  overdraft_risk: { icon: Waves, tone: "debit", to: "/forecast", verb: "View forecast" },
+  plan_drift: { icon: TrendingUp, tone: "gold", to: "/forecast", verb: "Review plan" },
+  // F3 — the nightly Auditor digest.
+  audit_digest: { icon: FileText, tone: "gold", to: "/", verb: "Review findings" },
 };
 const FALLBACK = { icon: FileText, tone: "muted" as const, to: undefined, verb: undefined };
 

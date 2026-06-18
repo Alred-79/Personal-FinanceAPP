@@ -36,7 +36,7 @@ import {
   ReferenceArea,
   CartesianGrid,
 } from "recharts";
-import { AXIS_TICK, ink, tooltipStyle } from "@/lib/chart";
+import { AXIS_TICK, ink, tooltipStyle, hatch } from "@/lib/chart";
 import type { ScenarioMutation } from "@/types";
 
 const HORIZONS = [
@@ -68,6 +68,14 @@ export default function Forecast() {
 
   const timeline = forecast?.timeline ?? [];
   const dips = timeline.filter((p) => p.change < 0);
+
+  // F1: the baseline projection's calibrated overdraft outlook — rendered as an
+  // engraved confidence corridor on the running-balance chart.
+  const baselineBand = forecast?.trough_band;
+  const baselineCoverage = forecast?.coverage_level;
+  const baselineCalibrated = forecast?.band_calibrated;
+  const baselineOverdraft = forecast?.overdraft_probability;
+  const regimeShift = forecast?.regime_shift;
 
   // ?goal=<id> / ?commit=<$> pre-seed the builder; ?scenario=<id> deep-links the
   // saved picker. A deep link defaults the active tab to "whatif".
@@ -185,8 +193,29 @@ export default function Forecast() {
 
             <RevealItem>
             <Card raking>
-              <CardHeader>
-                <CardTitle>Running Balance</CardTitle>
+              <CardHeader className="flex flex-row items-start justify-between gap-3">
+                <div>
+                  <CardTitle>Running Balance</CardTitle>
+                  {/* F1: name the corridor so the engraved band reads as the
+                      calibrated trough confidence interval, not decoration. */}
+                  {baselineBand && (
+                    <p className="mt-1 font-sans text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                      {baselineCalibrated && baselineCoverage
+                        ? `${Math.round(baselineCoverage * 100)}% trough band`
+                        : "estimated trough band"}
+                      {" · low point "}
+                      {formatCurrency(baselineBand.low)}–{formatCurrency(baselineBand.high)}
+                    </p>
+                  )}
+                </div>
+                {baselineOverdraft != null && (
+                  <Stamp
+                    variant={baselineOverdraft >= 0.1 ? "debit" : "credit"}
+                    still
+                  >
+                    Overdraft {Math.round(baselineOverdraft * 100)}%
+                  </Stamp>
+                )}
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={320}>
@@ -197,6 +226,14 @@ export default function Forecast() {
                         <stop offset="100%" stopColor={ink("--chart-3")} stopOpacity={0} />
                       </linearGradient>
                     </defs>
+                    {/* F1: steel-engraving hatch for the confidence corridor. */}
+                    {baselineBand && (
+                      <defs
+                        dangerouslySetInnerHTML={{
+                          __html: hatch("troughHatch", "--gold", 0.2, 5).def,
+                        }}
+                      />
+                    )}
                     <CartesianGrid stroke={ink("--rule", 0.6)} strokeDasharray="2 4" vertical={false} />
                     <XAxis
                       dataKey="date"
@@ -219,6 +256,24 @@ export default function Forecast() {
                       cursor={{ stroke: ink("--gold"), strokeWidth: 1, strokeDasharray: "4 4" }}
                     />
                     <ReferenceLine y={0} stroke={ink("--debit", 0.7)} strokeDasharray="5 5" />
+                    {/* F1: the calibrated trough band as an engraved confidence
+                        corridor, with the median trough as a dashed gold line. */}
+                    {baselineBand && (
+                      <ReferenceArea
+                        y1={baselineBand.low}
+                        y2={baselineBand.high}
+                        fill="url(#troughHatch)"
+                        stroke={ink("--gold", 0.35)}
+                        strokeDasharray="3 3"
+                      />
+                    )}
+                    {baselineBand && (
+                      <ReferenceLine
+                        y={baselineBand.median}
+                        stroke={ink("--gold", 0.55)}
+                        strokeDasharray="2 4"
+                      />
+                    )}
                     <Area
                       type="stepAfter"
                       dataKey="balance"
@@ -237,6 +292,28 @@ export default function Forecast() {
                     />
                   </AreaChart>
                 </ResponsiveContainer>
+                {/* F1: the change-point router's user-facing insight. */}
+                {regimeShift && (
+                  <p className="mt-3 border-t border-rule pt-3 font-sans text-[11px] text-muted-foreground">
+                    Spending shifted{" "}
+                    <span
+                      className={
+                        regimeShift.direction === "up"
+                          ? "text-debit"
+                          : "text-credit"
+                      }
+                    >
+                      {regimeShift.direction === "up" ? "up" : "down"}{" "}
+                      {formatCurrency(Math.abs(regimeShift.delta_per_month))}/mo
+                    </span>{" "}
+                    around{" "}
+                    {new Date(`${regimeShift.date}T00:00:00`).toLocaleDateString(
+                      "en-US",
+                      { month: "short", day: "numeric" }
+                    )}
+                    ; the forecast now weights the newer pace.
+                  </p>
+                )}
               </CardContent>
             </Card>
             </RevealItem>

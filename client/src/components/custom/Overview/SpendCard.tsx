@@ -159,6 +159,29 @@ export default function SpendCard() {
                   ? `Safe to Spend · until ${horizonLabel}`
                   : "Safe to Spend"}
               </p>
+              {/* F1: surface the calibrated band so the uncertainty behind the
+                  number is visible. Calibrated → claim the coverage %; otherwise
+                  a softer phrasing. Overdraft odds tint debit only when nonzero. */}
+              {s2s?.trough_band && s2s.overdraft_probability != null && (
+                <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">
+                  {s2s.band_calibrated && s2s.coverage_level
+                    ? `${Math.round(s2s.coverage_level * 100)}% chance you stay above `
+                    : "low point likely above "}
+                  <span className="text-foreground">
+                    {formatCurrency(s2s.trough_band.low)}
+                  </span>
+                  <span className="mx-1.5 text-rule-strong">·</span>
+                  <span
+                    className={
+                      s2s.overdraft_probability >= 0.1
+                        ? "font-semibold text-debit"
+                        : ""
+                    }
+                  >
+                    overdraft {Math.round(s2s.overdraft_probability * 100)}%
+                  </span>
+                </p>
+              )}
             </div>
             <Stamp variant={status.variant} still>
               {status.text}

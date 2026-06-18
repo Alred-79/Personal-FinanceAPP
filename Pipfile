@@ -26,6 +26,14 @@ email-validator = "*"
 tavily-python = "*"
 fastmcp = "*"
 apscheduler = "*"
+# F2 — Merchant Lifecycle Engine (pooled BG/NBD). The fit runs ONLY in F3's
+# nightly batch, gated behind ``merchant_lifecycle_enabled`` (never a request
+# path). The BG/NBD likelihood is built directly in core ``pymc`` (the
+# ``pymc-marketing`` BetaGeoModel wrapper is incompatible with the installed
+# pytensor on Python 3.13); ``scipy`` supplies the hypergeometric used by
+# expected_purchases.
+pymc = "*"
+scipy = "*"
 
 [dev-packages]
 black = "*"

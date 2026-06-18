@@ -63,6 +63,34 @@ class Settings(BaseSettings):
     # to silence the nightly job without affecting the on-demand endpoint.
     detangle_enabled: bool = True
 
+    # F3 — the nightly Auditor. Composes the detector battery (anomalies, budget
+    # overruns, F1 overdraft risk, F2 zombie subs / price creep) into one deduped,
+    # ranked, capped, narrated batch of notifications. OFF by default; the per-ref
+    # dedup makes a re-fire harmless. The narration is screened by the advice
+    # firewall and cached in LlmCache (the chronicler pattern). Runs once per
+    # worker (single-worker invariant) after plan_drift + detangle.
+    auditor_enabled: bool = False
+    # Alert-fatigue guard: max NEW auditor-specific findings (overdraft / lifecycle
+    # / price-creep) surfaced per nightly run, ranked by severity. The user's
+    # attention is the scarce resource, not the (detector-cheap) compute.
+    auditor_max_findings: int = 8
+    # Calibrated overdraft probability at/above which the Auditor raises a notice.
+    auditor_overdraft_threshold: float = 0.25
+
+    # F2 — the Merchant Lifecycle Engine (pooled BG/NBD over the user's payees).
+    # OFF by default: it carries the heaviest dependency in the analytical layer
+    # (PyMC), so the fit runs only in F3's nightly batch (never a request path)
+    # and only when enabled. When OFF: the nightly fit self-skips, the
+    # Subscriptions API omits lifecycle fields, and the Auditor emits no
+    # lifecycle/price-creep notices. The deterministic price-creep comparison
+    # rides along with the fit (it needs the same snapshot home).
+    merchant_lifecycle_enabled: bool = False
+    # Horizon (days) for the BG/NBD expected-purchases figure.
+    merchant_lifecycle_horizon_days: int = 30
+    # Trailing window (days) of charges fed to the fit — generous so annual
+    # renewals can show ≥ 2 occurrences.
+    merchant_lifecycle_lookback_days: int = 730
+
     # Pillar 3 — the tax & messy-data layer (tax-bucket tagging, tax-document
     # ingestion, tax-summary/estimate engine, quarterly reminders). OFF by
     # default: the feature ships behind this flag, gated on the measured firewall
@@ -136,6 +164,17 @@ class Settings(BaseSettings):
     # block preserves day-of-week spending autocorrelation so the band isn't
     # overconfident; 1 reverts to the legacy IID draw. See forecast_sim.py.
     sim_block_days: int = 7
+    # F1 — nominal coverage target for the calibrated overdraft trough band. The
+    # split-conformal (CQR) step in forecast_sim widens the raw percentile band
+    # toward this level; it can only widen, so calibrated coverage is ≥ the raw
+    # baseline by construction (see docs/FORECAST-BACKTEST.md). It is a target,
+    # not a guarantee, at ~30 residual days. Set to 0 to disable calibration.
+    forecast_coverage_level: float = 0.90
+    # F1 — change-point router. When True, the burn residual pool is truncated to
+    # the current regime (post-shift) before the bootstrap/calibration, so a
+    # recent level shift in spending doesn't get averaged away. Detection is a
+    # stdlib CUSUM (no new deps); see services/forecast_changepoint.py.
+    forecast_changepoint_enabled: bool = True
 
     # --- Voice input (speech-to-text) ---
     # Groq hosts Whisper, so voice input reuses ``groq_api_key`` — no new vendor.

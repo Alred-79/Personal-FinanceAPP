@@ -113,6 +113,13 @@ export interface Subscription {
   occurrences: number;
   last_date: string;
   next_date: string | null;
+  // F2: lifecycle snapshot, merged in when merchant_lifecycle is enabled.
+  probability_alive?: number;
+  lifecycle_status?: "active" | "lapsing" | "dormant";
+  expected_purchases?: number;
+  price_change_pct?: number; // fractional increase vs prior stable amount
+  last_amount?: number;
+  prev_amount?: number | null;
 }
 
 export interface ActionMessage {

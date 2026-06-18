@@ -300,6 +300,42 @@ def job_tax_quarterly_reminder(
 
 
 # ---------------------------------------------------------------------------
+# F3 — the nightly Auditor. Composes the whole detector battery (anomalies,
+# budget overruns, F1 overdraft risk, F2 zombie subs / price creep) into one
+# deduped/ranked/capped/narrated batch. Same shape as drift/detangle: pure,
+# idempotent per ``ref``, self-gated on ``settings.auditor_enabled``. Runs LAST
+# (00:50) so plan_drift + detangle have already written today's notices, and so
+# it owns the periodic refresh of F2's MerchantLifecycle snapshot.
+# ---------------------------------------------------------------------------
+
+
+def job_auditor(db: Session, now: Optional[datetime | date] = None) -> int:
+    """Run the nightly Auditor for every user. Returns total new notifications.
+
+    Pure and idempotent: ``AuditService.run`` dedups every finding by ``ref`` and
+    caps the batch, so an overlapping fire or a restart cannot double-notify.
+    Self-gates on ``settings.auditor_enabled``.
+    """
+    if not settings.auditor_enabled:
+        return 0
+
+    from .services.audit_service import AuditService
+
+    now = now or datetime.now()
+    today = now.date() if isinstance(now, datetime) else now
+
+    svc = AuditService(db)
+    total = 0
+    for user in _users(db):
+        try:
+            total += svc.run(user.id, as_of=today)["created"]
+        except Exception:  # noqa: BLE001 — one user's failure can't abort the rest
+            logger.exception("auditor failed: user=%s", user.id)
+    db.flush()
+    return total
+
+
+# ---------------------------------------------------------------------------
 # The scheduled wrappers — own-session, commit, close (no request context).
 # ---------------------------------------------------------------------------
 
@@ -350,6 +386,14 @@ async def _tax_reminder_tick() -> None:
     if not settings.tax_features_enabled:
         return
     _run_in_own_session(lambda db: job_tax_quarterly_reminder(db, datetime.now()))
+
+
+async def _auditor_tick() -> None:
+    """Daily cron: the nightly Auditor. Gated by ``auditor_enabled`` (the job
+    self-checks too); idempotent per ``ref`` so a re-fire adds no duplicate."""
+    if not settings.auditor_enabled:
+        return
+    _run_in_own_session(lambda db: job_auditor(db, datetime.now()))
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +455,17 @@ def build_scheduler():
         _tax_reminder_tick,
         CronTrigger(hour=0, minute=40),
         id="tax_quarterly_reminder",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+    # F3: the nightly Auditor. Runs LAST (00:50) so drift + detangle have written
+    # today's notices first; the tick self-gates on ``auditor_enabled`` and ref
+    # dedup keeps a re-fire harmless.
+    scheduler.add_job(
+        _auditor_tick,
+        CronTrigger(hour=0, minute=50),
+        id="auditor",
         replace_existing=True,
         misfire_grace_time=3600,
         coalesce=True,

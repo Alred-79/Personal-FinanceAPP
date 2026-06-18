@@ -122,3 +122,65 @@ def test_block_bootstrap_is_reproducible():
     a = bootstrap_overdraft(**_kwargs(), rng=random.Random(11), block_days=7)
     b = bootstrap_overdraft(**_kwargs(), rng=random.Random(11), block_days=7)
     assert a == b
+
+
+# ── split-conformal calibration (F1) ────────────────────────────────────────
+
+
+def test_coverage_level_none_is_byte_identical_legacy():
+    """The default (coverage_level=None) is the exact pre-calibration output — no
+    extra keys, no changed numbers."""
+    out = bootstrap_overdraft(**_kwargs(), rng=random.Random(11), block_days=7)
+    assert "coverage_level" not in out
+    assert "calibrated" not in out
+    assert set(out) == {
+        "overdraft_probability",
+        "trough_low",
+        "trough_median",
+        "trough_high",
+    }
+
+
+def test_calibration_only_widens_and_preserves_median_and_prob():
+    """A calibrated band can only be WIDER than the raw band (the union/only-widen
+    rule), and the conformal draws happen AFTER the main sim, so overdraft
+    probability and the median trough are byte-identical to the uncalibrated run
+    under the same seed."""
+    raw = bootstrap_overdraft(**_kwargs(), rng=random.Random(3), block_days=7)
+    cal = bootstrap_overdraft(
+        **_kwargs(), rng=random.Random(3), block_days=7, coverage_level=0.90
+    )
+    assert cal["overdraft_probability"] == raw["overdraft_probability"]
+    assert cal["trough_median"] == raw["trough_median"]
+    assert cal["trough_low"] <= raw["trough_low"]
+    assert cal["trough_high"] >= raw["trough_high"]
+    assert cal["coverage_level"] == 0.90
+    assert cal["calibrated"] is True
+    assert cal["trough_low"] <= cal["trough_median"] <= cal["trough_high"]
+
+
+def test_calibration_is_reproducible_under_seed():
+    a = bootstrap_overdraft(
+        **_kwargs(), rng=random.Random(11), block_days=7, coverage_level=0.90
+    )
+    b = bootstrap_overdraft(
+        **_kwargs(), rng=random.Random(11), block_days=7, coverage_level=0.90
+    )
+    assert a == b
+
+
+def test_calibration_skipped_when_pool_too_small():
+    """Too few residual days to split into a usable train/calib pair → band stays
+    raw, ``calibrated`` is False (honest: nothing to calibrate against)."""
+    out = bootstrap_overdraft(
+        starting_cents=10_000,
+        net_by_day_cents={},
+        daily_burn_cents=300,
+        num_days=10,
+        residual_pool_cents=[-100, 0, 100],  # 3 < _MIN_CALIB_POOL
+        rng=random.Random(1),
+        num_sims=100,
+        coverage_level=0.90,
+    )
+    assert out["calibrated"] is False
+    assert out["coverage_level"] == 0.90

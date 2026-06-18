@@ -587,6 +587,11 @@ class ScenarioService:
             "safe_to_spend": s2s["available"],
             "runway_days": _runway_days(fc, as_of, horizon_days),
             "goal_reach": self._goal_reach(user_id, overlay, as_of),
+            # F1: the calibrated trough band + its nominal coverage target ride
+            # along so a scenario column can render the same engraved confidence
+            # corridor the baseline does. Additive — ``_diff`` ignores them.
+            "trough_band": fc.get("trough_band"),
+            "coverage_level": fc.get("coverage_level"),
         }
 
     def _goal_reach(

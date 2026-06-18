@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import random
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -43,6 +43,17 @@ _BURN_MIN_TXNS = 3
 # Fraction of the largest transactions dropped before averaging — the HistAvg
 # trick that keeps a rare big one-off purchase from inflating the daily rate.
 _BURN_TOP_FRACTION = 0.10
+
+# --- F1 change-point router knobs ---
+# Detection is deterministic under this fixed seed (independent of the forecast's
+# own rng, so the bootstrap sim's stream is untouched).
+_CHANGEPOINT_SEED = 0
+# Need at least this many days with actual spend before trusting regime detection
+# — a sparse series has no "level" to shift. (Keeps sparse fixtures untouched.)
+_CHANGEPOINT_MIN_NONZERO_DAYS = 10
+# Don't truncate the burn window to a regime shorter than this — too little
+# post-shift data would wreck the burn estimate and the calibration split.
+_CHANGEPOINT_MIN_REGIME_DAYS = 7
 
 
 def hist_avg_daily_burn_cents(
@@ -134,6 +145,114 @@ class ForecastService:
         per_day = amounts + [0] * max(window_days - len(amounts), 0)
         return [a - burn_cents for a in per_day]
 
+    # ── F1: change-point router (the stationarity guard) ───────────────────
+
+    def _daily_discretionary_series_cents(
+        self, user_id: int, as_of: date, window_days: int
+    ) -> list[int]:
+        """Per-day total non-recurring spend (cents) over ``[as_of - window_days,
+        as_of)``, in chronological order and length ``window_days`` (empty days
+        are 0). This is the *time-ordered* series the change-point detector needs
+        — distinct from ``_discretionary_amounts_cents`` (an unordered amount
+        list) and from the residual pool (deviations)."""
+        if window_days <= 0:
+            return []
+        window_start = as_of - timedelta(days=window_days)
+        rows = self.db.execute(
+            select(ExpenseORM.date, ExpenseORM.amount)
+            .join(AccountORM, ExpenseORM.account_id == AccountORM.id)
+            .where(
+                AccountORM.user_id == user_id,
+                ExpenseORM.recurrence.is_(None),
+                ExpenseORM.date >= window_start.isoformat(),
+                ExpenseORM.date < as_of.isoformat(),
+            )
+        ).all()
+        series = [0] * window_days
+        for date_str, amount in rows:
+            try:
+                d = date.fromisoformat(date_str)
+            except (ValueError, TypeError):
+                continue
+            idx = (d - window_start).days
+            if 0 <= idx < window_days:
+                series[idx] += int(amount or 0)
+        return series
+
+    def detect_spend_regimes(
+        self,
+        user_id: int,
+        as_of: Optional[date] = None,
+        window_days: int = _BURN_WINDOW_DAYS,
+    ) -> list[dict[str, Any]]:
+        """Public regime decomposition of the user's recent daily spend, for F3
+        (the Auditor) and the game layer.
+
+        Returns one dict per regime ``{start_date, end_date, days, mean_daily}``
+        (dollars), oldest first. Empty when the change-point router is disabled or
+        the series is too sparse to trust. Deterministic (fixed-seed detection)."""
+        from .forecast_changepoint import segment_regimes
+
+        as_of = as_of or date.today()
+        if not settings.forecast_changepoint_enabled or window_days <= 0:
+            return []
+        series = self._daily_discretionary_series_cents(user_id, as_of, window_days)
+        if sum(1 for v in series if v > 0) < _CHANGEPOINT_MIN_NONZERO_DAYS:
+            return []
+        window_start = as_of - timedelta(days=window_days)
+        regimes = segment_regimes(series, rng=random.Random(_CHANGEPOINT_SEED))
+        out: list[dict[str, Any]] = []
+        for r in regimes:
+            out.append(
+                {
+                    "start_date": (window_start + timedelta(days=r.start)).isoformat(),
+                    "end_date": (window_start + timedelta(days=r.end)).isoformat(),
+                    "days": r.length,
+                    "mean_daily": cents_to_dollars(round(r.mean)),
+                }
+            )
+        return out
+
+    def _regime_router(
+        self, user_id: int, as_of: date, window_days: int
+    ) -> tuple[int, Optional[dict[str, Any]]]:
+        """The router's two outputs: the effective burn window (truncated to the
+        current regime when a recent shift is found) and a ``regime_shift``
+        summary for narration/F3 (``None`` when stationary).
+
+        Conservative by design: only truncates when the series is dense enough to
+        trust AND the current regime is at least ``_CHANGEPOINT_MIN_REGIME_DAYS``
+        long, so the calibration split still has support. Pure read; deterministic.
+        """
+        from .forecast_changepoint import segment_regimes
+
+        if not settings.forecast_changepoint_enabled or window_days <= 0:
+            return window_days, None
+        series = self._daily_discretionary_series_cents(user_id, as_of, window_days)
+        if sum(1 for v in series if v > 0) < _CHANGEPOINT_MIN_NONZERO_DAYS:
+            return window_days, None
+        regimes = segment_regimes(series, rng=random.Random(_CHANGEPOINT_SEED))
+        if len(regimes) < 2:
+            return window_days, None  # stationary
+
+        current, prev = regimes[-1], regimes[-2]
+        delta_per_day = current.mean - prev.mean
+        window_start = as_of - timedelta(days=window_days)
+        shift = {
+            "date": (window_start + timedelta(days=current.start)).isoformat(),
+            "delta_per_day": cents_to_dollars(round(delta_per_day)),
+            "delta_per_month": cents_to_dollars(round(delta_per_day * 30)),
+            "direction": "up" if delta_per_day > 0 else "down",
+        }
+        # Truncate the burn window to the current regime only when it has enough
+        # support; otherwise keep the full window (the shift is still surfaced).
+        effective = (
+            current.length
+            if current.length >= _CHANGEPOINT_MIN_REGIME_DAYS
+            else window_days
+        )
+        return effective, shift
+
     def forecast(
         self,
         user_id: int,
@@ -194,8 +313,20 @@ class ForecastService:
                 expense_by_date[day] = expense_by_date.get(day, 0) + cents
                 net_by_date[day] = net_by_date.get(day, 0) - cents
 
+        # F1 change-point router: when a recent level shift is detected, truncate
+        # the burn window to the current regime so burn + residual pool reflect
+        # the level the user is actually living in (and surface the shift).
+        burn_window = _BURN_WINDOW_DAYS
+        regime_shift: Optional[dict[str, Any]] = None
+        if include_burn:
+            burn_window, regime_shift = self._regime_router(
+                user_id, horizon_start, _BURN_WINDOW_DAYS
+            )
+
         burn_cents = (
-            self._discretionary_burn_cents(user_id, horizon_start)
+            self._discretionary_burn_cents(
+                user_id, horizon_start, window_days=burn_window
+            )
             if include_burn
             else 0
         )
@@ -262,6 +393,9 @@ class ForecastService:
             result["total_projected_discretionary"] = cents_to_dollars(
                 total_burn_cents
             )
+            # F1: a recent spend-level shift (or None when stationary). Narration
+            # and the Auditor read this; the burn above is already regime-aware.
+            result["regime_shift"] = regime_shift
             num_days = (horizon_end - horizon_start).days
             # Scheduled net flow keyed by 1-based day offset from horizon_start.
             net_by_offset: dict[int, int] = {}
@@ -269,7 +403,7 @@ class ForecastService:
                 d = date.fromisoformat(iso)
                 net_by_offset[(d - horizon_start).days] = net_cents
             pool = self._burn_residual_pool_cents(
-                user_id, horizon_start, burn_cents
+                user_id, horizon_start, burn_cents, window_days=burn_window
             )
             sim = bootstrap_overdraft(
                 starting_cents,
@@ -279,6 +413,7 @@ class ForecastService:
                 pool,
                 rng=rng or random.Random(),
                 block_days=settings.sim_block_days,
+                coverage_level=settings.forecast_coverage_level or None,
             )
             result["overdraft_probability"] = sim["overdraft_probability"]
             result["trough_band"] = {
@@ -286,4 +421,9 @@ class ForecastService:
                 "median": cents_to_dollars(sim["trough_median"]),
                 "high": cents_to_dollars(sim["trough_high"]),
             }
+            # F1: the calibrated band's nominal coverage target and whether the
+            # conformal step actually ran (False when the residual pool was too
+            # thin to split). The UI labels the band with this level.
+            result["coverage_level"] = sim.get("coverage_level")
+            result["band_calibrated"] = sim.get("calibrated", False)
         return result

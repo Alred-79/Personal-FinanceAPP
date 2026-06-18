@@ -708,6 +708,49 @@ class LlmCache(Base):
     expires_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 
+class MerchantLifecycle(Base):
+    """F2 — a snapshot of one merchant's lifecycle model output.
+
+    Subscriptions are computed on read and never persisted, but the BG/NBD fit is
+    a batch job (seconds, not per-request), so its per-merchant outputs are
+    snapshotted here and refreshed by F3's nightly job. Reads (Subscriptions API,
+    merchant detail, the Auditor) hit this snapshot; nothing fits inline.
+
+    ``probability_alive`` / ``expected_purchases`` come from the pooled BG/NBD
+    model (``merchant_lifecycle_service``); ``status`` is the bucketed label
+    (active / lapsing / dormant). ``last_amount`` vs ``prev_amount`` +
+    ``price_change_pct`` are the DETERMINISTIC price-creep comparison (no model).
+    One row per ``(user, merchant)``; money is integer cents.
+    """
+
+    __tablename__ = "merchant_lifecycle"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "merchant", name="uq_merchant_lifecycle_user_merchant"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    merchant: Mapped[str] = mapped_column(String, nullable=False)  # normalized key
+    title: Mapped[str] = mapped_column(String, nullable=False, default="")
+    probability_alive: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    expected_purchases: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0
+    )
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")
+    cadence: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    n_charges: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    prev_amount: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    price_change_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    last_date: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    expected_next_date: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    fitted_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class CategorySettings(Base):
     """Per-category flags. Categories are plain strings on expenses/income (no
     categories table), so essentials are tracked here keyed by category name.

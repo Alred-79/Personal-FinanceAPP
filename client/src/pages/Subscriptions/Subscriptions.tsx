@@ -6,8 +6,20 @@ import PageHeader from "@/components/layout/PageHeader";
 import { useStore } from "@/store/store";
 import { formatCurrency } from "@/lib/format";
 import { AnimatedNumber } from "@/components/engraving/AnimatedNumber";
+import { Stamp } from "@/components/engraving/Stamp";
 import { EmptyState } from "@/components/engraving/EmptyState";
 import { Reveal, RevealItem } from "@/components/motion/Reveal";
+
+// F2: lifecycle status → stamp wording + variant (color law: credit=fine,
+// gold=attention, debit=likely dead). Only shown when the model has an opinion.
+const LIFECYCLE: Record<
+  string,
+  { text: string; variant: "credit" | "gold" | "debit" }
+> = {
+  active: { text: "Likely active", variant: "credit" },
+  lapsing: { text: "May have lapsed", variant: "gold" },
+  dormant: { text: "Dormant", variant: "debit" },
+};
 
 const formatDate = (iso: string | null) =>
   iso
@@ -95,6 +107,32 @@ const Subscriptions: React.FC = () => {
               <p className="intaglio text-2xl ink-debit">
                 {formatCurrency(s.amount)}
               </p>
+
+              {/* F2: lifecycle stamp (is this still alive?) + price-creep flag. */}
+              {(s.lifecycle_status || s.price_change_pct != null) && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {s.lifecycle_status && LIFECYCLE[s.lifecycle_status] && (
+                    <Stamp
+                      variant={LIFECYCLE[s.lifecycle_status].variant}
+                      still
+                    >
+                      {LIFECYCLE[s.lifecycle_status].text}
+                    </Stamp>
+                  )}
+                  {s.price_change_pct != null && s.price_change_pct > 0 && (
+                    <span
+                      className="rounded-none bg-debit/10 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-debit"
+                      title={
+                        s.prev_amount != null
+                          ? `was ${formatCurrency(s.prev_amount)}`
+                          : undefined
+                      }
+                    >
+                      ↑ {Math.round(s.price_change_pct * 100)}% price
+                    </span>
+                  )}
+                </div>
+              )}
 
               <dl className="mt-4 space-y-1.5 border-t border-rule pt-3 font-mono text-[11px]">
                 <div className="flex justify-between">

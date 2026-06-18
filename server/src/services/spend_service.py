@@ -362,6 +362,11 @@ class SpendService:
             )
             result["overdraft_probability"] = fc["overdraft_probability"]
             result["trough_band"] = fc["trough_band"]
+            # F1: the calibrated band's nominal coverage target (e.g. 0.90) and
+            # whether calibration actually ran, so the hero surface can say
+            # "≈90% chance you stay above $X" instead of hiding the uncertainty.
+            result["coverage_level"] = fc.get("coverage_level")
+            result["band_calibrated"] = fc.get("band_calibrated", False)
 
         return result
 

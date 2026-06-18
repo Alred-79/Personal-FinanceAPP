@@ -102,10 +102,11 @@ def test_scheduler_disabled_in_tests(monkeypatch):
 def test_scheduler_builds_declarative_cron_jobs():
     """The built scheduler registers exactly its declarative cron jobs (monthly
     month-close/fade + weekly rollups + the v6 daily plan-drift check + the
-    messy-data daily Detangler + the Pillar-3 daily quarterly-tax reminder).
-    Built, not started, so no event loop / background fire is needed. Like
-    ``detangle``, ``tax_quarterly_reminder`` is ALWAYS registered and self-gates
-    on its feature flag at the tick, so the job set is independent of the flag."""
+    messy-data daily Detangler + the Pillar-3 daily quarterly-tax reminder + the
+    F3 nightly Auditor). Built, not started, so no event loop / background fire is
+    needed. Like ``detangle``, ``auditor`` and ``tax_quarterly_reminder`` are
+    ALWAYS registered and self-gate on their feature flag at the tick, so the job
+    set is independent of the flag."""
     sched = scheduler.build_scheduler()
     assert {j.id for j in sched.get_jobs()} == {
         "game_monthly",
@@ -113,6 +114,7 @@ def test_scheduler_builds_declarative_cron_jobs():
         "plan_drift",
         "detangle",
         "tax_quarterly_reminder",
+        "auditor",
     }
 
 

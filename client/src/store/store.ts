@@ -94,6 +94,18 @@ export interface Forecast {
   total_projected_income?: number;
   will_go_negative: boolean;
   timeline: ForecastPoint[];
+  // F1: probabilistic outlook (present when the backend ran the burn-aware sim).
+  overdraft_probability?: number;
+  trough_band?: { low: number; median: number; high: number };
+  coverage_level?: number | null; // nominal band coverage, e.g. 0.9
+  band_calibrated?: boolean; // did the split-conformal step actually run
+  // F1 change-point router: a recently detected spend-level shift, or null.
+  regime_shift?: {
+    date: string;
+    delta_per_day: number;
+    delta_per_month: number;
+    direction: "up" | "down";
+  } | null;
 }
 
 /** Server-computed Safe-to-Spend (v1 F3): the one number plus its why. */
@@ -117,6 +129,12 @@ export interface SafeToSpend {
     include_goals: boolean;
     buffer: number;
   };
+  // F1: the calibrated overdraft outlook over the same horizon (present when
+  // include_outlook ran). The hero surfaces these so uncertainty isn't hidden.
+  overdraft_probability?: number;
+  trough_band?: { low: number; median: number; high: number };
+  coverage_level?: number | null; // nominal band coverage, e.g. 0.9
+  band_calibrated?: boolean;
 }
 
 export interface S2SPrefs {
