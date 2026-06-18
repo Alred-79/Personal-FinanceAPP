@@ -116,6 +116,29 @@ The MCP surface **ships dark**: it isn't mounted unless you set `mcp_enabled=tru
 
 ---
 
+## Self-host / no-egress profile
+
+A privacy SKU — **your data never leaves your machine** for web lookups. One container, SQLite, no Postgres, and the assistant's web tools disabled:
+
+```bash
+cp .env.example .env       # fill GROQ_API_KEY + JWT_SECRET_KEY (Tavily not needed)
+docker compose -f docker-compose.selfhost.yml up --build
+```
+
+What the profile does (`EGRESS_DISABLED=true`):
+
+- **The assistant makes no web call.** The `WEB` tool group — `search_web` / `open_website` / `get_information` — is dropped from *every* mode (router on or off), and the deterministic router never binds `WEB` even on an explicit look-up intent. Ask the Clerk to "look up the price of gold" and it tells you **web lookups are disabled on this instance** instead of failing silently.
+- **SQLite, persisted to a volume.** No external database service.
+- **Keys are local.** Nothing is baked into the image; secrets come from your `.env`.
+
+**The only outbound services are Groq and Tavily.** `EGRESS_DISABLED=true` kills the **Tavily / web** path entirely.
+
+> ⚠️ **This is "no web egress", not "fully local."** Groq is still the chat LLM **and** the receipt / tax-document **vision** backend, so a chat turn (and any receipt / statement / tax scan) still sends text or images to Groq for inference. To go *fully* local you must additionally **either** not run the Groq-backed surfaces (assistant / receipt-scan / tax-document), **or** point `GROQ_API_BASE` at an on-box OpenAI-compatible model server (e.g. llama.cpp / vLLM) so no token leaves the machine. Don't claim full locality while Groq is in use.
+
+`egress_disabled` defaults to **False** — the standard deployment keeps the web tools present, exactly as before.
+
+---
+
 ## Project layout
 
 ```

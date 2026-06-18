@@ -250,6 +250,19 @@ class Settings(BaseSettings):
     # firewall short-circuits (crisis/dispute/tax-advice) always run BEFORE the
     # router regardless of this flag.
     assistant_router_enabled: bool = False
+    # --- W3: self-host / no-egress profile (privacy SKU) ---
+    # When True, the assistant's WEB tool group (search_web / open_website /
+    # get_information) is dropped from EVERY mode — router on or off — and the
+    # deterministic router never adds WEB even on explicit look-up intent, so no
+    # assistant chat turn can make an outbound Tavily/web HTTP call. The Clerk is
+    # told web lookups are disabled (a system-prompt note) so it says so rather
+    # than silently failing. OFF by default (ship dark) = exactly today's
+    # behavior, web tools present. NOTE the honest scope: this kills the
+    # assistant's *web* egress only. Groq is still the LLM and the receipt/tax
+    # VISION backend, so a turn still calls Groq for inference; "fully local"
+    # additionally requires disabling/replacing those Groq calls (or pointing at a
+    # local model). See docker-compose.selfhost.yml + the README self-host recipe.
+    egress_disabled: bool = False
     # Models a user may pick from in the UI. The /settings endpoint exposes this
     # list; switching the active model still happens via groq_chat_model for now.
     assistant_available_models: list[str] = [

@@ -2613,6 +2613,14 @@ class AssistantService:
         is selected. TAX tools are gated on ``tax_features_enabled`` either way, so
         a disabled instance never advertises a tax surface even if TAX were
         somehow requested.
+
+        W3 — no-egress / self-host profile: when ``settings.egress_disabled`` is
+        True, the WEB group (search_web / open_website / get_information) is
+        dropped from the toolset in BOTH paths (router on AND off). This is the
+        single tool-removal choke point — it reuses W1's ``group_for_tool`` map
+        rather than naming the tool classes, so no parallel removal path exists.
+        With the web tools never constructed into the executor, an assistant chat
+        turn has no reachable outbound Tavily/web call.
         """
         registry: list[BaseTool] = [
             TransactionsByDateRangeTool(user_id=user_id),
@@ -2642,6 +2650,18 @@ class AssistantService:
                     GetDeductionsByBucketTool(user_id=user_id),
                 ]
             )
+
+        # W3 — no-egress profile: strip the WEB group from the registry BEFORE
+        # either return path, so web tools are absent whether the router is on or
+        # off. Reuses W1's ``group_for_tool`` map (the single source of truth for
+        # tool→group) rather than naming WebSearchTool/OpenWebsiteTool/etc., so
+        # this is not a parallel tool-removal path.
+        if settings.egress_disabled:
+            registry = [
+                tool
+                for tool in registry
+                if assistant_router.group_for_tool(tool.name) != assistant_router.WEB
+            ]
 
         if groups is None:
             return registry
@@ -2690,6 +2710,18 @@ class AssistantService:
             A tool result may end with a row like {"_truncated": true, "shown": N, "total": M}. That means only the first N of M rows were returned to keep the answer focused. When you see it, tell the user you are showing N of M and suggest narrowing the date range, category, or account to see more — do not pretend you saw every row.
             """
         )
+
+        # W3 — no-egress / self-host profile: the web tools (search_web /
+        # open_website / get_information) are not built, so the model can't look
+        # anything up online. Tell it to say so plainly rather than silently
+        # dropping a look-up request or hallucinating an answer. This stays within
+        # the no-advice posture — it is a factual capability note, not advice.
+        if settings.egress_disabled:
+            system_text += dedent(
+                """
+                WEB LOOKUPS ARE DISABLED on this instance (a privacy / self-host profile keeps your data on this machine, so there is no internet access). You have NO web-search or website-reading tool. If the user asks you to look something up online, search the web, fetch a URL, or get a current/live price or news, tell them plainly that web lookups are disabled on this instance and you can only work with their own financial data — do NOT guess, invent, or present remembered facts as a live lookup.
+                """
+            )
 
         # MONEY paragraphs: write tools, rules, what-if, assisted-action. Only
         # when the MONEY group is active so a non-money turn doesn't carry write
@@ -2878,7 +2910,12 @@ class AssistantService:
         # switch mid-conversation keeps continuity.
         if settings.assistant_router_enabled:
             groups, mode_signature = assistant_router.classify_mode(
-                message, tax_enabled=settings.tax_features_enabled
+                message,
+                tax_enabled=settings.tax_features_enabled,
+                # W3: in the no-egress profile the router never binds WEB even on
+                # explicit look-up intent (defense in depth alongside the
+                # ``_build_tools`` WEB-group strip), so no web key is ever created.
+                egress_disabled=settings.egress_disabled,
             )
             cache_key: object = (user.id, mode_signature)
         else:

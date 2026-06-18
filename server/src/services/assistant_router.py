@@ -144,7 +144,9 @@ def mode_signature(groups: frozenset[str]) -> str:
     return "+".join(g for g in _SIGNATURE_ORDER if g in groups)
 
 
-def classify_mode(text: str, *, tax_enabled: bool) -> tuple[frozenset[str], str]:
+def classify_mode(
+    text: str, *, tax_enabled: bool, egress_disabled: bool = False
+) -> tuple[frozenset[str], str]:
     """Deterministically pick the tool groups for one turn.
 
     Returns ``(groups, mode_signature)``:
@@ -155,7 +157,10 @@ def classify_mode(text: str, *, tax_enabled: bool) -> tuple[frozenset[str], str]
       are costly, so writes are not gated yet). A future phase-2 pure-READ mode
       can drop MONEY on unambiguous data questions; the ``_MONEY`` lexicon is
       defined for that day.
-    * ``WEB`` is added only on explicit look-up / search intent.
+    * ``WEB`` is added only on explicit look-up / search intent — AND only when
+      ``egress_disabled`` is False. In the W3 no-egress / self-host profile the
+      WEB group is never bound even on a clear look-up intent, so the router can
+      never select a web tool and no outbound web call is reachable from chat.
     * ``TAX`` is added only on tax-organize intent AND ``tax_enabled``; even on a
       clear tax intent it stays hidden when the feature flag is off.
 
@@ -166,7 +171,7 @@ def classify_mode(text: str, *, tax_enabled: bool) -> tuple[frozenset[str], str]
 
     groups = {READ, MONEY}
 
-    if _any(_WEB, probe):
+    if not egress_disabled and _any(_WEB, probe):
         groups.add(WEB)
     if tax_enabled and _any(_TAX_ORGANIZE, probe):
         groups.add(TAX)

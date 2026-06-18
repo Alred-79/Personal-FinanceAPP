@@ -1,0 +1,56 @@
+# Self-host / no-egress profile (W3 — the "your data never leaves your machine"
+# SKU). Differs from the default docker-compose.yml in three ways:
+#
+#   1. NO postgres service — the app runs on the bundled SQLite file, persisted
+#      to a named volume. One container, no external database.
+#   2. EGRESS_DISABLED=true — the assistant's WEB tool group (search_web /
+#      open_website / get_information) is dropped from every mode and the router
+#      never binds WEB, so no assistant chat turn makes an outbound Tavily / web
+#      HTTP call. The Clerk tells the user "web lookups are disabled" instead of
+#      failing silently.
+#   3. Keys are LOCALLY PROVIDED via .env — nothing is baked into the image.
+#
+# ── HONEST SCOPE (do not over-claim) ─────────────────────────────────────────
+# Groq remains BOTH the chat LLM and the receipt / tax VISION backend. With this
+# profile, the assistant makes no *web* call, but a chat turn (and any receipt /
+# statement / tax-document scan) still sends text / images to Groq for
+# inference. So this profile is "no web egress", NOT "fully local". To reach
+# fully-local you must additionally either:
+#   * disable the Groq-backed surfaces (don't run the assistant / receipt-scan /
+#     tax-document features), or
+#   * point GROQ_API_BASE at a local OpenAI-compatible model server (e.g. an
+#     on-box llama.cpp / vLLM endpoint) so no token leaves the machine.
+# Tavily (web search) and Groq (LLM + vision) are the ONLY outbound services;
+# EGRESS_DISABLED=true kills the Tavily/web path, and the two bullets above kill
+# the Groq path.
+#
+# Run:  docker compose -f docker-compose.selfhost.yml up --build
+#
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    # Secrets are supplied locally and never baked into the image. Fill .env with
+    # GROQ_API_KEY (LLM + vision) and JWT_SECRET_KEY. TAVILY_API_KEY is NOT needed
+    # in this profile — the web tools are disabled — but a placeholder keeps the
+    # settings load happy if your .env still declares it.
+    env_file: .env
+    environment:
+      # SQLite, persisted to the named volume below. The app's CMD runs
+      # `alembic upgrade head` against this file, then uvicorn.
+      DATABASE_URL: sqlite:////data/finance_tracker.db
+      ALEMBIC_DATABASE_URL: sqlite:////data/finance_tracker.db
+      ENVIRONMENT: production
+      # W3 — no web egress from the assistant. This is the whole point of the
+      # profile: the WEB tool group is stripped and the router never adds it.
+      EGRESS_DISABLED: "true"
+      # No multi-tenant / RLS in a single-user self-host box; SQLite no-ops RLS
+      # anyway. Left explicit so the profile is self-documenting.
+      ENABLE_RLS: "false"
+    volumes:
+      # Persist the SQLite database across container restarts.
+      - selfhostdata:/data
+
+volumes:
+  selfhostdata:
