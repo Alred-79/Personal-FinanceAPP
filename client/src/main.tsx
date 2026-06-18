@@ -14,6 +14,7 @@ import Reconcile from "./pages/Reconcile/Reconcile.tsx";
 import Tax from "./pages/Tax/Tax.tsx";
 import Login from "./pages/Login/Login.tsx";
 import Landing from "./pages/Landing/Landing.tsx";
+import DevPreview from "./pages/DevPreview/DevPreview.tsx"; // DEV-ONLY, remove after review
 import Settings from "./pages/Settings/Settings.tsx";
 import Keeper from "./pages/Keeper/Keeper.tsx";
 import Debts from "./pages/Debts/Debts.tsx";
@@ -46,6 +47,8 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/welcome" element={<Landing />} />
           {/* Stands alone, no login needed */}
           <Route path="/login" element={<Login />} />
+          {/* DEV-ONLY, remove after review — Tier 4 visual harness (no auth). */}
+          <Route path="/dev-preview" element={<DevPreview />} />
 
           {/* The auth guard wraps every page that needs a login */}
           <Route element={<ProtectedRoute />}>
