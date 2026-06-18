@@ -10,9 +10,10 @@ import type { Transaction, Notification, ForecastPoint } from "@/types";
 import type { Forecast } from "@/store/store";
 import TimelineCard from "@/components/custom/Overview/TimelineCard";
 import NotificationBell from "@/components/custom/NotificationBell/NotificationBell";
+import { CommandDeck } from "@/components/custom/CommandDeck/CommandDeck";
 
 type Dataset = "rich" | "sparse" | "empty";
-type Surface = "timeline" | "notifications";
+type Surface = "timeline" | "notifications" | "deck";
 
 function dayOffset(n: number): string {
   const d = new Date();
@@ -108,6 +109,7 @@ function seed(set: Dataset) {
   useStore.setState({
     isLoggedIn: true,
     userLoaded: true,
+    taxFeaturesEnabled: true, // so the deck shows the Tax destination
     recentTransactions: buildTransactions(set),
     forecast: buildForecast(set),
     forecastLoaded: true,
@@ -121,6 +123,7 @@ export default function DevPreview() {
   const [dataset, setDataset] = useState<Dataset>("rich");
   const [surface, setSurface] = useState<Surface>("timeline");
   const [dark, setDark] = useState(false);
+  const [deckOpen, setDeckOpen] = useState(false);
 
   // Seed SYNCHRONOUSLY on first render — before any child mounts — so children
   // see forecastLoaded=true and never race a fetch (TimelineCard's effect runs
@@ -162,7 +165,7 @@ export default function DevPreview() {
       <div className="mx-auto max-w-2xl space-y-6">
         <div className="flex flex-wrap items-center gap-2 border-b border-rule-strong/30 pb-4">
           <span className="dept-label mr-2">Dev Preview</span>
-          {(["timeline", "notifications"] as Surface[]).map((s) => (
+          {(["timeline", "notifications", "deck"] as Surface[]).map((s) => (
             <button key={s} className={btn(surface === s)} onClick={() => setSurface(s)}>
               {s}
             </button>
@@ -183,6 +186,25 @@ export default function DevPreview() {
         {surface === "notifications" && (
           <div className="flex justify-end">
             <NotificationBell />
+          </div>
+        )}
+        {surface === "deck" && (
+          <div className="space-y-3">
+            <button className={btn(false)} onClick={() => setDeckOpen(true)}>
+              Open ⌘K deck
+            </button>
+            <p className="font-sans text-xs text-muted-foreground">
+              Opens the Command Deck. Destination/action rows navigate (which
+              leaves the harness); use it to inspect the list, filtering, keyboard
+              nav, and the agent reply shell. (No backend here, so an agent ask
+              just shows the "considering…" state.)
+            </p>
+            <CommandDeck
+              open={deckOpen}
+              onOpenChange={setDeckOpen}
+              onConnectBank={() => alert("link bank (harness no-op)")}
+              canConnectBank
+            />
           </div>
         )}
       </div>
