@@ -19,6 +19,10 @@ bcrypt = "<4.1"
 plaid-python = "*"
 sqlalchemy = "*"
 alembic = "*"
+# Postgres driver (psycopg 3). Declared for the multi-tenant Postgres target; the
+# app still defaults to SQLite, so this is only required once DATABASE_URL points
+# at Postgres. Install with: ./.venv/bin/pip install "psycopg[binary]"
+psycopg = {extras = ["binary"], version = "*"}
 cachetools = "*"
 slowapi = "*"
 limits = "*"

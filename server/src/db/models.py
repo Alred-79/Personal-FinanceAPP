@@ -985,6 +985,31 @@ event.listen(
     _NO_DELETE_TRIGGER.execute_if(dialect="sqlite"),
 )
 
+# Postgres equivalent of the two append-only triggers above. SQLite's
+# ``RAISE(ABORT, ...)`` is not valid Postgres, so on PG we install a PL/pgSQL
+# trigger function that ``RAISE EXCEPTION``s, wired to BEFORE UPDATE and BEFORE
+# DELETE. Guarded with ``execute_if(dialect="postgresql")`` so it is completely
+# inert on SQLite (the test path). NOTE: not yet validated against a live
+# Postgres (none available at authoring time) — verify before the PG cutover.
+_PG_GAME_EVENTS_FN = DDL(
+    "CREATE OR REPLACE FUNCTION game_events_append_only() RETURNS trigger AS $$ "
+    "BEGIN RAISE EXCEPTION 'game_events is append-only'; END; $$ LANGUAGE plpgsql"
+)
+_PG_NO_UPDATE_TRIGGER = DDL(
+    "CREATE TRIGGER game_events_no_update BEFORE UPDATE ON game_events "
+    "FOR EACH ROW EXECUTE FUNCTION game_events_append_only()"
+)
+_PG_NO_DELETE_TRIGGER = DDL(
+    "CREATE TRIGGER game_events_no_delete BEFORE DELETE ON game_events "
+    "FOR EACH ROW EXECUTE FUNCTION game_events_append_only()"
+)
+for _pg_ddl in (_PG_GAME_EVENTS_FN, _PG_NO_UPDATE_TRIGGER, _PG_NO_DELETE_TRIGGER):
+    event.listen(
+        GameEvent.__table__,
+        "after_create",
+        _pg_ddl.execute_if(dialect="postgresql"),
+    )
+
 # runs.map_json is an immutable draft snapshot (v4 package 08). Mirror the
 # migration's trigger so a create_all DB (the test suite) gets the same guard:
 # any UPDATE that changes map_json aborts. overlay_json/score_json stay mutable.
@@ -999,6 +1024,25 @@ event.listen(
     "after_create",
     _RUNS_MAP_IMMUTABLE.execute_if(dialect="sqlite"),
 )
+# Postgres equivalent of runs_map_json_immutable (see note above; unvalidated
+# against a live Postgres). The value comparison lives in the PL/pgSQL body even
+# though ``BEFORE UPDATE OF map_json`` already narrows the firing column.
+_PG_RUNS_MAP_FN = DDL(
+    "CREATE OR REPLACE FUNCTION runs_map_json_immutable_fn() RETURNS trigger AS $$ "
+    "BEGIN IF OLD.map_json IS NOT NULL AND NEW.map_json <> OLD.map_json THEN "
+    "RAISE EXCEPTION 'runs.map_json is an immutable draft snapshot'; END IF; "
+    "RETURN NEW; END; $$ LANGUAGE plpgsql"
+)
+_PG_RUNS_MAP_TRIGGER = DDL(
+    "CREATE TRIGGER runs_map_json_immutable BEFORE UPDATE OF map_json ON runs "
+    "FOR EACH ROW EXECUTE FUNCTION runs_map_json_immutable_fn()"
+)
+for _pg_ddl in (_PG_RUNS_MAP_FN, _PG_RUNS_MAP_TRIGGER):
+    event.listen(
+        Run.__table__,
+        "after_create",
+        _pg_ddl.execute_if(dialect="postgresql"),
+    )
 
 
 # ── v4 package 10: campaigns, challenges, experiments ───────────────────────

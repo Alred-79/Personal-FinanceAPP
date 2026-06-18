@@ -23,11 +23,19 @@ from server.src.settings import settings
 
 def _make_engine(database_url: str) -> Engine:
     connect_args = {}
+    engine_kwargs = {}
     if database_url.startswith("sqlite"):
         # Required so the SQLite connection can be used across FastAPI's threads.
         connect_args["check_same_thread"] = False
+    else:
+        # Server engines (Postgres) use a real connection pool. ``pool_pre_ping``
+        # transparently recycles a connection the server dropped (idle timeout,
+        # failover) instead of surfacing a stale-connection error on the request.
+        engine_kwargs["pool_pre_ping"] = True
 
-    return create_engine(database_url, connect_args=connect_args, future=True)
+    return create_engine(
+        database_url, connect_args=connect_args, future=True, **engine_kwargs
+    )
 
 
 engine = _make_engine(settings.database_url)

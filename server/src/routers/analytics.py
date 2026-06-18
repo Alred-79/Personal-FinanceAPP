@@ -51,7 +51,22 @@ async def spending_aggregation(
     """
     model = ExpenseORM if tx_type == "expense" else IncomeORM
     fmt = _BUCKET_FORMATS[bucket]
-    bucket_expr = func.strftime(fmt, model.date).label("bucket")
+    # Date bucketing is dialect-aware. ``func.strftime`` is SQLite-only; Postgres
+    # has no such function. Because ``date`` is a date-only ISO string
+    # (``YYYY-MM-DD``), the month/day buckets are a plain substring on PG, and the
+    # week bucket uses ISO-week ``to_char``. NOTE: Postgres ISO week (``IW``)
+    # differs from SQLite ``%W`` numbering near year boundaries — validate the
+    # week-bucket keys against a live Postgres before relying on them.
+    if db.get_bind().dialect.name == "sqlite":
+        bucket_expr = func.strftime(fmt, model.date).label("bucket")
+    elif bucket == "day":
+        bucket_expr = func.substr(model.date, 1, 10).label("bucket")
+    elif bucket == "month":
+        bucket_expr = func.substr(model.date, 1, 7).label("bucket")
+    else:  # week
+        bucket_expr = func.to_char(
+            func.to_date(model.date, "YYYY-MM-DD"), 'IYYY-"W"IW'
+        ).label("bucket")
 
     query = (
         select(
