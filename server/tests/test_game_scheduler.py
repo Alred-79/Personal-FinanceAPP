@@ -104,11 +104,13 @@ def test_scheduler_builds_declarative_cron_jobs():
     month-close/fade + weekly rollups + the v6 daily plan-drift check + the
     messy-data daily Detangler + the Pillar-3 daily quarterly-tax reminder + the
     F3 nightly Auditor + the W4 daily reflection feedback loop + the W6 daily
-    honest-subscription detect→offer/absence-verify pass). Built, not started, so
-    no event loop / background fire is needed. Like ``detangle``, ``auditor`` and
-    ``tax_quarterly_reminder``, ``action_reflection`` and ``subscription_actions``
-    are ALWAYS registered and self-gate on their feature flag at the tick, so the
-    job set is independent of the flag."""
+    honest-subscription detect→offer/absence-verify pass + the W7 behavioral nudges:
+    daily goal reminders (F1) + monthly escalation (F2) + monthly landmark re-entry
+    (F6)). Built, not started, so no event loop / background fire is needed. Like
+    ``detangle``, ``auditor`` and ``tax_quarterly_reminder``, ``action_reflection``,
+    ``subscription_actions`` and the behavioral jobs are ALWAYS registered and
+    self-gate on their feature flag at the tick, so the job set is independent of the
+    flag."""
     sched = scheduler.build_scheduler()
     assert {j.id for j in sched.get_jobs()} == {
         "game_monthly",
@@ -119,6 +121,9 @@ def test_scheduler_builds_declarative_cron_jobs():
         "auditor",
         "action_reflection",
         "subscription_actions",
+        "goal_reminders",
+        "behavioral_escalation",
+        "behavioral_landmark",
     }
 
 

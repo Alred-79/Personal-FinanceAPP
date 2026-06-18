@@ -461,6 +461,99 @@ def job_subscription_actions(
 
 
 # ---------------------------------------------------------------------------
+# W7 — Behavioral features (Tier-1, evidence-graded). THREE nightly/boundary jobs,
+# each mirroring the W4/W6 RLS shape EXACTLY: per user ``set_tenant(db, user.id)``
+# AND ``user_id_var.set(...)`` before reading that user's rows, with
+# ``user_id_var.reset(...)`` in a ``finally`` (the load-bearing reset — without it
+# the contextvar leaks and ``test_logging_context`` fails). Each self-gates on its
+# OWN feature flag (B4 ship-dark) and is idempotent per ``ref``. F4 (soft earmarks)
+# is a request-path service, not a job. ``_users(db)`` reads the un-policied owner
+# ``users`` table. The forecast veto for F2 lives inside ``behavioral.run_escalation``.
+# ---------------------------------------------------------------------------
+
+
+def _run_behavioral_per_user(db: Session, runner, accumulate) -> dict:
+    """Shared per-user driver for the W7 jobs: bind the RLS tenant + logging context
+    per user (reset-in-finally, B1), call ``runner(db, user.id, now=...)``, and fold
+    each user's summary into a totals dict via ``accumulate``."""
+    from .db.rls import set_tenant
+    from .logging_context import user_id_var
+
+    totals: dict = {}
+    for user in _users(db):
+        set_tenant(db, user.id)
+        _uid_token = user_id_var.set(str(user.id))
+        try:
+            accumulate(totals, runner(db, user.id))
+        except Exception:  # noqa: BLE001 — one user's failure can't abort the rest
+            logger.exception("behavioral job failed: user=%s", user.id)
+        finally:
+            # Load-bearing: don't leak this user's id into the contextvar after the
+            # loop (the exact bug the W4 reset prevents; test_logging_context proves it).
+            user_id_var.reset(_uid_token)
+    db.flush()
+    return totals
+
+
+def _accumulate_counts(totals: dict, summary: dict) -> None:
+    for key, value in summary.items():
+        if isinstance(value, int):
+            totals[key] = totals.get(key, 0) + value
+
+
+def job_goal_reminders(db: Session, now: Optional[datetime | date] = None) -> dict:
+    """W7 F1: surface goal-named, cadence-capped, mute-respecting reminders for every
+    user. Self-gates on ``behavioral_goal_reminders_enabled`` (B4). Idempotent per
+    week-stamped ``ref``. Per-user RLS tenant context (B1)."""
+    if not settings.behavioral_goal_reminders_enabled:
+        return {"skipped": "flag_off"}
+    from .services import behavioral
+
+    now = now or datetime.now()
+    as_of = now.date() if isinstance(now, datetime) else now
+    return _run_behavioral_per_user(
+        db, lambda d, uid: behavioral.run_goal_reminders(d, uid, now=as_of),
+        _accumulate_counts,
+    )
+
+
+def job_escalation(db: Session, now: Optional[datetime | date] = None) -> dict:
+    """W7 F2: bump each opt-in escalating ``allocate`` rule's contribution by its step —
+    forecast-VETOED so a bump can never push the user negative. Self-gates on
+    ``behavioral_escalation_enabled`` (B4). One bump per rule per month. Per-user RLS
+    tenant context (B1) — the Postgres test proves this job reads the user's rules
+    under RLS."""
+    if not settings.behavioral_escalation_enabled:
+        return {"skipped": "flag_off"}
+    from .services import behavioral
+
+    now = now or datetime.now()
+    as_of = now.date() if isinstance(now, datetime) else now
+    return _run_behavioral_per_user(
+        db, lambda d, uid: behavioral.run_escalation(d, uid, now=as_of),
+        _accumulate_counts,
+    )
+
+
+def job_landmark_reentry(db: Session, now: Optional[datetime | date] = None) -> dict:
+    """W7 F6: at a month/year boundary, send ONE gentle re-entry notification to LAPSED
+    users only (engaged users skipped; never resets streaks). Self-gates on
+    ``behavioral_landmark_enabled`` (B4). Idempotent per ``ref``. Per-user RLS tenant
+    context (B1). Intended to fire on the 1st of a month (the scheduler triggers it
+    there); a non-boundary fire still no-ops harmlessly via the ref dedup."""
+    if not settings.behavioral_landmark_enabled:
+        return {"skipped": "flag_off"}
+    from .services import behavioral
+
+    now = now or datetime.now()
+    as_of = now.date() if isinstance(now, datetime) else now
+    return _run_behavioral_per_user(
+        db, lambda d, uid: behavioral.run_landmark_reentry(d, uid, now=as_of),
+        _accumulate_counts,
+    )
+
+
+# ---------------------------------------------------------------------------
 # The scheduled wrappers — own-session, commit, close (no request context).
 # ---------------------------------------------------------------------------
 
@@ -567,6 +660,36 @@ async def _subscription_actions_tick() -> None:
     _run_in_own_session(lambda db: job_subscription_actions(db, datetime.now()))
 
 
+async def _goal_reminders_tick() -> None:
+    """Daily cron: W7 F1 goal-named reminders. Gated by
+    ``behavioral_goal_reminders_enabled`` (the job self-checks too); per-user RLS
+    tenant context (B1) is set inside the job; cadence-capped + mute-respecting +
+    week-stamped ``ref`` so a daily re-fire adds at most one reminder/goal/week."""
+    if not settings.behavioral_goal_reminders_enabled:
+        return
+    _run_in_own_session(lambda db: job_goal_reminders(db, datetime.now()))
+
+
+async def _escalation_tick() -> None:
+    """Monthly cron: W7 F2 Save-More-Tomorrow escalation. Gated by
+    ``behavioral_escalation_enabled`` (the job self-checks too); per-user RLS tenant
+    context (B1); the FORECAST VETO inside the job skips any bump that would push the
+    user negative; one bump per rule per month (``last_escalated_period``)."""
+    if not settings.behavioral_escalation_enabled:
+        return
+    _run_in_own_session(lambda db: job_escalation(db, datetime.now()))
+
+
+async def _landmark_reentry_tick() -> None:
+    """Monthly cron (the 1st): W7 F6 landmark re-entry. Gated by
+    ``behavioral_landmark_enabled`` (the job self-checks too); per-user RLS tenant
+    context (B1); LAPSED users only (engaged skipped); never touches the streak
+    machine; idempotent per ``ref``."""
+    if not settings.behavioral_landmark_enabled:
+        return
+    _run_in_own_session(lambda db: job_landmark_reentry(db, datetime.now()))
+
+
 # ---------------------------------------------------------------------------
 # APScheduler wiring
 # ---------------------------------------------------------------------------
@@ -663,6 +786,39 @@ def build_scheduler():
         _subscription_actions_tick,
         CronTrigger(hour=1, minute=10, timezone="UTC"),
         id="subscription_actions",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+    # W7 F1: goal-named reminders. Daily at 01:20 (after the night's other notices).
+    # The tick self-gates on ``behavioral_goal_reminders_enabled``; cadence cap + mute
+    # + week-stamped ref keep a daily re-fire to ≤1 reminder/goal/week. Per-user RLS.
+    scheduler.add_job(
+        _goal_reminders_tick,
+        CronTrigger(hour=1, minute=20, timezone="UTC"),
+        id="goal_reminders",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+    # W7 F2: Save-More-Tomorrow escalation. MONTHLY on the 1st at 01:30. The tick
+    # self-gates on ``behavioral_escalation_enabled``; the forecast veto inside the job
+    # skips any bump that would push the user negative; one bump per rule per month.
+    scheduler.add_job(
+        _escalation_tick,
+        CronTrigger(day=1, hour=1, minute=30, timezone="UTC"),
+        id="behavioral_escalation",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+    # W7 F6: landmark re-entry. MONTHLY on the 1st at 01:40 (the month/year boundary).
+    # The tick self-gates on ``behavioral_landmark_enabled``; LAPSED users only; never
+    # resets streaks; idempotent per ref.
+    scheduler.add_job(
+        _landmark_reentry_tick,
+        CronTrigger(day=1, hour=1, minute=40, timezone="UTC"),
+        id="behavioral_landmark",
         replace_existing=True,
         misfire_grace_time=3600,
         coalesce=True,

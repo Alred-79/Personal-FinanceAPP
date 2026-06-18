@@ -47,6 +47,7 @@ def test_denormalized_children_are_covered():
         "liability_adjustments",
         "import_rows",
         "campaign_progress",
+        "earmarks",
     ):
         assert child in TENANT_TABLES
         assert "user_id" in Base.metadata.tables[child].columns

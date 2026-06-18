@@ -80,6 +80,7 @@ TENANT_TABLES: tuple[str, ...] = (
     "user_memory",
     # 6 children with user_id denormalized on (WS2 denormalize_user_id migration)
     "campaign_progress",
+    "earmarks",  # W7 F4: soft goal sub-buckets; user_id denormalized from the goal
     "expenses",
     "import_rows",
     "income",

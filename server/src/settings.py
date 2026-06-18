@@ -159,6 +159,48 @@ class Settings(BaseSettings):
     # ``price_change_pct`` qualifies independently of probability).
     subscription_forgotten_max_probability: float = 0.35
 
+    # W7 — Behavioral features (Tier-1, evidence-graded behavioral-moat F1/F2/F4/F6).
+    # FOUR independently-flagged nudges, each forecast-gated so a nudge can never push
+    # a user negative, all OFF by default (ship-dark, guardrail B4). All copy is
+    # factual / non-directive and screened through the output firewall (B3).
+    #
+    # F1 — Goal-named reminders. A nightly job names the user's actual goal + its real
+    # progress; cadence-capped to ≤``behavioral_reminder_max_per_week`` reminders/week
+    # per goal, and suppressed entirely once the user mutes goal reminders. No-op when
+    # this flag is off.
+    behavioral_goal_reminders_enabled: bool = False
+    # Cadence cap: at most this many goal-named reminders per goal per rolling 7 days.
+    behavioral_reminder_max_per_week: int = 1
+    # Only nudge a goal the user has actually funded but not touched recently — a goal
+    # with no progress activity in this many days is "stalled" and reminder-eligible.
+    behavioral_reminder_stale_days: int = 7
+
+    # F2 — Save-More-Tomorrow escalation. A monthly job bumps an opt-in ``allocate``
+    # rule's ``pct``/``amount`` by a configured step, but ONLY when the forecast says
+    # the bumped contribution would NOT push the user negative (the hard forecast veto).
+    # Trivially pausable: an escalation is opt-in per rule (``action_params.escalation``)
+    # and disabling the rule or clearing the escalation block stops it. No-op when off.
+    behavioral_escalation_enabled: bool = False
+    # The forecast horizon (days) the escalation veto projects over before a bump.
+    behavioral_escalation_horizon_days: int = 35
+
+    # F4 — Soft goal earmarks. A named sub-bucket per goal that sits OVER ``Goal.progress``
+    # (it reduces Safe-to-Spend exactly like progress) but is NEVER a hard lock: a
+    # pull-back is always allowed, instant, and carries no penalty. The service warns
+    # (never blocks) when the forecast sees a near-term bill. The earmark surface is
+    # gated by this flag. No-op when off.
+    behavioral_earmarks_enabled: bool = False
+
+    # F6 — Landmark re-entry. A month/year-boundary job sends ONE gentle, non-directive
+    # re-entry notification to LAPSED users only (no money activity in
+    # ``behavioral_lapsed_days`` days), never to engaged users — and it NEVER touches the
+    # streak machine (daily.py already rebuilds rather than breaks). No-op when off.
+    behavioral_landmark_enabled: bool = False
+    # A user with no expense/income activity in this many days is "lapsed" (re-entry
+    # eligible). Engaged users (recent activity) are skipped — the "what-the-hell"
+    # licensing guard.
+    behavioral_lapsed_days: int = 30
+
     # Rate limiting via slowapi. We turn it off in the test suite so repeated
     # login and refresh calls don't trip the limiter.
     #

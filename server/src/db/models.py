@@ -321,6 +321,42 @@ class Goal(Base):
     user = relationship("User", back_populates="goals")
 
 
+class Earmark(Base):
+    """W7 F4 — a soft, named sub-bucket of a goal's earmarked savings.
+
+    ``Goal.progress`` already IS a virtual earmark that reduces Safe-to-Spend. An
+    ``Earmark`` partitions that single bucket into named sub-buckets ("Deposit",
+    "Movers") so the user can mentally account for parts of one goal — the only
+    behaviorally-validated win (Soman & Cheema partitioning). It is SOFT by
+    construction: it never locks liquidity. Setting an earmark adds its cents to
+    ``Goal.progress``; pulling it back (or deleting it) subtracts the same cents —
+    always allowed, instant, no penalty (the "locked savings backfire" guard,
+    Dupas & Robinson). The sum of a goal's earmarks never exceeds its progress.
+
+    ``user_id`` is denormalized (== the goal's owner) so RLS can filter directly,
+    backfilled on insert from the parent goal (WS2). One named bucket per goal.
+    """
+
+    __tablename__ = "earmarks"
+    __table_args__ = (
+        UniqueConstraint("goal_id", "name", name="uq_earmark_goal_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    goal_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("goals.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # WS2 denormalized tenant key (== goals.user_id); backfilled on insert.
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), server_default=func.current_timestamp()
+    )
+
+
 class RefreshToken(Base):
     """Hashed refresh tokens with expiry and revocation support."""
 
@@ -1579,6 +1615,7 @@ for _child, _parent_table, _fk_attr in (
     (LiabilityAdjustment, Liability.__table__, "liability_id"),
     (ImportRow, ImportSession.__table__, "session_id"),
     (CampaignProgress, Campaign.__table__, "campaign_id"),
+    (Earmark, Goal.__table__, "goal_id"),
 ):
     event.listen(_child, "before_insert", _make_user_id_backfill(_parent_table, _fk_attr))
 
