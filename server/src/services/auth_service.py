@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from server.src.db.models import RefreshToken as RefreshTokenORM
 from server.src.db.models import User as UserORM
 from server.src.db.session import get_db
+from server.src.logging_context import set_user_id
 from server.src.models import NewUser, TokenData, UserInDB
 from server.src.settings import settings
 
@@ -388,6 +389,9 @@ class AuthService:
         ).scalar_one_or_none()
         if user is None:
             raise credentials_exception
+        # Stamp the resolved user into the request's logging context so every
+        # downstream log line carries user=<id> (see server/src/logging_context).
+        set_user_id(user.id)
         return _to_user_in_db(user)
 
     @staticmethod

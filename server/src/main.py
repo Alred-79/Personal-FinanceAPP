@@ -1,19 +1,32 @@
 import logging
 import os
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from server.src.logging_context import (
+    RequestContextFilter,
+    request_id_var,
+    user_id_var,
+)
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s  %(message)s",
+    format="%(asctime)s %(levelname)-8s [req=%(request_id)s user=%(user_id)s] %(name)s  %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
+# Attach the request-context filter to every root handler so every record gets
+# request_id/user_id (the format above references them). Outside a request they
+# render as "-". A filter on the handler covers records from any logger that
+# propagates to root.
+for _handler in logging.getLogger().handlers:
+    _handler.addFilter(RequestContextFilter())
 
 from server.src.limiter import limiter
 from server.src.settings import settings
@@ -128,6 +141,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _request_context(request: Request, call_next):
+    """Stamp a request_id into the logging context for the life of the request
+    and echo it back as ``X-Request-ID``. ``user_id`` defaults to "-" here and is
+    overwritten by the auth dependency once the request resolves to a user.
+
+    No reset is needed: each request runs in its own task-local contextvar
+    snapshot, so a set here cannot leak into another request — and skipping the
+    reset keeps the id attached to logs emitted while an SSE/streaming response
+    body is still being produced after this middleware returns.
+    """
+    rid = request.headers.get("x-request-id") or uuid.uuid4().hex
+    request_id_var.set(rid)
+    user_id_var.set("-")
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    return response
 
 # Static assets (only when client is built)
 if os.path.isdir("./client/dist/assets"):
