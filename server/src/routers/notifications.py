@@ -105,6 +105,15 @@ def mint_proposal_token(
         raise HTTPException(
             status_code=400, detail="Not an approvable auto-fund proposal."
         )
+
+    # W4 reflection automation offer: ref shape ``rule_suggest:{kind}:goal:{goal_id}:{period}``.
+    # On tap, mint a ``create_rule`` (allocate) token — propose-only: confirming
+    # CREATES a standing rule (no money moves; nothing auto-fires). The ~amount is
+    # re-derived from the user's verified history (it's intentionally NOT in the
+    # ref, so a few-cent drift can't defeat dedup).
+    if note.ref.startswith("rule_suggest:"):
+        return _mint_rule_suggest_token(db, current_user.id, note.ref)
+
     # ref shape: rule_proposal:<rule_id>:<goal_id>:<cents>
     parts = note.ref.split(":")
     if len(parts) != 4 or parts[0] != "rule_proposal":
@@ -132,6 +141,82 @@ def mint_proposal_token(
         "action": "create_allocation",
         "summary": (
             f"Set aside ${dollars:,.2f} toward goal '{goal.name}'"
+        ),
+        "amount": dollars,
+        "goal_id": goal_id,
+    }
+
+
+def _mint_rule_suggest_token(db: Session, user_id: int, ref: str) -> dict:
+    """Mint a fresh ``create_rule`` (allocate) confirm token for a W4 reflection
+    automation offer. Propose-only: confirming creates a standing rule; no money
+    moves. Re-derives the ~amount + cadence from the user's verified history."""
+    import statistics
+
+    from server.src.services import action_reflection
+
+    # ref shape: rule_suggest:{kind}:goal:{goal_id}:{period}
+    parts = ref.split(":")
+    if len(parts) != 5 or parts[0] != "rule_suggest" or parts[2] != "goal":
+        raise HTTPException(status_code=400, detail="Malformed proposal reference.")
+    kind = parts[1]
+    period = parts[4]
+    try:
+        goal_id = int(parts[3])
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Malformed proposal reference.")
+
+    goal = db.execute(
+        select(GoalORM.id, GoalORM.name).where(
+            GoalORM.id == goal_id, GoalORM.user_id == user_id
+        )
+    ).one_or_none()
+    if goal is None:
+        raise HTTPException(status_code=404, detail="Target goal no longer exists.")
+
+    # Re-derive the ~amount from the verified actions of this (kind, goal).
+    from server.src.db.models import AssistedAction as AssistedActionORM
+
+    rows = (
+        db.execute(
+            select(AssistedActionORM).where(
+                AssistedActionORM.user_id == user_id,
+                AssistedActionORM.kind == kind,
+                AssistedActionORM.status == "verified",
+            )
+        )
+        .scalars()
+        .all()
+    )
+    amounts = [
+        r.amount_cents
+        for r in rows
+        if action_reflection._dest_label(r) == f"goal:{goal_id}"
+    ]
+    if not amounts:
+        raise HTTPException(
+            status_code=400, detail="This automation offer is no longer applicable."
+        )
+    amount_cents = int(statistics.median(sorted(amounts)))
+    dollars = cents_to_dollars(amount_cents)
+
+    token = action_tokens.make_token(
+        user_id,
+        "create_rule",
+        {
+            "action_type": "allocate",
+            "name": f"Auto-fund {goal.name} ({period})"[:200],
+            "conditions": [{"field": "type", "op": "eq", "value": "income"}],
+            "amount": dollars,
+            "target_id": goal_id,
+        },
+    )
+    return {
+        "token": token,
+        "action": "create_rule",
+        "summary": (
+            f"Create an auto-fund rule: set aside ${dollars:,.2f} toward "
+            f"'{goal.name}' when income posts"
         ),
         "amount": dollars,
         "goal_id": goal_id,

@@ -336,6 +336,71 @@ def job_auditor(db: Session, now: Optional[datetime | date] = None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# W4 — Reconciliation→planning feedback loop. Nightly, per-user: aggregate
+# AssistedAction follow-through into ONE non-directive memory fact + ≤1
+# idempotent ``create_rule`` (allocate) automation offer per repeated verified
+# pattern. Same shape as auditor/drift: pure, idempotent per ``ref``, self-gated
+# on ``settings.assistant_reflection_enabled``. Propose-only (B2) — no money moves.
+#
+# RLS (guardrail B1): this job ESTABLISHES TENANT CONTEXT PER USER before reading
+# that user's rows — it calls ``set_tenant(db, user.id)`` (binds the Postgres
+# ``app.user_id`` GUC, transaction-scoped) AND ``user_id_var.set(...)`` (request-
+# logging context) inside the per-user loop. A job that read zero rows because it
+# set no tenant context is the exact failure this item must prevent; the Postgres
+# test asserts the bound context lets the job actually read the user's rows. The
+# ``_users(db)`` enumeration reads the owner ``users`` table (no RLS policy), so
+# it is not tenant-filtered. Under the BYPASSRLS scheduler role the set_tenant
+# call is a harmless no-op; under a restricted role it is load-bearing.
+# ---------------------------------------------------------------------------
+
+
+def job_action_reflection(
+    db: Session, now: Optional[datetime | date] = None
+) -> dict:
+    """Run the reflection feedback loop for every user. Returns per-user counts.
+
+    Self-gates on ``settings.assistant_reflection_enabled`` (B4 ship-dark): a
+    no-op when the flag is off. Idempotent: the fact is upserted under one key and
+    each automation offer dedups by stable ``ref`` (``rule_suggest:{kind}:{dest}:
+    {period}``), so an overlapping fire or a restart can't double-write.
+    """
+    if not settings.assistant_reflection_enabled:
+        return {"skipped": "flag_off"}
+
+    from .db.rls import set_tenant
+    from .logging_context import user_id_var
+    from .services import action_reflection
+
+    now = now or datetime.now()
+    now_dt = now if isinstance(now, datetime) else datetime(now.year, now.month, now.day)
+
+    facts = 0
+    offers = 0
+    for user in _users(db):
+        # B1: bind the RLS tenant for THIS user before reading their rows.
+        set_tenant(db, user.id)
+        _uid_token = user_id_var.set(str(user.id))
+        try:
+            summary = action_reflection.run_for_user(
+                db,
+                user.id,
+                window_days=settings.reflection_window_days,
+                min_repeats=settings.reflection_min_repeats,
+                now=now_dt,
+            )
+            facts += 1 if summary["fact_written"] else 0
+            offers += summary["offers"]
+        except Exception:  # noqa: BLE001 — one user's failure can't abort the rest
+            logger.exception("action_reflection failed: user=%s", user.id)
+        finally:
+            # Don't leak this user's id into the contextvar after the loop — the
+            # log filter must fall back to '-' outside a request context.
+            user_id_var.reset(_uid_token)
+    db.flush()
+    return {"facts_written": facts, "offers": offers}
+
+
+# ---------------------------------------------------------------------------
 # The scheduled wrappers — own-session, commit, close (no request context).
 # ---------------------------------------------------------------------------
 
@@ -422,6 +487,16 @@ async def _auditor_tick() -> None:
     _run_in_own_session(lambda db: job_auditor(db, datetime.now()))
 
 
+async def _reflection_tick() -> None:
+    """Daily cron: the W4 reflection feedback loop. Gated by
+    ``assistant_reflection_enabled`` (the job self-checks too); per-user RLS
+    tenant context (B1) is set inside the job; idempotent per memory key + ``ref``
+    so a re-fire adds no duplicate fact or offer."""
+    if not settings.assistant_reflection_enabled:
+        return
+    _run_in_own_session(lambda db: job_action_reflection(db, datetime.now()))
+
+
 # ---------------------------------------------------------------------------
 # APScheduler wiring
 # ---------------------------------------------------------------------------
@@ -492,6 +567,18 @@ def build_scheduler():
         _auditor_tick,
         CronTrigger(hour=0, minute=50, timezone="UTC"),
         id="auditor",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+    # W4: the reflection feedback loop. Runs at 01:00 (after the Auditor at 00:50)
+    # so the night's notifications are already written. The tick self-gates on
+    # ``assistant_reflection_enabled``; one memory key + per-ref dedup keep a
+    # re-fire harmless. Per-user RLS tenant context is set inside the job (B1).
+    scheduler.add_job(
+        _reflection_tick,
+        CronTrigger(hour=1, minute=0, timezone="UTC"),
+        id="action_reflection",
         replace_existing=True,
         misfire_grace_time=3600,
         coalesce=True,

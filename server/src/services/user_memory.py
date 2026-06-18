@@ -46,6 +46,7 @@ MEMORY_KEYS: frozenset[str] = frozenset(
         "income_cadence",       # free text, e.g. "income lands ~15th and last day"
         "recurring_note",       # a noted recurring obligation the user flagged
         "essential_category",   # a category the user treats as essential
+        "action_followthrough", # W4: deterministic follow-through tendency (one regenerated, non-directive sentence)
     }
 )
 _KEY_PREFIXES: tuple[str, ...] = ("category_preference:",)

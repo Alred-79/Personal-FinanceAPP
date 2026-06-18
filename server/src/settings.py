@@ -123,6 +123,19 @@ class Settings(BaseSettings):
     # output advice firewall is unaffected (it always runs).
     tax_features_enabled: bool = False
 
+    # W4 — Reconciliation→planning feedback loop (reflection + automation offers).
+    # A nightly job aggregates each user's AssistedAction follow-through, writes
+    # ONE non-directive ``action_followthrough`` memory fact (firewall-screened),
+    # and surfaces ≤1 idempotent ``create_rule`` (allocate) automation offer per
+    # repeated verified pattern. OFF by default (ship-dark, guardrail B4): the job
+    # no-ops when this is False. Propose-only — nothing auto-moves money (B2).
+    assistant_reflection_enabled: bool = False
+    # Trailing window (days) of AssistedAction history the reflection job reads.
+    reflection_window_days: int = 90
+    # Minimum verified repeats of a (kind, goal, ~amount) pattern before an
+    # automation offer is surfaced.
+    reflection_min_repeats: int = 3
+
     # Rate limiting via slowapi. We turn it off in the test suite so repeated
     # login and refresh calls don't trip the limiter.
     #
