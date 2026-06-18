@@ -595,19 +595,22 @@ class PlaidService:
         if user_id is None or row.id is None:
             return
         try:
+            tx_view = {
+                "id": int(row.id),
+                "title": row.title,
+                "amount": cents_to_dollars(row.amount),
+                "date": row.date,
+                "category": row.category,
+                "account_id": row.account_id,
+                "type": tx_type,
+            }
+            # W5: income rows carry their tax/earnings character so a Tax-Reserve
+            # allocate rule (source_type == self_employment) can fire on synced
+            # income too. Absent on expenses by construction.
+            if tx_type == "income":
+                tx_view["source_type"] = getattr(row, "source_type", None)
             RuleEngine(self.db).run_on_transaction(
-                user_id,
-                tx_type,
-                int(row.id),
-                {
-                    "id": int(row.id),
-                    "title": row.title,
-                    "amount": cents_to_dollars(row.amount),
-                    "date": row.date,
-                    "category": row.category,
-                    "account_id": row.account_id,
-                    "type": tx_type,
-                },
+                user_id, tx_type, int(row.id), tx_view
             )
         except Exception:  # noqa: BLE001 — rules never break sync
             logger.exception(

@@ -23,8 +23,12 @@ No expression language. Supported fields/ops:
     {"field": "title",    "op": "contains",        "value": str}
     {"field": "account_id","op": "eq",             "value": int}
     {"field": "type",     "op": "eq",              "value": "expense"|"income"}
+    {"field": "source_type","op": "eq",            "value": "w2"|"self_employment"|"other"}
 
-All money math in integer cents.
+``source_type`` (W5) is only present on income transactions; it is absent on
+expenses and on income with no classification, so a ``source_type == X`` predicate
+fails closed there (the income condition still guards against ever matching an
+expense). All money math in integer cents.
 """
 
 from __future__ import annotations
@@ -107,6 +111,13 @@ def matches(conditions: list[dict[str, Any]], tx: dict[str, Any]) -> bool:
         elif field == "account_id":
             ok = op == "eq" and actual == value
         elif field == "type":
+            ok = op == "eq" and actual == value
+        elif field == "source_type":
+            # W5: the income's tax/earnings character ('w2'|'self_employment'|
+            # 'other'). Lets a Tax-Reserve allocate rule fire on self-employment
+            # income ONLY. Fails closed when the tx carries no source_type (None
+            # never equals a concrete value), so it can't match a W-2 paycheck or
+            # an expense — both of which omit the field.
             ok = op == "eq" and actual == value
         else:
             ok = False

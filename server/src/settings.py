@@ -136,6 +136,15 @@ class Settings(BaseSettings):
     # automation offer is surfaced.
     reflection_min_repeats: int = 3
 
+    # W5 — Freelancer wedge. Composes the calibrated Safe-to-Spend (F1) with the
+    # tax layer into a 1099 onboarding preset: a self-employment-only income buffer
+    # recommendation + a Tax Reserve goal funded as self-employment income arrives
+    # (a C1 allocate rule) + the existing quarterly due-date reminders. OFF by
+    # default (ship-dark, guardrail B4): the preset only runs when explicitly
+    # invoked. Propose-only — nothing auto-moves money beyond the C1 under-threshold
+    # earmark, and the buffer recommendation is one-tap accept, never auto-applied.
+    freelancer_mode_enabled: bool = False
+
     # Rate limiting via slowapi. We turn it off in the test suite so repeated
     # login and refresh calls don't trip the limiter.
     #

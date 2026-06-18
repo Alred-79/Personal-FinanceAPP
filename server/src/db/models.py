@@ -265,6 +265,14 @@ class Income(Base):
     )
     # v4 packages 05/09: mirrors Expense.worth_it. 'yes' | 'no' | NULL (unset).
     worth_it: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # W5 Freelancer wedge: the income's tax/earnings character —
+    # ``'w2'`` (wages, no SE tax, never reserved against) | ``'self_employment'``
+    # (1099 / cash earnings — the ONLY character that drives smoothing + the Tax
+    # Reserve) | ``'other'`` | NULL (unclassified). Nullable + user-overridable;
+    # the migration backfills a conservative heuristic from category/title and
+    # NEVER guesses ``self_employment`` (defaults to NULL/``other``). Smoothing and
+    # the reserve allocate-rule act only on ``self_employment`` rows.
+    source_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     account_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("accounts.id", ondelete="CASCADE"),

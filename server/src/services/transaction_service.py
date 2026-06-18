@@ -220,20 +220,21 @@ class TransactionService:
         # Plaid imports reuse this same engine later, protected by the same
         # idempotency log. A rules failure never breaks creation.
         tx_type = "expense" if model is ExpenseORM else "income"
-        RuleEngine(self.db).run_on_transaction(
-            user_id,
-            tx_type,
-            row.id,
-            {
-                "id": row.id,
-                "title": row.title,
-                "amount": cents_to_dollars(row.amount),
-                "date": row.date,
-                "category": row.category,
-                "account_id": row.account_id,
-                "type": tx_type,
-            },
-        )
+        tx_view: dict[str, Any] = {
+            "id": row.id,
+            "title": row.title,
+            "amount": cents_to_dollars(row.amount),
+            "date": row.date,
+            "category": row.category,
+            "account_id": row.account_id,
+            "type": tx_type,
+        }
+        # W5: expose the income's tax/earnings character so a Tax-Reserve allocate
+        # rule (condition source_type == self_employment) can match. Absent on
+        # expenses, so the income+source_type guard still can't fire on a spend.
+        if model is IncomeORM:
+            tx_view["source_type"] = getattr(row, "source_type", None)
+        RuleEngine(self.db).run_on_transaction(user_id, tx_type, row.id, tx_view)
 
         label = "Expense" if model is ExpenseORM else "Income"
         return {"message": f"{label} created successfully"}

@@ -143,6 +143,105 @@ def canonicalize_category(raw: str | None) -> str:
     return s
 
 
+# ── W5: income source-type heuristic ────────────────────────────────────────
+# Maps a raw income row to its tax/earnings CHARACTER:
+#   'w2'              — wages/salary/payroll (no SE tax; never reserved against)
+#   'self_employment' — 1099 / freelance / contractor / gig / invoice income
+#                       (the ONLY character smoothing + the Tax Reserve act on)
+#   'other'           — interest, dividends, refunds, transfers, gifts, etc.
+#   None              — no confident signal (the conservative, never-guess default)
+#
+# Used both by the migration backfill (where it MUST default to NULL/'other' and
+# never guess 'self_employment') and as a default at income-creation time. The
+# user can always override the stored value afterward.
+
+# Strong self-employment markers — explicit 1099 / contractor / gig language.
+_SELF_EMPLOYMENT_KEYWORDS: tuple[str, ...] = (
+    "1099",
+    "self employ",
+    "self-employ",
+    "freelance",
+    "contractor",
+    "consult",
+    "invoice",
+    "client payment",
+    "gig",
+    "upwork",
+    "fiverr",
+    "doordash",
+    "uber",
+    "lyft",
+    "instacart",
+    "etsy",
+    "stripe payout",
+    "paypal payout",
+    "honorarium",
+    "royalt",
+    "commission",
+)
+# W-2 / wage markers.
+_W2_KEYWORDS: tuple[str, ...] = (
+    "payroll",
+    "salary",
+    "wages",
+    "paycheck",
+    "direct deposit payroll",
+    "w-2",
+    "w2",
+    "employer",
+    "biweekly pay",
+)
+# Clearly-not-earned-income markers → 'other' (never reserved against).
+_OTHER_KEYWORDS: tuple[str, ...] = (
+    "interest",
+    "dividend",
+    "refund",
+    "rebate",
+    "cashback",
+    "cash back",
+    "transfer",
+    "gift",
+    "reimburs",
+    "tax return",
+)
+
+
+def classify_income_source_type(
+    title: str | None, category: str | None = None
+) -> Optional[str]:
+    """Heuristically classify an income row's tax/earnings character.
+
+    Returns ``'self_employment'`` | ``'w2'`` | ``'other'`` | ``None``. Pure (no DB,
+    no network) and deterministic. **Conservative by contract:** it only returns
+    ``'self_employment'`` on an explicit 1099/freelance/gig signal, and otherwise
+    prefers ``None`` over a guess — so the migration backfill can never misclassify
+    a paycheck as self-employment. Order: self-employment markers win (the case we
+    must catch for the reserve), then W-2, then non-earned ('other'); no signal → None.
+
+    >>> classify_income_source_type("Upwork 1099 client payment")
+    'self_employment'
+    >>> classify_income_source_type("ACME CORP PAYROLL")
+    'w2'
+    >>> classify_income_source_type("Interest payment", "Other")
+    'other'
+    >>> classify_income_source_type("Money") is None
+    True
+    """
+    haystack = f"{title or ''} {category or ''}".lower()
+    if not haystack.strip():
+        return None
+    for kw in _SELF_EMPLOYMENT_KEYWORDS:
+        if kw in haystack:
+            return "self_employment"
+    for kw in _W2_KEYWORDS:
+        if kw in haystack:
+            return "w2"
+    for kw in _OTHER_KEYWORDS:
+        if kw in haystack:
+            return "other"
+    return None
+
+
 def normalize_merchant(title: str) -> str:
     """Reduce a raw transaction title to a stable merchant key.
 

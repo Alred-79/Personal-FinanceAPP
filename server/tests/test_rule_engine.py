@@ -80,6 +80,17 @@ class TestConditions:
         assert not matches([{"field": "merchant", "op": "eq", "value": "x"}], self.TX)
         assert not matches([{"field": "amount", "op": "between", "value": 1}], self.TX)
 
+    def test_source_type_match(self):
+        """W5: source_type == self_employment matches a 1099 income tx ONLY."""
+        se = {"type": "income", "source_type": "self_employment", "amount": 100.0}
+        w2 = {"type": "income", "source_type": "w2", "amount": 100.0}
+        cond = [{"field": "source_type", "op": "eq", "value": "self_employment"}]
+        assert matches(cond, se)
+        assert not matches(cond, w2)
+        # Absent on an expense / unclassified income → fails closed (no match).
+        assert not matches(cond, self.TX)
+        assert not matches(cond, {"type": "income", "amount": 100.0})
+
 
 # ---------------------------------------------------------------------------
 # Engine over the DB
