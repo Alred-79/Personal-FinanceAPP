@@ -239,6 +239,17 @@ class Settings(BaseSettings):
     # crisis-language user message to a static 988 resource instead of the LLM.
     # On by default; the same firewall already guards the Chronicler surface.
     assistant_firewall_enabled: bool = True
+    # --- W1: deterministic mode-gating tool-router ---
+    # A per-turn deterministic classifier (services/assistant_router.py, mirroring
+    # the firewall) selects which tool GROUPS the assistant sees: READ (always) +
+    # MONEY (standing core), with WEB / TAX gated in only on their intent. Cuts the
+    # per-turn token cost and the SSRF/cost surface (web tools only join on look-up
+    # intent), and gives headroom as the toolset grows. OFF by default (ship dark):
+    # when False, ``chat()`` builds today's full toolset with a single per-user
+    # executor + memory — EXACTLY today's behavior, an instant kill switch. The
+    # firewall short-circuits (crisis/dispute/tax-advice) always run BEFORE the
+    # router regardless of this flag.
+    assistant_router_enabled: bool = False
     # Models a user may pick from in the UI. The /settings endpoint exposes this
     # list; switching the active model still happens via groq_chat_model for now.
     assistant_available_models: list[str] = [

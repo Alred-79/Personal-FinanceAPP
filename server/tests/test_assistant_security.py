@@ -311,14 +311,16 @@ class TestAgentCacheEviction:
         mock_settings.assistant_memory_window = 4
 
         svc = AssistantService()
-        # Fill to maxsize
-        for i in range(128):
+        # Fill to maxsize. W1 bumped the default to 384 to hold ~6 router mode
+        # combos per user; the LRU-eviction contract is unchanged.
+        maxsize = 384
+        for i in range(maxsize):
             svc.agents[i] = f"agent_{i}"  # type: ignore[index]
-        assert len(svc.agents) == 128
+        assert len(svc.agents) == maxsize
 
         # Adding one more should evict the oldest
-        svc.agents[999] = "new_agent"  # type: ignore[index]
-        assert 999 in svc.agents
-        assert len(svc.agents) == 128  # still at max
+        svc.agents[9999] = "new_agent"  # type: ignore[index]
+        assert 9999 in svc.agents
+        assert len(svc.agents) == maxsize  # still at max
         # The first inserted (key 0) should have been evicted
         assert 0 not in svc.agents
