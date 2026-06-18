@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 from sqlalchemy import select
@@ -55,8 +55,47 @@ _RECONCILE_WINDOW_DAYS = 5
 # marked done earns a gentle nudge ("you marked it done but I don't see it yet").
 _NUDGE_AFTER_DAYS = 4
 
-KINDS = ("transfer", "bill_payment", "goal_funding", "tax_payment", "debt_payment")
+KINDS = (
+    "transfer",
+    "bill_payment",
+    "goal_funding",
+    "tax_payment",
+    "debt_payment",
+    # W6 — an honest subscription-cancel offer. It PROPOSES (provider cancel URL /
+    # steps live in ``how_json``); it never acts and never moves money. Unlike the
+    # money kinds it is verified by the ABSENCE of the next expected charge, so it
+    # is reconciled by ``verify_cancellation`` (in the nightly job), NOT by the
+    # appearing-transaction ``reconcile`` (C6). There is NO fee field anywhere on
+    # this path — we never claim or skim a "saved" amount.
+    "subscription_cancel",
+)
 _SINGLE_LEG_KINDS = ("bill_payment", "tax_payment", "debt_payment", "goal_funding")
+
+# W6 — cadence (in days) used to size the absence-verification horizon and the
+# open-bridge expiry cap. Mirrors ``recurring_service._RECURRENCE_DAYS`` /
+# ``subscription_service._CADENCE_WINDOWS`` so the two features agree on calendar
+# math; an unknown/None cadence falls back to a conservative monthly horizon.
+_CADENCE_DAYS = {
+    "weekly": 7,
+    "bi-weekly": 14,
+    "monthly": 30,
+    "quarterly": 91,
+    "annually": 365,
+}
+_DEFAULT_CADENCE_DAYS = 30
+# After the expected next charge would have posted, we wait this many extra days
+# (banks post a renewal a few days late; a merchant may bill on a slightly
+# different day) before calling an absent charge a confirmed cancellation. One
+# FULL missed cadence + this grace is the bar — a single early/one-cycle gap must
+# NOT verify (edge case: false "cancelled").
+_CANCEL_GRACE_DAYS = 7
+# A cancel bridge can't hang open forever. An ABSOLUTE day cap on how long it
+# stays open: for short cadences this sits AFTER the verify horizon (so absence
+# verification wins first); for a long (annual) cadence the horizon is itself ~a
+# year out, so this cap is reached FIRST — we then EXPIRE with a nudge rather than
+# leave a cancel offer dangling for a year. Also bounds the reappearing-charge case
+# (a sub that keeps renewing under a fuzzy key never verifies, but mustn't hang).
+_CANCEL_MAX_OPEN_DAYS = 120
 
 # Statuses that are still "open" for reconciliation — we try to verify a Bridge
 # the user acknowledged or marked done, but never one already resolved.
@@ -421,6 +460,145 @@ class AssistedActionService:
         self.db.flush()
 
 
+    # ── W6: absence-based verification of a subscription cancellation ─────
+    def verify_cancellation(
+        self,
+        bridge: AssistedActionORM,
+        as_of: date,
+    ) -> str:
+        """Resolve ONE open ``subscription_cancel`` bridge by the ABSENCE of the
+        next expected charge — the inverse of C6's appearing-transaction match.
+
+        A cancellation is only *knowable over time*: we can never prove a charge
+        won't come, only observe that a full cadence + grace has passed with no
+        matching charge at the merchant's NORMALIZED key. So:
+
+          * If any charge at the normalized merchant key has posted AFTER the offer
+            (the user kept the sub, or a renewal slipped through under a slightly
+            different label/amount), the cancellation did NOT take → stay open
+            (``unverified``). This is the false-"cancelled" guard.
+          * Else, once ``as_of`` is at/after ``expected_next_date + grace`` (one
+            full missed cadence), mark ``verified`` — no fee, no money moved.
+          * Else, if the bridge has hung open longer than the cadence-scaled cap
+            (``_CANCEL_MAX_CADENCES_OPEN`` cadences past the offer) without ever
+            reaching its verify horizon — the annual-cadence "dangling forever"
+            case — ``expire`` it with a gentle nudge instead of leaving it open.
+          * Else it is simply too early → ``pending``.
+
+        Returns the resulting state label: ``"verified" | "expired" | "pending" |
+        "unverified" | "skipped"``. Caller drives ``as_of`` explicitly (no
+        ``Date.now()``); the job binds the RLS tenant before calling this.
+        """
+        if bridge.kind != "subscription_cancel":
+            return "skipped"
+        if bridge.status not in _OPEN_FOR_RECONCILE and bridge.status != "proposed":
+            return "skipped"
+
+        how = _loads(bridge.how_json)
+        merchant_key = (how.get("merchant") or "").strip().lower()
+        offered = _parse_date(bridge.created_at)
+        cadence = how.get("cadence")
+        cadence_days = _CADENCE_DAYS.get(cadence or "", _DEFAULT_CADENCE_DAYS)
+
+        # The verify horizon: the merchant's own ``expected_next_date`` when known
+        # (it already encodes the cadence), else offer + one cadence. Plus grace.
+        expected_next = _parse_date(how.get("expected_next_date") or "")
+        if expected_next is None and offered is not None:
+            expected_next = offered + timedelta(days=cadence_days)
+        if expected_next is None:
+            return "pending"  # malformed bridge — never silently verify
+        horizon = expected_next + timedelta(days=_CANCEL_GRACE_DAYS)
+        cap_day = (
+            offered + timedelta(days=_CANCEL_MAX_OPEN_DAYS)
+            if offered is not None
+            else None
+        )
+
+        # Absence guard: did any charge at the NORMALIZED merchant key post after
+        # the offer? If so, the sub is still alive → it did NOT cancel. Keep it
+        # ``unverified`` UNLESS it has also blown past the open-cap, in which case
+        # we stop tracking it (expire + nudge) rather than re-check forever.
+        if merchant_key and offered is not None and self._charged_since(
+            bridge.user_id, merchant_key, after=offered
+        ):
+            if cap_day is not None and as_of >= cap_day:
+                self._expire_cancel_with_nudge(bridge)
+                return "expired"
+            return "unverified"
+
+        # The annual-cadence guard: if the open-cap is reached BEFORE the (far-off)
+        # verify horizon, expire rather than dangle a cancel offer for ~a year. For
+        # short cadences the cap sits AFTER the horizon, so this never pre-empts a
+        # legitimate verification.
+        if cap_day is not None and as_of >= cap_day and as_of < horizon:
+            self._expire_cancel_with_nudge(bridge)
+            return "expired"
+
+        if as_of >= horizon:
+            # A full cadence + grace passed with no matching charge → cancelled.
+            bridge.status = "verified"
+            bridge.resolved_at = _now_iso()
+            self.db.flush()
+            return "verified"
+
+        return "pending"
+
+    def _charged_since(self, user_id: int, merchant_key: str, *, after: date) -> bool:
+        """True if any expense at the normalized merchant key posted after *after*.
+
+        Reuses ``categorization_service.normalize_merchant`` so the comparison is
+        on the SAME normalized key the lifecycle/subscription detectors use — a
+        renewal under a slightly different raw title still matches and (correctly)
+        keeps the cancellation unverified."""
+        from server.src.db.models import Expense as ExpenseORM
+        from server.src.services.categorization_service import normalize_merchant
+
+        rows = (
+            self.db.execute(
+                select(ExpenseORM.title, ExpenseORM.date).where(
+                    ExpenseORM.user_id == user_id
+                )
+            )
+            .all()
+        )
+        after_iso = after.isoformat()[:10]
+        for title, dstr in rows:
+            if not dstr or str(dstr)[:10] <= after_iso:
+                continue
+            if normalize_merchant(title or "") == merchant_key:
+                return True
+        return False
+
+    def _expire_cancel_with_nudge(self, bridge: AssistedActionORM) -> None:
+        """Expire an over-aged cancel bridge and leave one idempotent nudge."""
+        bridge.status = "expired"
+        bridge.resolved_at = _now_iso()
+        ref = f"sub_cancel_expired:{bridge.id}"
+        exists = self.db.execute(
+            select(NotificationORM.id).where(
+                NotificationORM.user_id == bridge.user_id,
+                NotificationORM.ref == ref,
+            )
+        ).scalar_one_or_none()
+        if exists is None:
+            how = _loads(bridge.how_json)
+            name = how.get("title") or how.get("merchant") or "this subscription"
+            self.db.add(
+                NotificationORM(
+                    user_id=bridge.user_id,
+                    type="subscription_cancel",
+                    title="Still tracking that cancellation?",
+                    message=(
+                        f"I haven't been able to confirm {name} stopped charging "
+                        "you yet. If you cancelled, you can dismiss this; if not, "
+                        "the cancel steps are still available."
+                    ),
+                    ref=ref,
+                )
+            )
+        self.db.flush()
+
+
 def _as_account_id(ref: Optional[str]) -> Optional[int]:
     """An internal account leg is an integer-valued ``source_ref``/``dest_ref``.
 
@@ -443,7 +621,9 @@ def _loads(text: Optional[str]) -> dict[str, Any]:
         return {}
 
 
-def _parse_date(value: str) -> Optional[date]:
+def _parse_date(value: Optional[str]) -> Optional[date]:
+    if not value:
+        return None
     try:
         return datetime.fromisoformat(value).date()
     except (TypeError, ValueError):

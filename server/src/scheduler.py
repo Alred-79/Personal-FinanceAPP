@@ -401,6 +401,66 @@ def job_action_reflection(
 
 
 # ---------------------------------------------------------------------------
+# W6 — Honest subscription cancellation. Nightly, per-user: over the F2
+# MerchantLifecycle snapshot, surface ≤1 idempotent honest cancel OFFER per
+# zombie / price-creep subscription, and ABSENCE-verify each open
+# subscription_cancel Bridge (verified only after the next expected charge fails
+# to appear for a full cadence + grace; expired if it dangles past the cap).
+# Propose-only (B2) — the offer never cancels anything, never moves money, NO fee.
+# Self-gates on ``settings.subscription_actions_enabled`` (B4 ship-dark).
+#
+# RLS (guardrail B1): mirrors job_action_reflection EXACTLY — per user it calls
+# ``set_tenant(db, user.id)`` AND ``user_id_var.set(...)`` before reading that
+# user's rows, with ``user_id_var.reset(...)`` in a ``finally`` so the contextvar
+# never leaks into a later iteration/test (the load-bearing reset). ``_users(db)``
+# reads the un-policied owner ``users`` table. The Postgres test asserts the bound
+# tenant context actually lets the job read the user's lifecycle rows (not zero).
+# ---------------------------------------------------------------------------
+
+
+def job_subscription_actions(
+    db: Session, now: Optional[datetime | date] = None
+) -> dict:
+    """Run the W6 detect→offer + absence-verify pass for every user.
+
+    Self-gates on ``settings.subscription_actions_enabled`` (B4): a no-op when off.
+    Idempotent: each offer dedups by ``ref`` (``sub_cancel:{user}:{merchant}:
+    {period}``) and each cancel Bridge by its ``verify_ref``, so an overlapping
+    fire or a restart can't double-write. Propose-only — no money moves (B2)."""
+    if not settings.subscription_actions_enabled:
+        return {"skipped": "flag_off"}
+
+    from .db.rls import set_tenant
+    from .logging_context import user_id_var
+    from .services import subscription_actions
+
+    now = now or datetime.now()
+    as_of = now.date() if isinstance(now, datetime) else now
+
+    offers = 0
+    verified = 0
+    expired = 0
+    for user in _users(db):
+        # B1: bind the RLS tenant for THIS user before reading their rows.
+        set_tenant(db, user.id)
+        _uid_token = user_id_var.set(str(user.id))
+        try:
+            summary = subscription_actions.run_for_user(db, user.id, now=as_of)
+            offers += summary["offers"]
+            verified += summary["verified"]
+            expired += summary["expired"]
+        except Exception:  # noqa: BLE001 — one user's failure can't abort the rest
+            logger.exception("subscription_actions failed: user=%s", user.id)
+        finally:
+            # Load-bearing: don't leak this user's id into the contextvar after the
+            # loop — without the reset the log filter (and later tests) see a stale
+            # tenant. (The exact bug a prior W4 pass hit.)
+            user_id_var.reset(_uid_token)
+    db.flush()
+    return {"offers": offers, "verified": verified, "expired": expired}
+
+
+# ---------------------------------------------------------------------------
 # The scheduled wrappers — own-session, commit, close (no request context).
 # ---------------------------------------------------------------------------
 
@@ -497,6 +557,16 @@ async def _reflection_tick() -> None:
     _run_in_own_session(lambda db: job_action_reflection(db, datetime.now()))
 
 
+async def _subscription_actions_tick() -> None:
+    """Daily cron: the W6 honest-subscription detect→offer + absence-verify pass.
+    Gated by ``subscription_actions_enabled`` (the job self-checks too); per-user
+    RLS tenant context (B1) is set inside the job; idempotent per ``ref`` +
+    ``verify_ref`` so a re-fire adds no duplicate offer or bridge."""
+    if not settings.subscription_actions_enabled:
+        return
+    _run_in_own_session(lambda db: job_subscription_actions(db, datetime.now()))
+
+
 # ---------------------------------------------------------------------------
 # APScheduler wiring
 # ---------------------------------------------------------------------------
@@ -579,6 +649,20 @@ def build_scheduler():
         _reflection_tick,
         CronTrigger(hour=1, minute=0, timezone="UTC"),
         id="action_reflection",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+    # W6: the honest-subscription detect→offer + absence-verify pass. Runs at 01:10
+    # (after reflection at 01:00) so the night's notifications are already written.
+    # The tick self-gates on ``subscription_actions_enabled``; per-ref + per-bridge
+    # dedup keep a re-fire harmless. Per-user RLS tenant context is set inside the
+    # job (B1). Absence-verification is intentionally here (knowable only over time)
+    # and NOT in the sync hook (which only matches APPEARING transactions, C6).
+    scheduler.add_job(
+        _subscription_actions_tick,
+        CronTrigger(hour=1, minute=10, timezone="UTC"),
+        id="subscription_actions",
         replace_existing=True,
         misfire_grace_time=3600,
         coalesce=True,

@@ -145,6 +145,20 @@ class Settings(BaseSettings):
     # earmark, and the buffer recommendation is one-tap accept, never auto-applied.
     freelancer_mode_enabled: bool = False
 
+    # W6 — Honest subscription cancellation. A nightly job reads each user's F2
+    # ``MerchantLifecycle`` rows, surfaces ≤1 idempotent honest cancel OFFER per
+    # likely-forgotten ("zombie") or silently-hiked subscription, and ABSENCE-
+    # verifies a tapped cancel Bridge (it's confirmed only after the next expected
+    # charge fails to appear for a full cadence + grace). OFF by default (ship-dark,
+    # guardrail B4): the job no-ops when this is False. Propose-only (B2) — the
+    # offer never cancels anything, never moves money, and there is NO fee anywhere
+    # on this path.
+    subscription_actions_enabled: bool = False
+    # A ``lapsing``/``dormant`` merchant counts as a forgotten-subscription cancel
+    # candidate only when its BG/NBD ``probability_alive`` is below this (a positive
+    # ``price_change_pct`` qualifies independently of probability).
+    subscription_forgotten_max_probability: float = 0.35
+
     # Rate limiting via slowapi. We turn it off in the test suite so repeated
     # login and refresh calls don't trip the limiter.
     #

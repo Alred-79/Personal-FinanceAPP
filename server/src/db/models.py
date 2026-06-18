@@ -506,7 +506,10 @@ class AssistedAction(Base):
         nullable=False,
         index=True,
     )
-    # transfer | bill_payment | goal_funding | tax_payment | debt_payment
+    # transfer | bill_payment | goal_funding | tax_payment | debt_payment |
+    # subscription_cancel (W6 — an honest, propose-only cancel offer; verified by
+    # the *absence* of the next expected charge, never by moving money / cutting a
+    # "saved" fee — there is deliberately NO fee field on this or any path).
     kind: Mapped[str] = mapped_column(String, nullable=False)
     amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)  # exact deduced amount
     # account ids or external labels ("irs.gov/payments", "your bank")
