@@ -27,6 +27,17 @@ os.environ.setdefault("mcp_rate_limit_enabled", "false")
 # singleton off in case a test mutates settings.
 os.environ.setdefault("scheduler_enabled", "false")
 
+# WS1 — optional Postgres test target. Set e.g.
+#   TEST_DATABASE_URL=postgresql+psycopg://pf:pf@localhost:5434/pf_test
+# to run the suite against a real Postgres (validates the dialect-aware DB
+# layer: triggers, strftime bucketing, RLS). Unset → in-memory SQLite (default).
+# Pointed at the WHOLE app (settings.database_url -> db.session.engine) BEFORE
+# the app imports below, so request paths (get_db) AND direct SessionLocal paths
+# hit the same DB the fixtures manage.
+_TEST_DB_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
+if _TEST_DB_URL:
+    os.environ["DATABASE_URL"] = _TEST_DB_URL
+
 from sqlalchemy import create_engine, event
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
@@ -119,11 +130,27 @@ def rate_limited(monkeypatch):
 
 @pytest.fixture
 def _engine():
-    """A fresh in memory SQLite engine per test, with FK enforcement on.
+    """A fresh, empty DB per test.
 
-    StaticPool + a single shared connection keeps the in memory DB alive for the
-    whole test (each new connection would otherwise get its own empty DB).
+    Default: in-memory SQLite (StaticPool keeps the single connection alive so the
+    DB survives the whole test). When ``TEST_DATABASE_URL`` is set, reuse the
+    app's real engine (already pointed at Postgres via the env toggle at the top
+    of this file) and drop/create the schema per test for identical isolation —
+    this exercises the dialect-aware create_all path (PG triggers, RLS, etc.).
     """
+    if _TEST_DB_URL:
+        from server.src.db.session import engine as app_engine
+
+        # Drop first in case a prior crashed run left tables behind, then build a
+        # clean schema (fires the postgresql-guarded trigger/RLS DDL).
+        Base.metadata.drop_all(app_engine)
+        Base.metadata.create_all(app_engine)
+        try:
+            yield app_engine
+        finally:
+            Base.metadata.drop_all(app_engine)
+        return
+
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},

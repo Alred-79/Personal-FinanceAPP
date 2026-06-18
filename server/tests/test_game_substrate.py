@@ -98,14 +98,24 @@ def test_replaying_a_whole_batch_emits_nothing(db_session):
 def test_raw_update_and_delete_are_blocked_by_trigger(db_session):
     record_events(db_session, [_posted(1, "t1", 1000)])
     db_session.flush()
+    # Target the row's REAL id, not a hardcoded 1. Postgres sequences don't roll
+    # back, so after the rollback+reinsert below the new row is no longer id=1; a
+    # ``WHERE id=1`` DELETE would match nothing and the FOR EACH ROW trigger would
+    # never fire (a SQLite-only id-reuse assumption). SQLite still passes too.
+    eid = db_session.execute(text("SELECT id FROM game_events")).scalar()
     with pytest.raises(Exception):
-        db_session.execute(text("UPDATE game_events SET type='X' WHERE id=1"))
+        db_session.execute(
+            text("UPDATE game_events SET type='X' WHERE id=:i"), {"i": eid}
+        )
         db_session.flush()
     db_session.rollback()
     record_events(db_session, [_posted(1, "t1b", 1000)])
     db_session.flush()
+    eid = db_session.execute(text("SELECT id FROM game_events")).scalar()
     with pytest.raises(Exception):
-        db_session.execute(text("DELETE FROM game_events WHERE id=1"))
+        db_session.execute(
+            text("DELETE FROM game_events WHERE id=:i"), {"i": eid}
+        )
         db_session.flush()
     db_session.rollback()
 
