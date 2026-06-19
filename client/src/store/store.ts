@@ -1063,12 +1063,20 @@ export const useStore = create<StoreState>((set, get) => ({
   markNotificationRead: async (notificationId: number) => {
     try {
       await api.put(`/notifications/${notificationId}/read`);
-      set((state) => ({
-        notifications: state.notifications.map((n) =>
-          n.id === notificationId ? { ...n, read: true } : n
-        ),
-        unreadCount: Math.max(0, state.unreadCount - 1),
-      }));
+      set((state) => {
+        // Only decrement when the target was actually unread (and present).
+        // Re-marking an already-read notification must not under-count.
+        const n = state.notifications.find((x) => x.id === notificationId);
+        return {
+          notifications: state.notifications.map((x) =>
+            x.id === notificationId ? { ...x, read: true } : x
+          ),
+          unreadCount:
+            n && !n.read
+              ? Math.max(0, state.unreadCount - 1)
+              : state.unreadCount,
+        };
+      });
     } catch (error) {
       console.error("Error marking notification read:", error);
     }

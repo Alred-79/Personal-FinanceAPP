@@ -224,6 +224,35 @@ def test_mileage_crud(client):
     assert client.get("/api/tax/mileage/", headers=headers).json() == []
 
 
+# ── D2: request-atomicity (handlers flush, get_db commits once) ───────────────
+
+def test_handler_error_after_flush_rolls_back_whole_request(client, monkeypatch):
+    """The tag/doc/mileage handlers now ``db.flush()`` and let ``get_db`` commit
+    once on success. Force a failure AFTER the flush (in response shaping) and the
+    whole request must roll back — no partial mileage row left behind.
+
+    (The TestClient re-raises server exceptions, so the POST surfaces the
+    RuntimeError; the point under test is that ``get_db`` rolled the request back
+    before re-raising.)"""
+    import server.src.routers.tax as tax_router
+
+    headers = _auth(client)
+
+    def _boom(_row):
+        raise RuntimeError("post-flush failure")
+
+    monkeypatch.setattr(tax_router, "_mileage_out", _boom)
+    with pytest.raises(RuntimeError, match="post-flush failure"):
+        client.post("/api/tax/mileage/",
+                    json={"trip_date": "2026-05-02", "miles": 42.0,
+                          "purpose": "rollback probe"},
+                    headers=headers)
+
+    # The flushed-but-uncommitted row must NOT have persisted. (GET re-shapes via
+    # the still-patched _mileage_out, but with zero rows it is never invoked.)
+    assert client.get("/api/tax/mileage/", headers=headers).json() == []
+
+
 # ── summary read ─────────────────────────────────────────────────────────────
 
 def test_summary_read_dollars(client):

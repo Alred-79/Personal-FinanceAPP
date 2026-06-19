@@ -136,14 +136,20 @@ class ForecastService:
 
         Empty when there's too little history to model variation (so the
         simulation collapses to the deterministic walk)."""
+        # Activity guard: too few non-recurring transactions ⇒ don't model
+        # variation. ``_discretionary_amounts_cents`` is the per-transaction
+        # count (the right activity signal); it shares the identical SQL filter
+        # with the daily series below, so there's no scope drift.
         amounts = self._discretionary_amounts_cents(user_id, as_of, window_days)
         if len(amounts) < _BURN_MIN_TXNS or window_days <= 0:
             return []
-        # We don't have per-day grouping here, only the amounts; distribute them
-        # across the window's days and pad the rest with zero-spend days. The
-        # pool is each day's (spend - burn).
-        per_day = amounts + [0] * max(window_days - len(amounts), 0)
-        return [a - burn_cents for a in per_day]
+        # Build the pool from the *chronological, day-grouped* daily series — not
+        # the unordered amount list — so multiple transactions on one day collapse
+        # to a single daily residual and the block bootstrap keeps its day-of-week
+        # autocorrelation. The series is already length ``window_days`` (zero-seeded
+        # empty days), so an empty day correctly contributes ``-burn``.
+        series = self._daily_discretionary_series_cents(user_id, as_of, window_days)
+        return [day_total - burn_cents for day_total in series]
 
     # ── F1: change-point router (the stationarity guard) ───────────────────
 

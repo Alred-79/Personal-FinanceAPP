@@ -9,7 +9,7 @@ import type {
 } from "@/components/ui/toast"
 
 const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+const TOAST_REMOVE_DELAY = 4000
 
 type ToasterToast = ToastProps & {
   id: string
@@ -173,6 +173,9 @@ function useToast() {
   const [state, setState] = React.useState<State>(memoryState)
 
   React.useEffect(() => {
+    // Subscribe once on mount. Depending on [state] re-ran this on every toast
+    // change — churning the listener list (splice/push) — with no benefit, since
+    // setState is stable. Mount-once is the canonical react-hot-toast pattern.
     listeners.push(setState)
     return () => {
       const index = listeners.indexOf(setState)
@@ -180,7 +183,8 @@ function useToast() {
         listeners.splice(index, 1)
       }
     }
-  }, [state])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return {
     ...state,

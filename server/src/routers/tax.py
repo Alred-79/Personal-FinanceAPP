@@ -184,7 +184,7 @@ def put_tag(
         note=body.note,
     )
     svc.learn(current_user.id, row.title, tag.bucket, source="user")
-    db.commit()
+    db.flush()
     return _tag_out(tag)
 
 
@@ -199,7 +199,7 @@ def delete_tag(
     removed = TaxTaggingService(db).untag(current_user.id, tx_type, tx_id)
     if not removed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No tag.")
-    db.commit()
+    db.flush()
     return {"message": "Tag removed"}
 
 
@@ -300,7 +300,7 @@ async def extract_tax_document(
         fields=extracted["fields"],
         source_kind=source_kind,
     )
-    db.commit()
+    db.flush()
     return _doc_out(doc)
 
 
@@ -355,7 +355,7 @@ def patch_tax_document(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         )
-    db.commit()
+    db.flush()
     return _doc_out(doc)
 
 
@@ -401,7 +401,7 @@ def add_mileage(
         tax_year=year,
     )
     db.add(row)
-    db.commit()
+    db.flush()
     db.refresh(row)
     return _mileage_out(row)
 
@@ -435,7 +435,7 @@ def delete_mileage(
     if row is None or row.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
     db.delete(row)
-    db.commit()
+    db.flush()
     return {"message": "Mileage log removed"}
 
 

@@ -613,6 +613,117 @@ class TestRulesFireOnSync:
         db_session.refresh(goal)
         assert goal.progress == 50  # the rule fired on the synced expense
 
+
+# ---------------------------------------------------------------------------
+# A2 — money-moving rules must not earmark income unless they opt in
+# ---------------------------------------------------------------------------
+
+def INCOME_TX(**kw):
+    """A synced-income tx view (mirrors plaid_service `_run_rules_on_synced`):
+    ``type`` always set, ``source_type`` only when classified."""
+    tx = {
+        "id": kw.get("id", 1),
+        "title": kw.get("title", "Paycheck"),
+        "amount": kw.get("amount", 1000.0),
+        "date": "2026-03-10",
+        "category": kw.get("category", "Work"),
+        "account_id": kw.get("account_id", 1),
+        "type": "income",
+    }
+    if "source_type" in kw:
+        tx["source_type"] = kw["source_type"]
+    return tx
+
+
+class TestIncomeEarmarkGuard:
+    def test_roundup_empty_conditions_does_not_fire_on_income(
+        self, db_session, rule_user
+    ):
+        """A roundup rule with NO conditions is match-all; on a paycheck/refund it
+        must NOT siphon money. It records a skip (no money moved) instead."""
+        user, _, goal = rule_user
+        _mk_rule(db_session, user, "roundup", {"nearest": "1"}, goal=goal)
+        execs = RuleEngine(db_session).run_on_transaction(
+            user.id, "income", 1, INCOME_TX(amount=1000.0)
+        )
+        assert len(execs) == 1
+        assert execs[0].amount_cents == 0  # moved nothing
+        assert execs[0].result == "skip_non_expense"
+        db_session.refresh(goal)
+        assert goal.progress == 0
+
+    def test_allocate_empty_conditions_does_not_fire_on_income(
+        self, db_session, rule_user
+    ):
+        user, _, goal = rule_user
+        _mk_rule(db_session, user, "allocate", {"pct": 10}, goal=goal)
+        execs = RuleEngine(db_session).run_on_transaction(
+            user.id, "income", 2, INCOME_TX(id=2, amount=1000.0)
+        )
+        assert len(execs) == 1
+        assert execs[0].amount_cents == 0
+        assert execs[0].result == "skip_non_expense"
+        db_session.refresh(goal)
+        assert goal.progress == 0
+
+    def test_allocate_with_source_type_condition_still_fires_on_income(
+        self, db_session, rule_user
+    ):
+        """W5's Tax-Reserve rule opts in via a ``source_type`` predicate, so it
+        MUST still earmark self-employment income. Must not be blanket-blocked.
+
+        Uses a $50 fixed allocation (≤ the $100 Pillar-2B auto-execute threshold)
+        so the earmark funds immediately rather than surfacing a proposal."""
+        user, _, goal = rule_user
+        _mk_rule(
+            db_session,
+            user,
+            "allocate",
+            {"amount": 50.0},
+            conditions=[
+                {"field": "type", "op": "eq", "value": "income"},
+                {"field": "source_type", "op": "eq", "value": "self_employment"},
+            ],
+            goal=goal,
+        )
+        execs = RuleEngine(db_session).run_on_transaction(
+            user.id,
+            "income",
+            3,
+            INCOME_TX(id=3, amount=1000.0, source_type="self_employment"),
+        )
+        assert len(execs) == 1
+        # The rule fired (not skipped) and earmarked $50 — proves income opt-in.
+        assert execs[0].amount_cents == 5_000
+        assert execs[0].result != "skip_non_expense"
+        db_session.refresh(goal)
+        assert goal.progress == 5_000
+
+    def test_guard_does_not_touch_expense_path(self, db_session, rule_user):
+        """The guard only gates non-expense txns; ordinary expense roundup is
+        unchanged."""
+        user, _, goal = rule_user
+        _mk_rule(db_session, user, "roundup", {"nearest": "1"}, goal=goal)
+        execs = RuleEngine(db_session).run_on_transaction(
+            user.id, "expense", 4, TX(id=4, amount=4.50)
+        )
+        assert execs[0].amount_cents == 50  # fired normally
+
+
+class TestAllocationRounding:
+    def test_pct_uses_bankers_rounding_not_truncation(self, db_session, rule_user):
+        """A5: the pct path rounds (banker's) at the money seam instead of
+        truncating toward zero. 0.5% of $13.33 = 6.665¢ → 6¢ (ties-to-even down),
+        whereas a naive int() of 6.665 would ALSO give 6 — so pick a case where
+        they differ: 1% of $13.50 = 13.5¢ → 14¢ (ties to even), int()=13."""
+        user, _, goal = rule_user
+        _mk_rule(db_session, user, "allocate", {"pct": 1}, goal=goal)
+        execs = RuleEngine(db_session).run_on_transaction(
+            user.id, "expense", 9, TX(id=9, amount=13.50)
+        )
+        # tx_amount_cents = 1350; 1350 * 1 / 100 = 13.5 → round_half_even → 14.
+        assert execs[0].amount_cents == 14
+
     def test_synced_rule_is_idempotent_on_resync(self, db_session, rule_user):
         """Re-syncing the same txn id doesn't double-fire the rule (one row,
         one firing) — relies on the rule_executions unique key + the partial

@@ -238,3 +238,47 @@ def test_forecast_exposes_trough_band_shape(db_session):
     band = out["trough_band"]
     assert band["low"] <= band["median"] <= band["high"]
     assert "lowest_date" in out and "lowest_balance" in out
+
+
+# ── A1: residual pool is chronological + day-grouped ────────────────────────
+
+
+def test_burn_residual_pool_groups_same_day_transactions(db_session):
+    """The bootstrap resample pool (``_burn_residual_pool_cents``) must be a
+    *daily* series, not the per-transaction amount list: multiple non-recurring
+    transactions on the SAME day collapse into one day's total before the
+    ``- burn`` deviation, and the pool has exactly ``window_days`` entries (empty
+    days contribute ``-burn``). Regression for A1 (was fed the unordered amounts
+    list, which defeated the block bootstrap's day-of-week autocorrelation)."""
+    user, acct = _seed_user(db_session, 100_000)
+    window_days = 7
+    as_of = date(2026, 3, 8)  # window = [2026-03-01, 2026-03-08)
+    # Three $10 expenses all on a single in-window day (2026-03-02).
+    for _ in range(3):
+        db_session.add(Expense(title="Coffee", amount=10_00, date="2026-03-02",
+                               category="Food", account_id=acct.id))
+    db_session.flush()
+
+    svc = ForecastService(db_session)
+    burn = 200  # cents/day (arbitrary, for a checkable deviation)
+    pool = svc._burn_residual_pool_cents(user.id, as_of, burn, window_days)
+
+    # One entry per window day — never one per transaction.
+    assert len(pool) == window_days
+    # The 3×$10 collapse to a single 3000-cent day: 3000 - 200 = 2800 appears once.
+    assert pool.count(2800) == 1
+    # Every other (empty) day is -burn.
+    assert pool.count(-burn) == window_days - 1
+
+
+def test_burn_residual_pool_empty_below_min_txns(db_session):
+    """Activity guard preserved: too few non-recurring transactions ⇒ empty pool
+    (the simulation collapses to the deterministic walk)."""
+    user, acct = _seed_user(db_session, 100_000)
+    db_session.add(Expense(title="Coffee", amount=10_00, date="2026-03-02",
+                           category="Food", account_id=acct.id))
+    db_session.flush()
+    pool = ForecastService(db_session)._burn_residual_pool_cents(
+        user.id, date(2026, 3, 8), 200, 7
+    )
+    assert pool == []

@@ -211,3 +211,52 @@ describe("logout resets financial + game state", () => {
     expect(() => resetGameMode()).not.toThrow();
   });
 });
+
+describe("markNotificationRead unreadCount accounting (F4)", () => {
+  afterEach(() => {
+    act(() => {
+      useStore.setState({ notifications: [], unreadCount: 0 });
+    });
+  });
+
+  it("decrements once when an unread notification is marked read", async () => {
+    act(() => {
+      useStore.setState({
+        notifications: [{ id: 1, read: false } as never],
+        unreadCount: 1,
+      });
+    });
+    await act(async () => {
+      await useStore.getState().markNotificationRead(1);
+    });
+    expect(useStore.getState().unreadCount).toBe(0);
+    expect(useStore.getState().notifications[0].read).toBe(true);
+  });
+
+  it("does NOT decrement again when an already-read notification is re-marked", async () => {
+    act(() => {
+      useStore.setState({
+        notifications: [{ id: 1, read: true } as never],
+        unreadCount: 3, // some other unread items exist
+      });
+    });
+    await act(async () => {
+      await useStore.getState().markNotificationRead(1);
+    });
+    // Already read → must not under-count the remaining unread items.
+    expect(useStore.getState().unreadCount).toBe(3);
+  });
+
+  it("does NOT decrement when the id is absent from the local list", async () => {
+    act(() => {
+      useStore.setState({
+        notifications: [{ id: 1, read: false } as never],
+        unreadCount: 2,
+      });
+    });
+    await act(async () => {
+      await useStore.getState().markNotificationRead(999); // not present
+    });
+    expect(useStore.getState().unreadCount).toBe(2);
+  });
+});

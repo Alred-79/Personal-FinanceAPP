@@ -49,7 +49,7 @@ from server.src.db.models import (
     RuleExecution as RuleExecutionORM,
     User as UserORM,
 )
-from server.src.money import cents_to_dollars, dollars_to_cents
+from server.src.money import cents_to_dollars, dollars_to_cents, round_half_even_cents
 from server.src.services.categorization_service import (
     CategorizationService,
     canonicalize_category,
@@ -242,6 +242,22 @@ class RuleEngine:
             self._notify(rule, params, tx)
             return 0, "ok"
 
+        # Money-moving actions must never earmark income (a paycheck/refund)
+        # unless the rule *explicitly* opts in via a type/source_type condition.
+        # ``matches([])`` is match-all, and Plaid sync runs rules on income too,
+        # so a rule with no type predicate would otherwise siphon a paycheck.
+        # W5's Tax-Reserve rule carries a ``source_type`` condition → it opts in.
+        if rule.action_type in ("allocate", "roundup") and tx.get("type") != "expense":
+            conditions = _loads(rule.conditions, [])
+            has_income_intent = any(
+                c.get("field") in ("type", "source_type")
+                for c in conditions
+                if isinstance(c, dict)
+            )
+            if not has_income_intent:
+                # Mirror the roundup "noop" semantics: record the skip, move no money.
+                return 0, "skip_non_expense"
+
         if rule.action_type == "allocate":
             cents = self._allocation_cents(params, tx_amount_cents)
             return self._fund_target(rule, cents)
@@ -265,7 +281,8 @@ class RuleEngine:
             return max(dollars_to_cents(float(params["amount"])), 0)
         if params.get("pct") is not None:
             pct = max(min(float(params["pct"]), 100.0), 0.0)
-            return int(tx_amount_cents * pct / 100)
+            # Banker's rounding at the money seam (not int() truncation toward 0).
+            return round_half_even_cents(tx_amount_cents * pct / 100)
         return 0
 
     def _auto_execute_threshold_cents(self, user_id: int) -> int:
