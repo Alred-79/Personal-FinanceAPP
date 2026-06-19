@@ -160,6 +160,50 @@ def test_scan_requires_auth(client):
     assert resp.status_code == 401
 
 
+# ── E3: receipt scan reserves + refunds an LLM budget unit ───────────────────
+
+
+def test_scan_reserves_one_budget_unit(client, db_session, monkeypatch):
+    """E3: the paid vision scan now reserves one llm_budget unit (it had none)."""
+    from sqlalchemy import text as _text
+
+    headers = _auth_header(client)
+    monkeypatch.setattr(
+        receipt_service, "_default_vision_fn",
+        _fake_vision({"merchant": "Target", "total": 9.0, "date": "2026-05-03",
+                      "category": "Shops", "line_items": []}),
+    )
+    resp = client.post(
+        "/api/receipts/scan/",
+        files={"file": ("r.png", b"\x89PNG fake", "image/png")},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    used = db_session.execute(_text("SELECT MAX(requests) FROM llm_usage")).scalar()
+    assert used == 1
+
+
+def test_failed_scan_refunds_budget_unit(client, db_session, monkeypatch):
+    """A failed vision call refunds its reserved unit (net 0) so a 502 doesn't
+    permanently burn a daily slot."""
+    from sqlalchemy import text as _text
+
+    headers = _auth_header(client, username="rcrefund", email="rcr@example.com")
+
+    def _boom(image_b64, content_type):
+        raise RuntimeError("vision down")
+
+    monkeypatch.setattr(receipt_service, "_default_vision_fn", _boom)
+    resp = client.post(
+        "/api/receipts/scan/",
+        files={"file": ("r.png", b"\x89PNG fake", "image/png")},
+        headers=headers,
+    )
+    assert resp.status_code == 502, resp.text
+    used = db_session.execute(_text("SELECT COALESCE(MAX(requests), 0) FROM llm_usage")).scalar()
+    assert used == 0  # reserved then released
+
+
 def test_default_vision_fn_builds_groq_request(monkeypatch):
     """Smoke test the real Groq wiring with the SDK mocked: it must use the
     configured model, JSON mode, and pass the image as a base64 data URL."""

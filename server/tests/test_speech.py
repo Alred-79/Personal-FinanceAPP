@@ -175,3 +175,47 @@ def test_speech_service_trims_and_tolerates_object_response(monkeypatch):
 
     monkeypatch.setattr("groq.Groq", _FakeGroq)
     assert speech_service._default_transcribe_fn(b"x", "audio/mp4") == "obj text"
+
+
+# ── E3: transcription reserves + refunds an LLM budget unit ──────────────────
+
+
+def test_transcribe_reserves_one_budget_unit(client, db_session, monkeypatch):
+    """E3: the paid Whisper call now reserves one llm_budget unit (it had none —
+    only its rate limit)."""
+    from sqlalchemy import text as _text
+
+    headers = _auth_header(client, username="strsv", email="strsv@example.com")
+    monkeypatch.setattr(
+        speech_service, "_default_transcribe_fn", _fake_transcribe("hi there")
+    )
+    resp = client.post(
+        "/api/assistant/transcribe/",
+        files={"file": ("s.webm", b"fake-audio", "audio/webm")},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    used = db_session.execute(_text("SELECT MAX(requests) FROM llm_usage")).scalar()
+    assert used == 1
+
+
+def test_failed_transcribe_refunds_budget_unit(client, db_session, monkeypatch):
+    """A failed STT call refunds its reserved unit (net 0)."""
+    from sqlalchemy import text as _text
+
+    headers = _auth_header(client, username="strfd", email="strfd@example.com")
+
+    def _boom(audio_bytes, content_type):
+        raise RuntimeError("whisper down")
+
+    monkeypatch.setattr(speech_service, "_default_transcribe_fn", _boom)
+    resp = client.post(
+        "/api/assistant/transcribe/",
+        files={"file": ("s.webm", b"fake-audio", "audio/webm")},
+        headers=headers,
+    )
+    assert resp.status_code == 502, resp.text
+    used = db_session.execute(
+        _text("SELECT COALESCE(MAX(requests), 0) FROM llm_usage")
+    ).scalar()
+    assert used == 0

@@ -82,6 +82,42 @@ class RawRow:
     amount: Optional[float]  # signed dollars
     date: Optional[str]
     running_balance: Optional[float] = None
+    # E2: the model emitted an amount that was present but rejected (non-finite or
+    # beyond the ±1e12 money bound). Distinguished from a simply-missing amount so
+    # the normalized exception row can say WHY ("out_of_range" vs "missing_field").
+    amount_out_of_range: bool = False
+
+
+# E2: hard cap on rows ingested from one document, so a pathological/huge
+# extraction can't blow up the session. Excess rows are dropped with a truthful
+# ``truncated`` count surfaced to the user (never a silent drop).
+MAX_EXTRACTION_ROWS = 2000
+
+
+def _is_out_of_range(raw_amount) -> bool:
+    """True when a present amount parses to a real number that is non-finite or
+    beyond the money bound — i.e. ``parse_amount`` rejected it for magnitude, not
+    because it was missing/unreadable. Used to label the exception row's reason.
+
+    Reuses ``parse_amount``'s own cleaning by re-checking the numeric value the
+    same way, but only to DISTINGUISH the two None cases — it never produces the
+    stored amount."""
+    import math as _math
+    import re as _re_local
+
+    if raw_amount is None or isinstance(raw_amount, bool):
+        return False
+    if isinstance(raw_amount, (int, float)):
+        v = float(raw_amount)
+    else:
+        cleaned = _re_local.sub(r"[^0-9.\-]", "", str(raw_amount))
+        if not cleaned or cleaned in {"-", ".", "-."}:
+            return False
+        try:
+            v = float(cleaned)
+        except ValueError:
+            return False
+    return not _math.isfinite(v) or abs(v) > 1_000_000_000_000
 
 
 @dataclass
@@ -92,6 +128,7 @@ class StatementExtraction:
     closing_balance: Optional[float] = None
     period: Optional[str] = None
     rows: list[RawRow] = field(default_factory=list)
+    truncated: int = 0  # rows dropped past MAX_EXTRACTION_ROWS (E2)
 
 
 # ── Normalized row (cents) ──────────────────────────────────────────────────
@@ -256,15 +293,27 @@ class ReconciliationService:
         if not isinstance(raw, dict):
             raw = {}
         rows: list[RawRow] = []
-        for item in raw.get("transactions") or []:
+        truncated = 0
+        items = raw.get("transactions") or []
+        for item in items:
             if not isinstance(item, dict):
                 continue
+            # E2: stop at the row cap; count (don't silently drop) the rest.
+            if len(rows) >= MAX_EXTRACTION_ROWS:
+                truncated += 1
+                continue
+            raw_amount = item.get("amount")
+            amount = parse_amount(raw_amount)
+            # An amount that PARSED to a real number but was rejected for magnitude
+            # (huge / non-finite) is flagged so its exception row reads
+            # "out_of_range" — distinct from a simply-missing/unreadable amount.
             rows.append(
                 RawRow(
                     description=item.get("description"),
-                    amount=parse_amount(item.get("amount")),
+                    amount=amount,
                     date=parse_date(item.get("date")),
                     running_balance=parse_amount(item.get("running_balance")),
+                    amount_out_of_range=(amount is None and _is_out_of_range(raw_amount)),
                 )
             )
         return StatementExtraction(
@@ -272,6 +321,7 @@ class ReconciliationService:
             closing_balance=parse_amount(raw.get("closing_balance")),
             period=(str(raw.get("period")).strip() if raw.get("period") else None),
             rows=rows,
+            truncated=truncated,
         )
 
     # ── (b) normalize → cents ────────────────────────────────────────────
@@ -281,15 +331,18 @@ class ReconciliationService:
         for raw in statement.rows:
             title = (raw.description or "").strip()
             # A row missing an amount or date can't be trusted into the sum — it
-            # surfaces as an exception rather than importing a guessed value.
+            # surfaces as an exception rather than importing a guessed value. An
+            # amount rejected for magnitude (E2) is called out distinctly so the
+            # user sees WHY it didn't import (out_of_range vs simply missing).
             if raw.amount is None or raw.date is None or not title:
+                reason = "out_of_range" if raw.amount_out_of_range else "missing_field"
                 out.append(
                     NormRow(
                         title=title or "(unreadable)",
                         amount_cents=dollars_to_cents(raw.amount) if raw.amount is not None else 0,
                         date=raw.date,
                         status="exception",
-                        reason="missing_field",
+                        reason=reason,
                         merchant_key=normalize_merchant(title),
                     )
                 )
@@ -501,6 +554,23 @@ class ReconciliationService:
                     # start excluded so the user opts them in deliberately.
                     included=0 if r.status in ("exception", "duplicate") else 1,
                     match_ref=r.match_ref,
+                )
+            )
+        # E2: if the document exceeded the row cap, surface a truthful, excluded
+        # marker row so the user SEES that N rows were omitted (never a silent
+        # drop). Reuses the existing exception-row UI; carries no money.
+        if statement.truncated > 0:
+            self.db.add(
+                ImportRowORM(
+                    session_id=session.id,
+                    title=f"({statement.truncated} more rows omitted — document too large)",
+                    amount=0,
+                    date="",
+                    category="Other",
+                    merchant_key="",
+                    status="exception",
+                    reason="truncated",
+                    included=0,
                 )
             )
         self.db.flush()

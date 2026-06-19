@@ -129,10 +129,10 @@ async def clear_history(
 # ---------------------------------------------------------------------------
 # Turns an uploaded mic clip into text that pre-fills the chat box for the user
 # to review before sending. Validation mirrors /receipts/scan/ exactly (auth +
-# content-type + size, bytes held in memory only, never persisted). This makes
-# NO LLM/agent call — transcription is the whole job — so it needs no
-# ``llm_budget`` reservation; its own rate limit is the cost ceiling. Same Step-02
-# callable-limit gotcha as /chat/ (slowapi freezes a bare string at decoration).
+# content-type + size, bytes held in memory only, never persisted). Transcription
+# is a PAID Groq Whisper call, so it reserves one ``llm_budget`` unit (E3 —
+# previously it relied on its rate limit alone, leaving STT cost uncounted). Same
+# Step-02 callable-limit gotcha as /chat/ (slowapi freezes a bare string at decoration).
 @router.post("/transcribe/")
 @limiter.limit(lambda: settings.assistant_stt_rate_limit)
 async def transcribe(
@@ -141,6 +141,7 @@ async def transcribe(
         UserInDB, Depends(AuthService.get_current_active_user)
     ],
     file: UploadFile = File(...),
+    db: Session = Depends(get_db),
 ):
     content_type = (file.content_type or "").lower()
     # Some browsers append codec params, e.g. "audio/webm;codecs=opus".
@@ -169,11 +170,18 @@ async def transcribe(
             detail="Audio too large. Maximum clip size is 25 MB.",
         )
 
+    # E3: reserve one budget unit before the paid Whisper call; refund on failure.
+    try:
+        llm_budget.check_and_reserve(db, current_user.id, requests=1)
+    except llm_budget.BudgetExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+
     try:
         text = SpeechService().transcribe(data, base_type)
     except Exception:
         # STT/network errors must never leak internals; fail gracefully so the
         # user falls back to typing.
+        llm_budget.release_request(db, current_user.id)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not transcribe the audio. Please type your message.",

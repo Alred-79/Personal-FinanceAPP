@@ -128,11 +128,13 @@ def _run_extract(
     document and dispatches to the right extractor (statement → reconciliation,
     feed/unknown → balance-less reconciliation, receipt → single-row session).
     """
-    # Reserve budget before the paid model call(s). ImportService makes a classify
-    # call plus an extract call; both are bounded by the same per-request unit
-    # here and the endpoint rate limit. If ingest fails before paid work, refund.
+    # Reserve budget before the paid model call(s). ImportService makes TWO paid
+    # Groq calls — a classify call plus an extract call — so reserve 2 requests
+    # (E3: it previously reserved 1, under-counting by half). Both are bounded by
+    # this reservation and the endpoint rate limit. Refund both if ingest fails
+    # before/anywhere in the paid work.
     try:
-        llm_budget.check_and_reserve(db, user_id, requests=1)
+        llm_budget.check_and_reserve(db, user_id, requests=2)
     except llm_budget.BudgetExceeded as exc:
         raise HTTPException(status_code=429, detail=str(exc))
 
@@ -146,17 +148,17 @@ def _run_extract(
         )
     except TaxFormDetected as exc:
         # A tax form was dropped on the statement door: redirect to the tax-doc
-        # upload (stricter PII). Refund the reserved unit — no rows were written.
-        llm_budget.release_request(db, user_id)
+        # upload (stricter PII). Refund the reserved units — no rows were written.
+        llm_budget.release_request(db, user_id, requests=2)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         )
     except ValueError as exc:
-        llm_budget.release_request(db, user_id)
+        llm_budget.release_request(db, user_id, requests=2)
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
         # Model/network failure: give the reserved budget back and fail gracefully.
-        llm_budget.release_request(db, user_id)
+        llm_budget.release_request(db, user_id, requests=2)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not read the document. Please try a clearer file or paste the text.",

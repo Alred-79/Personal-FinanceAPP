@@ -380,9 +380,9 @@ class Settings(BaseSettings):
     # behind a trusted proxy, not the proxy IP). Like ``_rate_limiter`` it is a
     # module-level, in-memory, per-process singleton — it does NOT coordinate
     # across workers/hosts and resets on restart (single-worker invariant,
-    # shared with Steps 02/09). Disabled by default to keep existing behaviour;
-    # enable in deployment.
-    mcp_preauth_rate_limit_enabled: bool = False
+    # shared with Steps 02/09). Default ON (E4): it sheds a bad-key flood before
+    # the DB lookup, and only affects deployments with mcp_enabled=true anyway.
+    mcp_preauth_rate_limit_enabled: bool = True
     mcp_preauth_ip_rate_limit: str = "60/minute"
 
     # --- MCP credential store ---

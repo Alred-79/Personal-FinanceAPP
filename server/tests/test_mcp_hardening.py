@@ -308,11 +308,16 @@ class TestPreauthThrottle:
                 assert hdrs.get("retry-after") == "60"
                 break
 
-    def test_preauth_throttle_disabled_by_default(self, db_session, monkeypatch):
-        """With the pre-auth throttle off (default), a flood is not IP-limited
-        at the pre-auth layer (only the per-key layer applies)."""
-        # Default is False; assert it.
-        assert settings.mcp_preauth_rate_limit_enabled is False
+    def test_preauth_throttle_default_is_on(self):
+        """E4: the pre-auth IP throttle now defaults ON (sheds a bad-key flood
+        before the DB lookup). Only affects mcp_enabled=true deployments."""
+        assert settings.mcp_preauth_rate_limit_enabled is True
+
+    def test_preauth_throttle_off_path(self, db_session, monkeypatch):
+        """With the pre-auth throttle explicitly OFF, a flood is not IP-limited at
+        the pre-auth layer (only the per-key layer applies) — the prior default
+        behavior, kept under coverage."""
+        monkeypatch.setattr(settings, "mcp_preauth_rate_limit_enabled", False)
         user = _user(db_session, uid=1)
         raw, _ = MCPKeyService.create(db_session, user.id, "k", ["read:accounts"])
         db_session.commit()

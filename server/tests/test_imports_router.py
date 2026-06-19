@@ -155,6 +155,30 @@ def test_patch_row_reclears_exception_and_rebalances(client, monkeypatch):
     assert patched.json()["balance_check"]["reconciled"] is True
 
 
+def test_extract_reserves_two_budget_units(client, db_session, monkeypatch):
+    """E3: import_extract makes TWO paid Groq calls (classify + extract), so it
+    must reserve requests=2 — not 1 (the prior under-count). Asserted against the
+    persisted llm_usage row after a successful extract."""
+    from sqlalchemy import text as _text
+
+    headers = _auth_header(client)
+    account_id = _create_account(client, headers)
+    _patch_vision(monkeypatch, CLEAN)
+
+    resp = client.post(
+        "/api/imports/extract/",
+        data={"account_id": str(account_id)},
+        files={"file": ("statement.png", b"\x89PNG fake", "image/png")},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    used = db_session.execute(
+        _text("SELECT MAX(requests) FROM llm_usage")
+    ).scalar()
+    assert used == 2  # classify + extract, not 1
+
+
 def test_extract_requires_auth(client):
     resp = client.post(
         "/api/imports/extract/",

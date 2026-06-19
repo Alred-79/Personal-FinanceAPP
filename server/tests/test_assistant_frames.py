@@ -344,3 +344,64 @@ def test_all_write_tools_are_registered_for_frames():
         "add_goal",
         "recategorize_transaction",
     }
+
+
+# ── E1: cumulative-window firewall on the streamed path ─────────────────────
+
+
+def _token_texts(frames):
+    """All ``token`` frame payloads (the streamed assistant text), in order."""
+    out = []
+    for f in frames:
+        if f.startswith("event: token\n"):
+            out.append(json.loads(f.split("data: ", 1)[1]))
+    return out
+
+
+@pytest.mark.asyncio
+async def test_firewall_blocks_advice_split_across_sentences(monkeypatch, db_session, _engine):
+    """E1: advice split across a newline so NEITHER chunk trips alone — "You could
+    invest\\n" (clean) then "in an index fund." (clean) — but the combined matches
+    ``invest in``. The cumulative trailing-window screen on the streamed path
+    catches it; the per-sentence-only screen missed it (asserted below)."""
+    # Sanity: each half is individually clean (so this is a true split).
+    from server.src.services.game.firewall import screen_output
+    assert not screen_output("You could invest\n", plain=True).blocked
+    assert not screen_output("in an index fund.", plain=True).blocked
+
+    monkeypatch.setattr(svc_mod.settings, "assistant_firewall_enabled", True)
+    _bind_session(monkeypatch, _engine)
+    user, _ = _user(db_session)
+
+    events = [
+        {"event": "on_chat_model_start", "name": "ChatGroq", "data": {}},
+        _model_stream("You could invest\n"),
+        _model_stream("in an index fund."),
+    ]
+    frames = await _drive_chat_with_read_events(user, events)
+
+    joined = " ".join(_token_texts(frames))
+    # The cumulative window caught the cross-newline advice before the 2nd half
+    # was emitted, so the firewall redirect appears and "index fund" never ships.
+    assert "can't give financial advice" in joined
+    assert "index fund" not in joined.lower()
+
+
+@pytest.mark.asyncio
+async def test_firewall_lets_neutral_summary_stream(monkeypatch, db_session, _engine):
+    """A legitimate, neutral multi-sentence summary still streams through the
+    cumulative-window firewall unblocked (no false positive)."""
+    monkeypatch.setattr(svc_mod.settings, "assistant_firewall_enabled", True)
+    _bind_session(monkeypatch, _engine)
+    user, _ = _user(db_session)
+
+    events = [
+        {"event": "on_chat_model_start", "name": "ChatGroq", "data": {}},
+        _model_stream("You spent $312 on groceries last month.\n"),
+        _model_stream("Your Checking balance is $1,204."),
+    ]
+    frames = await _drive_chat_with_read_events(user, events)
+
+    joined = " ".join(_token_texts(frames))
+    assert "can't give financial advice" not in joined
+    assert "groceries" in joined and "1,204" in joined

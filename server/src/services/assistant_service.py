@@ -136,6 +136,19 @@ def _sse(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
+def _trailing_sentences(text: str, n: int) -> str:
+    """The last ``n`` sentence-ish chunks of ``text`` — the firewall's cumulative
+    window (E1). Splits on sentence terminators so a cross-boundary advice phrase
+    is re-screened with enough preceding context, while bounding the screened
+    length (cost). Approximate by design; the per-sentence + final full-text
+    screens are the backstops.
+    """
+    if not text:
+        return ""
+    parts = [p for p in _re.split(r"(?<=[.!?\n])\s+", text) if p]
+    return " ".join(parts[-n:])
+
+
 def _proposal_frame(event: Any) -> str | None:
     """Build a ``proposal`` SSE frame from any finished write-tool event.
 
@@ -2974,6 +2987,17 @@ class AssistantService:
         # without the firewall to survive).
         tax_soften = firewall_on and settings.tax_features_enabled
         buffer = ""
+        # E1 — cumulative firewall window. Screening one sentence at a time misses
+        # advice split across a sentence boundary ("I think you should.\nPut it all
+        # into stocks." — neither half trips alone, the pair does). So before
+        # emitting each sentence we re-screen a trailing window of already-emitted
+        # text + the new sentence, and screen the full assembled output once before
+        # ``done``. ``screened_text`` is everything we've emitted; the window is its
+        # last few sentences (bounds cost). NOTE: a sentence already yielded is on
+        # the wire — the trailing window + final full-text screen are the pragmatic
+        # mitigation; a hard guarantee needs buffer-all-then-screen.
+        screened_text = ""
+        _FIREWALL_WINDOW_SENTENCES = 4
         # W2 — "Cite sources" (verifiable AI). Accumulate the transaction rows the
         # read tools returned THIS turn so we can emit a single ``sources`` frame at
         # turn end ("based on these N transactions"). The rows are already
@@ -3070,7 +3094,16 @@ class AssistantService:
                         # (the firewall below still blocks "you should claim…").
                         if tax_soften:
                             sentence = soften_tax_narration(sentence)
-                        verdict = screen_output(sentence, plain=True)
+                        # Screen the new sentence in the context of a trailing
+                        # window of what we've already emitted, so advice split
+                        # across the boundary is caught (E1), not just advice that
+                        # trips within a single sentence.
+                        window = _trailing_sentences(
+                            screened_text, _FIREWALL_WINDOW_SENTENCES
+                        )
+                        verdict = screen_output(
+                            (window + " " + sentence).strip(), plain=True
+                        )
                         if verdict.blocked:
                             yield _sse("token", verdict.safe_text)
                             # The answer was blocked, but the figures it WOULD have
@@ -3081,13 +3114,22 @@ class AssistantService:
                                 yield src
                             yield _sse("done", {})
                             return
+                        screened_text += sentence
                         yield _sse("token", sentence)
-            # Flush + screen any trailing partial sentence.
+            # Flush + screen any trailing partial sentence (in the cumulative
+            # window too, so a split that ends mid-sentence is still caught).
             if firewall_on and buffer:
                 if tax_soften:
                     buffer = soften_tax_narration(buffer)
-                verdict = screen_output(buffer, plain=True)
-                yield _sse("token", verdict.safe_text if verdict.blocked else buffer)
+                window = _trailing_sentences(
+                    screened_text, _FIREWALL_WINDOW_SENTENCES
+                )
+                verdict = screen_output((window + " " + buffer).strip(), plain=True)
+                if verdict.blocked:
+                    yield _sse("token", verdict.safe_text)
+                else:
+                    screened_text += buffer
+                    yield _sse("token", buffer)
             # W2 — emit the turn's cited sources just before ``done``. Returns None
             # (no frame) when no read tool ran this turn — the pure-chat no-op.
             src = _sources_frame(sources_acc, sources_meta)

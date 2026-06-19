@@ -161,3 +161,69 @@ def test_foreign_account_rejected(db_session):
         assert False, "expected ValueError"
     except ValueError:
         pass
+
+
+# ── E2: amount bounds + row cap ──────────────────────────────────────────────
+
+
+def test_out_of_range_amount_becomes_exception_row(db_session):
+    """An extracted amount beyond the ±1e12 money bound (or non-finite) is NOT
+    imported as a silent 0 — it surfaces as an excluded exception row tagged
+    reason='out_of_range', distinct from a simply-missing amount."""
+    u = _user(db_session)
+    a = _account(db_session, u.id)
+    statement = {
+        "opening_balance": None,
+        "closing_balance": None,
+        "transactions": [
+            {"date": "2026-03-01", "description": "Sane", "amount": -12.50},
+            {"date": "2026-03-02", "description": "Absurd", "amount": 1e308},
+            {"date": "2026-03-03", "description": "TooBig", "amount": 5_000_000_000_000},
+        ],
+    }
+    svc = _svc(db_session, "feed", statement)
+    session, _ = svc.ingest_any(
+        user_id=u.id, account_id=a.id, raw_bytes=b"img", content_type="image/png"
+    )
+    rows = db_session.execute(
+        select(ImportRowORM).where(ImportRowORM.session_id == session.id)
+    ).scalars().all()
+    by_title = {r.title: r for r in rows}
+    assert by_title["Sane"].status != "exception"  # the normal row imports
+    for bad in ("Absurd", "TooBig"):
+        assert by_title[bad].status == "exception"
+        assert by_title[bad].reason == "out_of_range"
+        assert by_title[bad].included == 0  # never auto-included
+        assert by_title[bad].amount == 0  # not an invented figure
+
+
+def test_over_cap_document_is_truncated_with_flag(db_session):
+    """A document exceeding the row cap is truncated — a truthful excluded marker
+    row surfaces the omitted count rather than silently dropping or OOM-ing."""
+    from server.src.services.reconciliation_service import MAX_EXTRACTION_ROWS
+
+    u = _user(db_session)
+    a = _account(db_session, u.id)
+    n = MAX_EXTRACTION_ROWS + 5
+    statement = {
+        "opening_balance": None,
+        "closing_balance": None,
+        "transactions": [
+            {"date": "2026-03-01", "description": f"r{i}", "amount": -1.0}
+            for i in range(n)
+        ],
+    }
+    svc = _svc(db_session, "feed", statement)
+    session, _ = svc.ingest_any(
+        user_id=u.id, account_id=a.id, raw_bytes=b"img", content_type="image/png"
+    )
+    rows = db_session.execute(
+        select(ImportRowORM).where(ImportRowORM.session_id == session.id)
+    ).scalars().all()
+    truncation_markers = [r for r in rows if r.reason == "truncated"]
+    assert len(truncation_markers) == 1
+    assert "5 more rows omitted" in truncation_markers[0].title
+    assert truncation_markers[0].included == 0
+    # The real rows are capped (cap data rows + the 1 marker).
+    data_rows = [r for r in rows if r.reason != "truncated"]
+    assert len(data_rows) == MAX_EXTRACTION_ROWS

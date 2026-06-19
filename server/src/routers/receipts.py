@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from server.src.db.session import get_db
 from server.src.models import ReceiptDraft, UserInDB
 from server.src.limiter import limiter
+from server.src.services import llm_budget
 from server.src.services.auth_service import AuthService
 from server.src.services.categorization_service import CategorizationService
 from server.src.services.receipt_service import (
@@ -64,10 +65,21 @@ async def scan_receipt(
             detail="File too large. Maximum receipt size is 5 MB.",
         )
 
+    # E3: reserve one budget unit before the paid vision call (this endpoint had
+    # none — only its rate limit). Refund on failure so a failed scan doesn't burn
+    # budget. Reservation lives in the ROUTER only: the import path calls
+    # ReceiptService.extract directly, so keeping it out of the service avoids
+    # double-counting when import reuses the receipt extractor.
+    try:
+        llm_budget.check_and_reserve(db, current_user.id, requests=1)
+    except llm_budget.BudgetExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+
     try:
         draft = ReceiptService().extract(data, content_type)
     except Exception:
         # Vision/network errors must never leak internals; fail gracefully.
+        llm_budget.release_request(db, current_user.id)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not read the receipt. Please enter the transaction manually.",
