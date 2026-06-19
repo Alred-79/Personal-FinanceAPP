@@ -367,3 +367,103 @@ def test_tiktoken_fallback_records_cost_when_no_usage(
     # With high prices and a real output, the fallback records a positive cost.
     assert (_usage_cost(session_factory, uid) or 0) > 0
     assistant_router.assistant_service.agents.pop(uid, None)
+
+
+def test_per_iteration_fallback_prices_every_subrun(
+    client, db_session, _engine, monkeypatch
+):
+    """L2: when sub-runs end WITHOUT usage_metadata, each one's output is priced
+    via tiktoken — so two tool-call iterations cost ~2x one iteration, not just the
+    final streamed text."""
+    monkeypatch.setattr(settings, "llm_daily_request_budget", 5)
+    monkeypatch.setattr(settings, "llm_daily_cost_budget_cents", 100_000)
+    monkeypatch.setattr(settings, "groq_input_price_cents_per_mtok", 1)
+    monkeypatch.setattr(settings, "groq_output_price_cents_per_mtok", 1_000_000)
+    h = _signup(client)
+    uid = _user_id(db_session)
+    session_factory = _bind_generator_session_to_test_engine(monkeypatch, _engine)
+
+    from types import SimpleNamespace
+
+    def _make_executor(n_iters):
+        executor = MagicMock()
+
+        async def _events(*args, **kwargs):
+            yield {"event": "on_chat_model_start", "name": "ChatGroq", "data": {}}
+            for _ in range(n_iters):
+                # End event with NO usage → per-sub-run tiktoken fallback.
+                yield {
+                    "event": "on_chat_model_end",
+                    "name": "ChatGroq",
+                    "data": {"output": SimpleNamespace(content="word " * 50)},
+                }
+
+        executor.astream_events = _events
+        return executor
+
+    # One iteration.
+    assistant_router.assistant_service.agents[uid] = _make_executor(1)
+    assert client.post("/api/assistant/chat/?message=hi", headers=h).status_code == 200
+    cost_one = _usage_cost(session_factory, uid) or 0
+
+    # Reset the day's usage, then two iterations of the same output.
+    from sqlalchemy import text as _text
+    s = session_factory()
+    s.execute(_text("UPDATE llm_usage SET cost_cents = 0 WHERE user_id = :u"), {"u": uid})
+    s.commit(); s.close()
+
+    assistant_router.assistant_service.agents[uid] = _make_executor(2)
+    assert client.post("/api/assistant/chat/?message=hi", headers=h).status_code == 200
+    cost_two = _usage_cost(session_factory, uid) or 0
+
+    assert cost_one > 0
+    # Two usage-less sub-runs are priced ~double one (the old code counted only the
+    # final streamed text and would have charged the same regardless of iterations).
+    assert cost_two > cost_one * 1.5
+    assistant_router.assistant_service.agents.pop(uid, None)
+
+
+def test_meter_reconcile_failure_emits_alert(
+    client, db_session, _engine, monkeypatch, caplog
+):
+    """L2: a reconciliation failure logs an ALERT-level line (not just a warning)
+    so a persistently broken meter is visible to monitoring."""
+    import logging
+
+    monkeypatch.setattr(settings, "llm_daily_request_budget", 5)
+    monkeypatch.setattr(settings, "llm_daily_cost_budget_cents", 1000)
+    h = _signup(client)
+    uid = _user_id(db_session)
+    _bind_generator_session_to_test_engine(monkeypatch, _engine)
+
+    from types import SimpleNamespace
+
+    executor = MagicMock()
+
+    async def _events(*args, **kwargs):
+        yield {"event": "on_chat_model_start", "name": "ChatGroq", "data": {}}
+        yield {
+            "event": "on_chat_model_end",
+            "name": "ChatGroq",
+            "data": {"output": SimpleNamespace(
+                usage_metadata={"input_tokens": 1, "output_tokens": 1}
+            )},
+        }
+
+    executor.astream_events = _events
+    assistant_router.assistant_service.agents[uid] = executor
+
+    # Force the reconcile write to raise so the alert branch runs.
+    monkeypatch.setattr(
+        llm_budget, "record_cost",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("meter down")),
+    )
+
+    with caplog.at_level(logging.ERROR):
+        resp = client.post("/api/assistant/chat/?message=hi", headers=h)
+    assert resp.status_code == 200  # the stream still completes for the user
+    assert any(
+        "llm_meter_reconcile_failed" in r.message and r.levelno >= logging.ERROR
+        for r in caplog.records
+    )
+    assistant_router.assistant_service.agents.pop(uid, None)

@@ -46,3 +46,20 @@ def test_estimate_cost_is_conservative():
     # The pre-flight estimate prices the prompt + a generous output assumption,
     # so it should be a positive reservation, not zero.
     assert token_meter.estimate_cost_cents("how much did I spend on coffee?") > 0
+
+
+def test_message_text_handles_str_list_and_none():
+    """L2 — fallback per-sub-run output counting needs the message's text."""
+    assert token_meter.message_text(SimpleNamespace(content="hello")) == "hello"
+    assert token_meter.message_text(None) == ""
+    # list-of-parts content (concatenate text parts, ignore non-text)
+    parts_msg = SimpleNamespace(
+        content=[{"type": "text", "text": "abc"}, {"type": "image"}, "def"]
+    )
+    assert token_meter.message_text(parts_msg) == "abcdef"
+    # a bare string is returned as-is
+    assert token_meter.message_text("plain") == "plain"
+    # countable output for a usage-less sub-run
+    assert token_meter.count_tokens(
+        token_meter.message_text(SimpleNamespace(content="some output text"))
+    ) > 0

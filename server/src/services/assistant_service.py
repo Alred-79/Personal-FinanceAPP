@@ -2965,20 +2965,25 @@ class AssistantService:
         # Track whether the model was actually invoked, so a stream that errors
         # BEFORE any model call can release its pre-flight-reserved request (no
         # paid work happened). ``tokens_used`` stays None on the streaming path —
-        # astream_events v2 surfaces no usage metadata in the installed version —
-        # so token reconciliation is a no-op and the REQUEST cap is the real one.
-        model_called = False
-        tokens_used: int | None = None
         # Cost metering (A3 — real $ cap). We accumulate ACTUAL token usage from
         # each ``on_chat_model_end`` event's ``usage_metadata`` (langchain_groq
-        # maps Groq's returned token_usage onto it). If a run carries no usage,
-        # we fall back to a tiktoken count over the streamed output (+ the prompt
-        # message). The total is priced to cents and reconciled against the
-        # pre-flight reservation in the finally block.
+        # maps Groq's returned token_usage onto it when the installed provider
+        # supplies it). The agent may make SEVERAL model sub-runs (tool-call
+        # iterations); each contributes its own usage, summed below.
+        #
+        # L2 — per-iteration fallback: when a sub-run carries no usage_metadata we
+        # tiktoken-count THAT sub-run's output at the moment it ends (into
+        # ``fallback_out_tokens``), so multi-iteration tool calls are priced on all
+        # their output, not just the final streamed text. Only if NO sub-run ended
+        # observably do we fall back to the streamed char heuristic.
+        model_called = False
+        tokens_used: int | None = None
         output_chars = 0
         usage_in_tokens = 0
         usage_out_tokens = 0
         have_real_usage = False
+        fallback_out_tokens = 0
+        fallback_runs = 0  # sub-runs that ended without provider usage
         # Advice firewall (P0 — safety): screen the model's OWN output for
         # unlicensed advice / shame / neediness. The firewall works on complete
         # text, so we buffer the stream and flush SCREENED text at sentence
@@ -3029,6 +3034,15 @@ class AssistantService:
                         usage_in_tokens += usage[0]
                         usage_out_tokens += usage[1]
                         have_real_usage = True
+                    else:
+                        # L2 — this sub-run reported no usage: price its output now
+                        # with tiktoken so an intermediate tool-call iteration isn't
+                        # left unpriced (the old fallback counted only the final
+                        # streamed text).
+                        fallback_out_tokens += token_meter.count_tokens(
+                            token_meter.message_text(out_msg)
+                        )
+                        fallback_runs += 1
                 if kind == "on_tool_start":
                     tool_name = event.get("name", "")
                     template = self.actions.get(tool_name, "")
@@ -3185,17 +3199,20 @@ class AssistantService:
                     )
                 else:
                     # Reconcile cost to ACTUAL: real Groq usage when present, else
-                    # a tiktoken count over the streamed output + the prompt. The
-                    # delta against the pre-flight reservation is applied (refund
-                    # over-estimates, top up under-estimates).
+                    # a tiktoken count. The delta against the pre-flight reservation
+                    # is applied (refund over-estimates, top up under-estimates).
                     if have_real_usage:
                         in_tok, out_tok = usage_in_tokens, usage_out_tokens
                     else:
-                        # No provider usage: count the prompt with tiktoken and
-                        # approximate output tokens from the streamed char count
-                        # (we don't retain the full output text). ~4 chars/token.
+                        # No provider usage. Count the prompt with tiktoken; for
+                        # output prefer the per-sub-run fallback total (covers every
+                        # tool-call iteration), falling back to the streamed char
+                        # heuristic only if no sub-run end was observed.
                         in_tok = token_meter.count_tokens(message)
-                        out_tok = max(1, output_chars // 4)
+                        if fallback_runs:
+                            out_tok = max(1, fallback_out_tokens)
+                        else:
+                            out_tok = max(1, output_chars // 4)
                     tokens_used = in_tok + out_tok
                     actual_cost = token_meter.cost_cents(in_tok, out_tok)
                     llm_budget.record_cost(
@@ -3208,12 +3225,16 @@ class AssistantService:
             except Exception:
                 # Reconciliation is best-effort: on failure the conservative
                 # pre-flight estimate stands (never under-charges), so this is the
-                # safe direction — but log it so a persistent meter problem is not
-                # invisible (review fix #7).
+                # safe direction. But a PERSISTENT failure silently disables the $
+                # cap's actual-cost reconciliation, so emit an ALERT-level signal
+                # (not just a warning) so monitoring can catch a broken meter —
+                # L2: alert-on-meter-failure.
                 db2.rollback()
-                log.warning(
-                    "LLM cost reconciliation failed for user %s; pre-flight "
-                    "estimate stands.", user.id, exc_info=True,
+                log.error(
+                    "ALERT llm_meter_reconcile_failed user=%s: LLM cost "
+                    "reconciliation failed; pre-flight estimate stands. A "
+                    "persistent failure disables actual-cost metering.",
+                    user.id, exc_info=True,
                 )
             finally:
                 db2.close()

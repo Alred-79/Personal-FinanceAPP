@@ -68,6 +68,29 @@ def usage_from_message(message: Any) -> Optional[tuple[int, int]]:
     return None
 
 
+def message_text(message: Any) -> str:
+    """Best-effort plain text of a model output message, for tiktoken fallback
+    counting of a sub-run that returned no ``usage_metadata``.
+
+    Handles a str ``content``, a list-of-parts content (concatenating the text
+    parts), and a bare string. Returns "" when nothing textual is present.
+    """
+    if message is None:
+        return ""
+    content = getattr(message, "content", message)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for p in content:
+            if isinstance(p, str):
+                parts.append(p)
+            elif isinstance(p, dict) and isinstance(p.get("text"), str):
+                parts.append(p["text"])
+        return "".join(parts)
+    return ""
+
+
 def cost_cents(input_tokens: int, output_tokens: int) -> int:
     """Price tokens into cents, rounding UP so the cap is never under-charged."""
     in_cents = (input_tokens * settings.groq_input_price_cents_per_mtok) / 1_000_000
