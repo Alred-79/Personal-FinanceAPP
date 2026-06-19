@@ -999,7 +999,9 @@ class TestDecryptFailureRelink:
             plaid_crypto.settings, "plaid_token_key",
             Fernet.generate_key().decode(), raising=False,
         )
-        plaid_crypto._fernet.cache_clear()
+        # L6: clear ALL key caches (active fernet + keyid + decrypt map), else the
+        # stale map still holds the original key and the v2 ciphertext decrypts.
+        plaid_crypto.reset_key_cache()
 
         mock_plaid = MagicMock()
         MockPDB.return_value = mock_plaid
@@ -1007,7 +1009,7 @@ class TestDecryptFailureRelink:
         try:
             PlaidService(db_session).sync_all_tokens(seed_user)
         finally:
-            plaid_crypto._fernet.cache_clear()  # don't leak the swapped key
+            plaid_crypto.reset_key_cache()  # don't leak the swapped key
         db_session.flush()
 
         notes = db_session.execute(
@@ -1032,12 +1034,12 @@ class TestDecryptFailureRelink:
         monkeypatch.setattr(
             plaid_crypto.settings, "plaid_client_id", "client-123", raising=False
         )
-        plaid_crypto._fernet.cache_clear()
+        plaid_crypto.reset_key_cache()
         try:
             with pytest.raises(RuntimeError, match="PLAID_TOKEN_KEY"):
                 plaid_crypto._fernet()
         finally:
-            plaid_crypto._fernet.cache_clear()
+            plaid_crypto.reset_key_cache()
 
 
 # ── B4 — error-code differentiation ──────────────────────────────────────────

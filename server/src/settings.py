@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     # ``jwt_secret_key`` so single-user/dev deployments encrypt with no extra
     # config (see server/src/services/plaid_crypto.py).
     plaid_token_key: str | None = None
+    # Retired Plaid token keys kept for DECRYPTION ONLY during a graceful key
+    # rotation (L6). Comma-separated urlsafe-base64 Fernet keys. New ciphertext is
+    # always written with the active ``plaid_token_key``; rows still encrypted
+    # under an old key decrypt via this list until the one-shot re-encrypt command
+    # (``python -m server.src.services.plaid_reencrypt``) migrates them forward.
+    plaid_token_keys_retired: str | None = None
     # Once the one-shot plaintext→ciphertext migration has run everywhere, flip
     # this on to HARD-FAIL on any un-prefixed (legacy plaintext) Plaid token at
     # decrypt time instead of returning it verbatim — closes the legacy path so a
