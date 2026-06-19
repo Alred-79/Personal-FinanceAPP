@@ -21,9 +21,9 @@ and a daily scheduler job, mirroring ``job_check_plan_drift``.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db.models import Account as AccountORM
@@ -84,11 +84,14 @@ class DetangleService:
     # ── gather every transaction as a signed-cents MatchRow ──────────────
 
     def _all_match_rows(self, user_id: int) -> list[MatchRow]:
-        """All of the user's transactions across all accounts, signed.
+        """The user's recent transactions across all accounts, signed.
 
-        Tagged with a ``("expense"|"income", id)`` ref so the notification ref is
-        stable and order-independent regardless of which side of the pair a row
-        sits on.
+        L4: bounded to a recent lookback window (``detangle_scan_window_days``)
+        rather than the ENTIRE history — a transfer/refund/duplicate is always
+        recent (it must be within ``window_days`` of its partner), so windowing the
+        fetch keeps the O(n²) pairing near-linear without changing what's found for
+        recent data. Tagged with a ``("expense"|"income", id)`` ref so the
+        notification ref is stable regardless of which side of the pair a row sits.
         """
         account_ids = self.db.execute(
             select(AccountORM.id).where(AccountORM.user_id == user_id)
@@ -96,11 +99,18 @@ class DetangleService:
         if not account_ids:
             return []
 
+        cutoff = self._scan_cutoff(account_ids)
+
+        def _expense_q():
+            q = select(ExpenseORM).where(ExpenseORM.account_id.in_(account_ids))
+            return q.where(ExpenseORM.date >= cutoff) if cutoff else q
+
+        def _income_q():
+            q = select(IncomeORM).where(IncomeORM.account_id.in_(account_ids))
+            return q.where(IncomeORM.date >= cutoff) if cutoff else q
+
         rows: list[MatchRow] = []
-        expenses = self.db.execute(
-            select(ExpenseORM).where(ExpenseORM.account_id.in_(account_ids))
-        ).scalars()
-        for e in expenses:
+        for e in self.db.execute(_expense_q()).scalars():
             rows.append(
                 MatchRow(
                     ref=("expense", e.id),
@@ -110,10 +120,7 @@ class DetangleService:
                     account_id=e.account_id,
                 )
             )
-        incomes = self.db.execute(
-            select(IncomeORM).where(IncomeORM.account_id.in_(account_ids))
-        ).scalars()
-        for i in incomes:
+        for i in self.db.execute(_income_q()).scalars():
             rows.append(
                 MatchRow(
                     ref=("income", i.id),
@@ -124,6 +131,43 @@ class DetangleService:
                 )
             )
         return rows
+
+    def _scan_cutoff(self, account_ids: Sequence[int]) -> Optional[str]:
+        """ISO date string N days before the user's LATEST transaction, or None
+        when windowing is disabled.
+
+        Windowing relative to the most recent transaction (not wall-clock today)
+        makes detection deterministic regardless of when the nightly job runs vs.
+        when data last synced, and still bounds the scan in production (recent
+        syncs → latest ≈ now → a recent window). ``date`` columns are ISO
+        ``YYYY-MM-DD`` strings, which sort chronologically, so MAX() and a string
+        ``>= cutoff`` are both correct without a cast.
+        """
+        from datetime import date, timedelta
+
+        from ..settings import settings
+
+        days = getattr(settings, "detangle_scan_window_days", 0)
+        if not days or days <= 0:
+            return None
+        latest = self.db.execute(
+            select(func.max(ExpenseORM.date)).where(
+                ExpenseORM.account_id.in_(account_ids)
+            )
+        ).scalar()
+        latest_inc = self.db.execute(
+            select(func.max(IncomeORM.date)).where(
+                IncomeORM.account_id.in_(account_ids)
+            )
+        ).scalar()
+        anchor_str = max(s for s in (latest, latest_inc) if s) if (latest or latest_inc) else None
+        if not anchor_str:
+            return None
+        try:
+            anchor = date.fromisoformat(str(anchor_str)[:10])
+        except ValueError:
+            return None
+        return (anchor - timedelta(days=int(days))).isoformat()
 
     # ── surface a pairing as a deduplicated notification ─────────────────
 

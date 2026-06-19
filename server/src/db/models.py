@@ -484,6 +484,12 @@ class Notification(Base):
 
     __tablename__ = "notifications"
 
+    # L4: composite index for the per-user feed read (filter user_id [+ read],
+    # order by created_at) and the retention sweep (old read rows per user).
+    __table_args__ = (
+        Index("ix_notifications_user_read_created", "user_id", "read", "created_at"),
+    )
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(
         Integer,

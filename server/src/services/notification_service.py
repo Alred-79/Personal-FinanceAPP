@@ -132,15 +132,20 @@ class NotificationService:
         self, user_id: int, today: date
     ) -> list[NotificationORM]:
         created: list[NotificationORM] = []
-        rows = (
-            self.db.execute(
-                select(ExpenseORM)
-                .join(AccountORM, ExpenseORM.account_id == AccountORM.id)
-                .where(AccountORM.user_id == user_id)
-            )
-            .scalars()
-            .all()
+        base = (
+            select(ExpenseORM)
+            .join(AccountORM, ExpenseORM.account_id == AccountORM.id)
+            .where(AccountORM.user_id == user_id)
         )
+        # L4: bound the scan to a recent window instead of the user's ENTIRE
+        # history. The window is anchored on the user's LATEST expense (not
+        # wall-clock today) so detection is deterministic regardless of when the
+        # nightly job runs vs. when data synced, and still bounds the scan in
+        # production. ``Expense.date`` is an ISO string (sorts chronologically), so
+        # MAX() and a string ``>= cutoff`` are both correct without a cast.
+        cutoff = self._anomaly_cutoff(user_id, today)
+        stmt = base.where(ExpenseORM.date >= cutoff) if cutoff else base
+        rows = self.db.execute(stmt).scalars().all()
 
         by_category: dict[str, list[Any]] = {}
         for r in rows:
@@ -168,6 +173,112 @@ class NotificationService:
                 if notif is not None:
                     created.append(notif)
         return created
+
+    # ── Retention (L4) ───────────────────────────────────────────────────
+
+    def prune(
+        self,
+        user_id: int,
+        *,
+        today: Optional[date] = None,
+        retention_days: int,
+        max_per_user: int,
+    ) -> int:
+        """Delete OLD, READ notifications for one user; cap total rows.
+
+        Never deletes an unread/actionable notice — only ``read == 1`` rows whose
+        ``created_at`` is older than ``retention_days``. After the age sweep, if the
+        user still has more than ``max_per_user`` rows, the oldest READ rows beyond
+        the cap are removed too (unread rows are always kept). Idempotent: a second
+        run with nothing stale deletes nothing. Returns the number deleted.
+        """
+        from datetime import datetime, time, timedelta
+
+        today = today or date.today()
+        deleted = 0
+
+        # 1) Age sweep — read rows older than the cutoff. created_at is a timestamp;
+        # compare against the start of the cutoff day.
+        if retention_days and retention_days > 0:
+            cutoff_dt = datetime.combine(
+                today - timedelta(days=int(retention_days)), time.min
+            )
+            stale = (
+                self.db.execute(
+                    select(NotificationORM).where(
+                        NotificationORM.user_id == user_id,
+                        NotificationORM.read == 1,
+                        NotificationORM.created_at < cutoff_dt,
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for row in stale:
+                self.db.delete(row)
+                deleted += 1
+
+        # 2) Cap — if still over max_per_user, drop the oldest READ rows beyond the
+        # cap. Unread rows are never counted out / deleted (always actionable).
+        if max_per_user and max_per_user > 0:
+            total = int(
+                self.db.execute(
+                    select(func.count(NotificationORM.id)).where(
+                        NotificationORM.user_id == user_id
+                    )
+                ).scalar()
+                or 0
+            )
+            # account for rows deleted above (not yet flushed/counted)
+            total -= deleted
+            overflow = total - int(max_per_user)
+            if overflow > 0:
+                oldest_read = (
+                    self.db.execute(
+                        select(NotificationORM)
+                        .where(
+                            NotificationORM.user_id == user_id,
+                            NotificationORM.read == 1,
+                        )
+                        .order_by(
+                            NotificationORM.created_at.asc(),
+                            NotificationORM.id.asc(),
+                        )
+                        .limit(overflow)
+                    )
+                    .scalars()
+                    .all()
+                )
+                for row in oldest_read:
+                    self.db.delete(row)
+                    deleted += 1
+
+        if deleted:
+            self.db.flush()
+        return deleted
+
+    def _anomaly_cutoff(self, user_id: int, today: date) -> Optional[str]:
+        """ISO cutoff N days before the user's LATEST expense, or None when the
+        window is disabled (``anomaly_scan_window_days <= 0``)."""
+        from datetime import timedelta
+
+        from server.src.settings import settings
+
+        window = getattr(settings, "anomaly_scan_window_days", 0)
+        if not window or window <= 0:
+            return None
+        latest = self.db.execute(
+            select(func.max(ExpenseORM.date))
+            .join(AccountORM, ExpenseORM.account_id == AccountORM.id)
+            .where(AccountORM.user_id == user_id)
+        ).scalar()
+        if not latest:
+            return None
+        try:
+            anchor = date.fromisoformat(str(latest)[:10])
+        except ValueError:
+            anchor = today
+        return (anchor - timedelta(days=int(window))).isoformat()
 
     # ── Read API ─────────────────────────────────────────────────────────
 

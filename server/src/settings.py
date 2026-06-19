@@ -104,6 +104,21 @@ class Settings(BaseSettings):
     # default; the per-pair notification dedup makes a re-fire harmless. Disable
     # to silence the nightly job without affecting the on-demand endpoint.
     detangle_enabled: bool = True
+    # L4 — how far back the detangle + anomaly scans FETCH candidate transactions.
+    # Both used to load a user's ENTIRE history and pair/compare O(n²); a transfer/
+    # refund/duplicate (and a fresh anomalous charge) is always recent, so bounding
+    # the fetch to a recent window keeps the scans ~linear without changing what
+    # they find for recent activity. 0 disables the window (scan all — legacy).
+    detangle_scan_window_days: int = 90
+    anomaly_scan_window_days: int = 365  # a year of history for a stable "normal"
+
+    # L4 — notification retention. The nightly sweep deletes READ notifications
+    # older than this many days (unread/actionable rows are NEVER deleted), and
+    # caps total rows per user. Keeps the table from growing linearly forever
+    # (e.g. one anomaly row per anomalous txn). 0 disables retention.
+    notification_retention_enabled: bool = True
+    notification_retention_days: int = 90
+    notification_retention_max_per_user: int = 500
 
     # F3 — the nightly Auditor. Composes the detector battery (anomalies, budget
     # overruns, F1 overdraft risk, F2 zombie subs / price creep) into one deduped,

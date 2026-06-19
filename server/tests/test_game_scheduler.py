@@ -124,6 +124,7 @@ def test_scheduler_builds_declarative_cron_jobs():
         "goal_reminders",
         "behavioral_escalation",
         "behavioral_landmark",
+        "notification_retention",
     }
 
 

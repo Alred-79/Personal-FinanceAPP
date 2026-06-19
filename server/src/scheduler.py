@@ -268,6 +268,43 @@ def job_detangle(db: Session, now: Optional[datetime | date] = None) -> int:
     return total
 
 
+def job_notification_retention(
+    db: Session, now: Optional[datetime | date] = None
+) -> int:
+    """Prune old READ notifications per user (L4). Returns total rows deleted.
+
+    Deletes only ``read`` rows older than ``notification_retention_days`` (unread/
+    actionable rows are NEVER deleted) and caps total rows per user. Idempotent: a
+    re-run with nothing stale deletes nothing. Self-gates on
+    ``notification_retention_enabled``. Reuses the C1 per-user RLS pattern.
+    """
+    if not settings.notification_retention_enabled:
+        return 0
+    from .db.rls import set_tenant
+    from .logging_context import user_id_var
+    from .services.notification_service import NotificationService
+
+    today = (now.date() if isinstance(now, datetime) else now) or date.today()
+    svc = NotificationService(db)
+    total = 0
+    for user in _users(db):
+        set_tenant(db, user.id)
+        _uid_token = user_id_var.set(str(user.id))
+        try:
+            total += svc.prune(
+                user.id,
+                today=today,
+                retention_days=settings.notification_retention_days,
+                max_per_user=settings.notification_retention_max_per_user,
+            )
+        except Exception:  # noqa: BLE001 — one user's failure can't abort the rest
+            logger.exception("notification retention failed: user=%s", user.id)
+        finally:
+            user_id_var.reset(_uid_token)  # load-bearing: no contextvar leak
+    db.flush()
+    return total
+
+
 # ---------------------------------------------------------------------------
 # Pillar 3 — quarterly estimated-tax reminder. Clones the drift/detangle shape:
 # pure, idempotent per ``ref``, self-gated on ``settings.tax_features_enabled``.
@@ -706,6 +743,15 @@ async def _detangle_tick() -> None:
     _run_in_own_session(lambda db: job_detangle(db, datetime.now()))
 
 
+async def _notification_retention_tick() -> None:
+    """Daily cron: prune old read notifications (L4). Gated by
+    ``notification_retention_enabled`` (the job self-checks too); idempotent — a
+    re-run with nothing stale deletes nothing."""
+    if not settings.notification_retention_enabled:
+        return
+    _run_in_own_session(lambda db: job_notification_retention(db, datetime.now()))
+
+
 async def _tax_reminder_tick() -> None:
     """Daily cron: quarterly estimated-tax reminders. Gated by
     ``tax_features_enabled`` (the job self-checks too); idempotent per ``ref``."""
@@ -901,6 +947,18 @@ def build_scheduler():
         _landmark_reentry_tick,
         CronTrigger(day=1, hour=1, minute=40, timezone="UTC"),
         id="behavioral_landmark",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+    # L4: notification retention. Daily at 02:00 — LAST, after every notice-writing
+    # job that night (detangle 00:30, auditor 00:50, reminders 01:20, …) so it
+    # prunes the settled set. Self-gates on ``notification_retention_enabled``;
+    # deletes only old READ rows + caps per user; idempotent.
+    scheduler.add_job(
+        _notification_retention_tick,
+        CronTrigger(hour=2, minute=0, timezone="UTC"),
+        id="notification_retention",
         replace_existing=True,
         misfire_grace_time=3600,
         coalesce=True,
