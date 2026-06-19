@@ -141,14 +141,19 @@ class TaxTaggingService:
         if bps < 0 or bps > 10000:
             raise ValueError("deductible_bps must be between 0 and 10000")
 
+        # C2: scope the upsert lookup to the caller (per-user uniqueness). Without
+        # the user_id filter a re-tag could load ANOTHER user's tag for the same
+        # (tx_type, tx_id) — the id spaces of expenses/income overlap across users
+        # — and the old ``existing.user_id = user_id`` then silently reassigned its
+        # ownership (a latent IDOR). The unique constraint is now per-user too.
         existing = self.db.execute(
             select(TaxTagORM).where(
+                TaxTagORM.user_id == user_id,
                 TaxTagORM.tx_type == tx_type,
                 TaxTagORM.tx_id == tx_id,
             )
         ).scalar_one_or_none()
         if existing is not None:
-            existing.user_id = user_id
             existing.tax_year = tax_year
             existing.bucket = canon
             existing.business_personal = business_personal

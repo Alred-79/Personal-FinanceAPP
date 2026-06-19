@@ -468,3 +468,33 @@ class TestQuerySpendSummary:
 
         with pytest.raises(ValueError):
             query_spend_summary(db_session, 999999)
+
+
+class TestUserDefaultsD1:
+    """D1: spend_warning/savings_percent are NOT NULL with a server_default, so a
+    row inserted WITHOUT them (the baseline made them nullable) still loads via
+    query_user against the NOT NULL Pydantic model instead of 500-ing."""
+
+    def test_query_user_loads_row_inserted_without_spend_columns(self, db_session):
+        from sqlalchemy import text
+
+        from server.src.services.read_queries import query_user
+
+        # Insert omitting ONLY spend_warning/savings_percent — the DB
+        # server_default (20 / 10) fills them, mirroring a non-ORM insert on a
+        # migrated DB. (Other NOT-NULL columns are supplied explicitly.)
+        db_session.execute(text(
+            "INSERT INTO users (username, full_name, email, hashed_password, "
+            "disabled, s2s_horizon, s2s_include_income, s2s_include_goals, "
+            "s2s_buffer, game_mode) VALUES ('d1user', 'D1', 'd1@example.com', "
+            "'x', 0, 'paycheck', 1, 1, 0, 'off')"
+        ))
+        db_session.flush()
+        row_id = db_session.execute(
+            text("SELECT id FROM users WHERE username = 'd1user'")
+        ).scalar_one()
+
+        loaded = query_user(db_session, row_id)  # must not raise a Pydantic error
+        assert loaded is not None
+        assert loaded.spend_warning == 20
+        assert loaded.savings_percent == 10

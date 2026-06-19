@@ -228,36 +228,58 @@ ROLLUP_METRICS = ("hard_day_action_rate", "alert_fix_rate", "distortion_share")
 def run_weekly_rollups(db: Session, week_end: date) -> int:
     """Write the week's rollup rows for every user (idempotent per
     (user, week, metric) via the unique constraint). Returns rows written."""
+    from ...db.rls import set_tenant
+    from ...logging_context import user_id_var
+
     week_start = week_end - timedelta(days=6)
     month = f"{week_end.year}-{week_end.month:02d}"
     written = 0
     users = db.execute(select(UserORM)).scalars().all()
     for user_row in users:
-        cohort = user_row.experiment_cohort or ""
-        values = {
-            "hard_day_action_rate": hard_day_action_rate(db, week_start, week_end),
-            "alert_fix_rate": alert_fix_rate(db, week_start, week_end),
-            "distortion_share": distortion_share(db, user_row.id, month),
-        }
-        for metric, value in values.items():
-            if value is None:
-                continue  # no rate exists — never write a fake zero/100
-            exists = db.execute(
-                select(MetricRollup.id).where(
-                    MetricRollup.user_id == user_row.id,
-                    MetricRollup.week == week_end.isoformat(),
-                    MetricRollup.metric == metric,
-                )
-            ).scalar_one_or_none()
-            if exists is not None:
-                continue
-            db.add(MetricRollup(
-                user_id=user_row.id, week=week_end.isoformat(), metric=metric,
-                value=float(value), cohort=cohort,
-                created_at=datetime.now(timezone.utc).isoformat(),
-            ))
-            written += 1
+        # RLS (C1): bind the tenant for THIS user at the top of the loop body so
+        # the per-user metric helpers (hard_day_action_rate / alert_fix_rate query
+        # events globally) and the MetricRollup writes all run under this user's
+        # tenant. Reset in finally so the contextvar never leaks. No-op on SQLite.
+        set_tenant(db, user_row.id)
+        _uid_token = user_id_var.set(str(user_row.id))
+        try:
+            written += _rollups_for_user(
+                db, user_row, week_start, week_end, month
+            )
+        finally:
+            user_id_var.reset(_uid_token)  # load-bearing: no contextvar leak
     db.flush()
+    return written
+
+
+def _rollups_for_user(db, user_row, week_start, week_end, month) -> int:
+    """Write one user's weekly rollup rows; returns rows written. Extracted so the
+    per-user RLS/context binding wraps a single call — behavior unchanged."""
+    written = 0
+    cohort = user_row.experiment_cohort or ""
+    values = {
+        "hard_day_action_rate": hard_day_action_rate(db, week_start, week_end),
+        "alert_fix_rate": alert_fix_rate(db, week_start, week_end),
+        "distortion_share": distortion_share(db, user_row.id, month),
+    }
+    for metric, value in values.items():
+        if value is None:
+            continue  # no rate exists — never write a fake zero/100
+        exists = db.execute(
+            select(MetricRollup.id).where(
+                MetricRollup.user_id == user_row.id,
+                MetricRollup.week == week_end.isoformat(),
+                MetricRollup.metric == metric,
+            )
+        ).scalar_one_or_none()
+        if exists is not None:
+            continue
+        db.add(MetricRollup(
+            user_id=user_row.id, week=week_end.isoformat(), metric=metric,
+            value=float(value), cohort=cohort,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        ))
+        written += 1
     return written
 
 

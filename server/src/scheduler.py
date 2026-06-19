@@ -91,17 +91,29 @@ def _tracked_metrics(db: Session, user_id: int) -> list[str]:
 
 def job_close_month(db: Session, now: date) -> dict:
     """Seal the month that just ended, for every user. Idempotent (``close_month``
-    is keyed on ``seal:{user}:{month}``)."""
+    is keyed on ``seal:{user}:{month}``).
+
+    RLS (C1): binds the tenant per user (``set_tenant`` + ``user_id_var``, reset
+    in ``finally``) before sealing, so under a restricted scheduler role the
+    month-close reads/writes the user's own rows instead of zero. No-op on SQLite
+    and under a BYPASSRLS role.
+    """
+    from .db.rls import set_tenant
+    from .logging_context import user_id_var
     from .services.game.month_close import close_month
 
     month = _prev_month_str(now)
     sealed: dict[int, dict] = {}
     for user_row in _users(db):
         user = _to_user(user_row)
+        set_tenant(db, user.id)
+        _uid_token = user_id_var.set(str(user.id))
         try:
             sealed[user.id] = close_month(db, user, month)
         except Exception:  # noqa: BLE001 — one user's failure can't abort the rest
             logger.exception("close_month failed: user=%s month=%s", user.id, month)
+        finally:
+            user_id_var.reset(_uid_token)  # load-bearing: no contextvar leak
     return {"month": month, "sealed": sealed}
 
 
@@ -124,24 +136,36 @@ def job_fade_and_graduation(db: Session, now: date) -> dict:
     if experiments.is_killed("bestiary"):
         return {"skipped": "bestiary_killed"}
 
+    from .db.rls import set_tenant
+    from .logging_context import user_id_var
+
     faded: dict[int, dict[str, str]] = {}
     grad: dict[int, int] = {}
     fade = FadeService(db)
     for user_row in _users(db):
         user = _to_user(user_row)
-        states: dict[str, str] = {}
-        for metric in _tracked_metrics(db, user.id):
-            try:
-                states[metric] = fade.evaluate_week(user, metric, now)
-            except Exception:  # noqa: BLE001 — best-effort per metric
-                logger.exception(
-                    "fade evaluate_week failed: user=%s metric=%s", user.id, metric
-                )
-        faded[user.id] = states
+        # RLS (C1): bind the tenant for THIS user before reading/writing fade +
+        # graduation rows; reset in finally so the contextvar never leaks.
+        set_tenant(db, user.id)
+        _uid_token = user_id_var.set(str(user.id))
         try:
-            grad[user.id] = len(detect_graduation_candidates(db, user.id, as_of=now))
-        except Exception:  # noqa: BLE001
-            logger.exception("graduation detect failed: user=%s", user.id)
+            states: dict[str, str] = {}
+            for metric in _tracked_metrics(db, user.id):
+                try:
+                    states[metric] = fade.evaluate_week(user, metric, now)
+                except Exception:  # noqa: BLE001 — best-effort per metric
+                    logger.exception(
+                        "fade evaluate_week failed: user=%s metric=%s", user.id, metric
+                    )
+            faded[user.id] = states
+            try:
+                grad[user.id] = len(
+                    detect_graduation_candidates(db, user.id, as_of=now)
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("graduation detect failed: user=%s", user.id)
+        finally:
+            user_id_var.reset(_uid_token)  # load-bearing: no contextvar leak
     return {"faded": faded, "graduation_candidates": grad}
 
 
@@ -186,6 +210,8 @@ def job_check_plan_drift(db: Session, now: Optional[datetime | date] = None) -> 
     fixed-seed cheap sim path live inside ``check_drift``. Returns the total
     number of plans that produced a notification across all users.
     """
+    from .db.rls import set_tenant
+    from .logging_context import user_id_var
     from .services.scenario_service import ScenarioService
 
     now = now or datetime.now()
@@ -194,7 +220,16 @@ def job_check_plan_drift(db: Session, now: Optional[datetime | date] = None) -> 
     svc = ScenarioService(db)
     total = 0
     for user in _users(db):
-        total += len(svc.check_drift(user.id, as_of=today))
+        # RLS (C1): bind the tenant per user before the drift re-check; reset in
+        # finally. Also adds the per-user try/except so one user can't abort all.
+        set_tenant(db, user.id)
+        _uid_token = user_id_var.set(str(user.id))
+        try:
+            total += len(svc.check_drift(user.id, as_of=today))
+        except Exception:  # noqa: BLE001 — one user's failure can't abort the rest
+            logger.exception("check_drift failed: user=%s", user.id)
+        finally:
+            user_id_var.reset(_uid_token)  # load-bearing: no contextvar leak
     db.flush()
     return total
 
@@ -212,12 +247,23 @@ def job_detangle(db: Session, now: Optional[datetime | date] = None) -> int:
     ``ref`` (``detangle:{kind}:{a}:{b}``), so an overlapping fire or a restart
     cannot double-notify. Gated by ``settings.detangle_enabled`` at the tick.
     """
+    from .db.rls import set_tenant
+    from .logging_context import user_id_var
     from .services.detangle_service import DetangleService
 
     svc = DetangleService(db)
     total = 0
     for user in _users(db):
-        total += len(svc.run(user.id))
+        # RLS (C1): bind the tenant per user before the Detangler reads their
+        # transactions; reset in finally. Adds the per-user try/except too.
+        set_tenant(db, user.id)
+        _uid_token = user_id_var.set(str(user.id))
+        try:
+            total += len(svc.run(user.id))
+        except Exception:  # noqa: BLE001 — one user's failure can't abort the rest
+            logger.exception("detangle failed: user=%s", user.id)
+        finally:
+            user_id_var.reset(_uid_token)  # load-bearing: no contextvar leak
     db.flush()
     return total
 
@@ -248,6 +294,8 @@ def job_tax_quarterly_reminder(
     if not settings.tax_features_enabled:
         return 0
 
+    from .db.rls import set_tenant
+    from .logging_context import user_id_var
     from .money import cents_to_dollars
     from .services.notification_service import NotificationService
     from .services.tax.rates import quarterly_due_dates
@@ -259,43 +307,69 @@ def job_tax_quarterly_reminder(
     created = 0
     notif = NotificationService(db)
     for user in _users(db):
-        # Look at the due dates for both the current and prior calendar year (Q4
-        # of a tax year falls in January of the next year).
-        for tax_year in (today.year, today.year - 1):
-            summary = None  # computed lazily only when a due date is in window
-            for quarter, iso in quarterly_due_dates(tax_year):
-                due = date.fromisoformat(iso)
-                delta = (due - today).days
-                if 0 <= delta <= _TAX_REMINDER_WINDOW_DAYS:
-                    if summary is None:
-                        summary = TaxSummaryService(db).get_tax_summary(
-                            user.id, tax_year
-                        )
-                    income = cents_to_dollars(
-                        summary["income_by_source"]["total_income_cents"]
-                    )
-                    deductible = cents_to_dollars(
-                        sum(
-                            d["deductible_cents"]
-                            for d in summary["deductions_by_bucket"]
-                        )
-                    )
-                    row = notif._add_if_new(
-                        user.id,
-                        type="tax_estimate_reminder",
-                        title=f"Estimated-tax due date {due:%b %d} is approaching",
-                        message=(
-                            f"Quarterly estimated-tax due date {due:%b %d} is "
-                            f"approaching. Your tagged YTD business income is "
-                            f"${income:,.2f}, deductions ${deductible:,.2f}. "
-                            "Estimate for organization only — consult a tax "
-                            "professional. You can pay at irs.gov/payments."
-                        ),
-                        ref=f"tax_estimate:{user.id}:{tax_year}:{quarter}",
-                    )
-                    if row is not None:
-                        created += 1
+        # RLS (C1): bind the tenant per user before the summary engine reads that
+        # user's tagged income/deductions; reset in finally.
+        set_tenant(db, user.id)
+        _uid_token = user_id_var.set(str(user.id))
+        try:
+            created += _tax_reminder_for_user(
+                db, notif, user.id, today, cents_to_dollars,
+                quarterly_due_dates, TaxSummaryService,
+            )
+        except Exception:  # noqa: BLE001 — one user's failure can't abort the rest
+            logger.exception("tax_quarterly_reminder failed: user=%s", user.id)
+        finally:
+            user_id_var.reset(_uid_token)  # load-bearing: no contextvar leak
     db.flush()
+    return created
+
+
+def _tax_reminder_for_user(
+    db, notif, user_id, today, cents_to_dollars, quarterly_due_dates,
+    TaxSummaryService,
+) -> int:
+    """Emit any in-window quarterly-tax reminders for one user; returns the count.
+
+    Extracted from ``job_tax_quarterly_reminder`` so the per-user RLS/context
+    binding wraps a single call (cleaner reset-in-finally) — behavior unchanged.
+    """
+    created = 0
+    # Look at the due dates for both the current and prior calendar year (Q4 of a
+    # tax year falls in January of the next year).
+    for tax_year in (today.year, today.year - 1):
+        summary = None  # computed lazily only when a due date is in window
+        for quarter, iso in quarterly_due_dates(tax_year):
+            due = date.fromisoformat(iso)
+            delta = (due - today).days
+            if 0 <= delta <= _TAX_REMINDER_WINDOW_DAYS:
+                if summary is None:
+                    summary = TaxSummaryService(db).get_tax_summary(
+                        user_id, tax_year
+                    )
+                income = cents_to_dollars(
+                    summary["income_by_source"]["total_income_cents"]
+                )
+                deductible = cents_to_dollars(
+                    sum(
+                        d["deductible_cents"]
+                        for d in summary["deductions_by_bucket"]
+                    )
+                )
+                row = notif._add_if_new(
+                    user_id,
+                    type="tax_estimate_reminder",
+                    title=f"Estimated-tax due date {due:%b %d} is approaching",
+                    message=(
+                        f"Quarterly estimated-tax due date {due:%b %d} is "
+                        f"approaching. Your tagged YTD business income is "
+                        f"${income:,.2f}, deductions ${deductible:,.2f}. "
+                        "Estimate for organization only — consult a tax "
+                        "professional. You can pay at irs.gov/payments."
+                    ),
+                    ref=f"tax_estimate:{user_id}:{tax_year}:{quarter}",
+                )
+                if row is not None:
+                    created += 1
     return created
 
 
@@ -319,6 +393,8 @@ def job_auditor(db: Session, now: Optional[datetime | date] = None) -> int:
     if not settings.auditor_enabled:
         return 0
 
+    from .db.rls import set_tenant
+    from .logging_context import user_id_var
     from .services.audit_service import AuditService
 
     now = now or datetime.now()
@@ -327,10 +403,16 @@ def job_auditor(db: Session, now: Optional[datetime | date] = None) -> int:
     svc = AuditService(db)
     total = 0
     for user in _users(db):
+        # RLS (C1): bind the tenant per user before the detector battery reads
+        # that user's rows; reset in finally.
+        set_tenant(db, user.id)
+        _uid_token = user_id_var.set(str(user.id))
         try:
             total += svc.run(user.id, as_of=today)["created"]
         except Exception:  # noqa: BLE001 — one user's failure can't abort the rest
             logger.exception("auditor failed: user=%s", user.id)
+        finally:
+            user_id_var.reset(_uid_token)  # load-bearing: no contextvar leak
     db.flush()
     return total
 
@@ -848,6 +930,16 @@ def start_scheduler():
         "game scheduler started (in-process, per-worker). SINGLE-WORKER ONLY: "
         ">1 worker double-fires month-close/rollups (idempotent but doubled work)."
     )
+    # C1 belt-and-suspenders: with RLS on but no dedicated scheduler session, the
+    # batch jobs run on the restricted request-engine role. Each job now binds the
+    # tenant per user (so it still works), but a BYPASSRLS scheduler_database_url
+    # is the intended seam for all-users maintenance — warn loudly if it's missing.
+    if settings.enable_rls and not settings.scheduler_database_url:
+        logger.warning(
+            "ENABLE_RLS=true but SCHEDULER_DATABASE_URL is unset: batch jobs run "
+            "on the restricted app role and rely on per-user set_tenant. Set a "
+            "BYPASSRLS SCHEDULER_DATABASE_URL for all-users maintenance jobs."
+        )
     return scheduler
 
 

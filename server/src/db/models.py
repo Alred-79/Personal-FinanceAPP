@@ -51,8 +51,16 @@ class User(Base):
     email: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     hashed_password: Mapped[str] = mapped_column(String, nullable=False)
     disabled: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    spend_warning: Mapped[int] = mapped_column(Integer, default=20)
-    savings_percent: Mapped[int] = mapped_column(Integer, default=10)
+    # D1: NOT NULL (Mapped[int]) with a server_default so a non-ORM insert and a
+    # migrated DB both get a value — the baseline migration created these nullable,
+    # so a row inserted there with NULL would fail to load against this NOT NULL
+    # model (500). server_default mirrors the auto_execute_threshold_cents pattern.
+    spend_warning: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=20, server_default="20"
+    )
+    savings_percent: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=10, server_default="10"
+    )
     # Safe-to-Spend configuration (v1). Each component of the number is
     # config-gated; ints are 0/1 flags (SQLite has no native bool) and the
     # buffer is integer cents like every money column.
@@ -1444,7 +1452,11 @@ class TaxTag(Base):
 
     __tablename__ = "tax_tags"
     __table_args__ = (
-        UniqueConstraint("tx_type", "tx_id", name="uq_tax_tag_tx"),
+        # C2: per-USER uniqueness. (tx_type, tx_id) is not globally unique — the
+        # id spaces of expenses/income overlap across users — so the old global
+        # constraint conflated two users' tags for the same numeric id. One tag
+        # per transaction PER USER (re-tag upserts within the owner's scope).
+        UniqueConstraint("user_id", "tx_type", "tx_id", name="uq_tax_tag_user_tx"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

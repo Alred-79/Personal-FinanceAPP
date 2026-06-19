@@ -120,3 +120,78 @@ def test_set_local_is_transaction_scoped(_engine, rls_table):
         s.commit()  # ends the transaction; SET LOCAL role + GUC both expire
         _as_app(s)  # re-assume the app role, but DON'T re-bind the tenant
         assert _count(s) == 0  # the prior tenant GUC did not survive → closed
+
+
+# ── C1: scheduler batch jobs write rows only because they bind the tenant ─────
+
+
+def test_c1_scheduler_job_write_needs_tenant_binding(_engine):
+    """The C1 fix makes each batch job call ``set_tenant(db, user.id)`` per user.
+    This proves WHY that's load-bearing under a restricted role: a tenant-table
+    write (MetricRollup, as ``run_weekly_rollups`` / ``job_auditor`` do) is
+    REJECTED by RLS WITH CHECK when no tenant is bound, and SUCCEEDS once it is.
+
+    The standard suite builds the schema with RLS OFF, so this test force-enables
+    RLS on ``metric_rollups`` (+ grants the app role) for its own scope, mirrors
+    the binding the jobs perform, and cleans the table/RLS up afterward.
+    """
+    with _engine.begin() as conn:
+        conn.execute(text(
+            "DO $$ BEGIN IF NOT EXISTS "
+            "(SELECT FROM pg_roles WHERE rolname='app_user') "
+            "THEN CREATE ROLE app_user NOSUPERUSER NOLOGIN; END IF; END $$"
+        ))
+        conn.execute(text(
+            "GRANT SELECT, INSERT, UPDATE, DELETE ON metric_rollups TO app_user"
+        ))
+        conn.execute(text(
+            "GRANT USAGE, SELECT ON SEQUENCE metric_rollups_id_seq TO app_user"
+        ))
+        # Seed an owner user (owner bypasses RLS) for the FK + WITH CHECK target.
+        conn.execute(text(
+            "INSERT INTO users (username, full_name, email, hashed_password, "
+            "disabled, s2s_horizon, s2s_include_income, s2s_include_goals, "
+            "s2s_buffer, game_mode) VALUES ('c1u','C1','c1@example.com','x',0,"
+            "'paycheck',1,1,0,'off')"
+        ))
+        uid = conn.execute(
+            text("SELECT id FROM users WHERE username='c1u'")
+        ).scalar_one()
+        enable_rls(conn, "metric_rollups")  # ENABLE + FORCE + tenant policy
+    try:
+        _ins = (
+            "INSERT INTO metric_rollups (user_id, week, metric, value, cohort, "
+            "created_at) VALUES (:u, '2026-06-14', 'hard_day_action_rate', 1.0, "
+            "'', '2026-06-14T00:00:00+00:00')"
+        )
+        # 1) No tenant bound → WITH CHECK rejects the insert (fail-closed).
+        with Session(_engine) as s:
+            s.execute(text("SET LOCAL ROLE app_user"))
+            with pytest.raises(Exception):
+                s.execute(text(_ins), {"u": uid})
+                s.flush()
+            s.rollback()
+        # 2) With the tenant bound (what the job does), the same write succeeds.
+        with Session(_engine) as s:
+            s.execute(text("SET LOCAL ROLE app_user"))
+            set_tenant(s, uid)
+            s.execute(text(_ins), {"u": uid})
+            got = s.execute(
+                text("SELECT count(*) FROM metric_rollups WHERE user_id = :u"),
+                {"u": uid},
+            ).scalar()
+            assert got == 1
+            s.rollback()
+    finally:
+        with _engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE metric_rollups NO FORCE ROW LEVEL SECURITY"
+            ))
+            conn.execute(text(
+                "ALTER TABLE metric_rollups DISABLE ROW LEVEL SECURITY"
+            ))
+            conn.execute(text(
+                "DROP POLICY IF EXISTS metric_rollups_tenant_isolation "
+                "ON metric_rollups"
+            ))
+            conn.execute(text("DELETE FROM users WHERE username='c1u'"))
