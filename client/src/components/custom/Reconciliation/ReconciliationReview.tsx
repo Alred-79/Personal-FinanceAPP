@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 import api from "@/lib/api";
 import { useStore } from "@/store/store";
@@ -50,21 +50,63 @@ export default function ReconciliationReview({
   );
   const [proposing, setProposing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // F2 — local draft text for the free-text fields so they update per keystroke
+  // but only PATCH onBlur (race-free). Keyed `${rowId}:${field}`; absent ⇒ use
+  // the row's server value. Checkbox + category still commit immediately.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // F2 — per-row in-flight sequence token: only the LATEST PATCH's response is
+  // allowed to replace the (whole) session, so a slow earlier edit can't clobber
+  // a newer one when responses return out of order.
+  const seqRef = useRef<Record<number, number>>({});
 
   const bc = session.balance_check;
   const includedCount = session.rows.filter((r) => r.included).length;
+
+  const draftKey = (rowId: number, field: string) => `${rowId}:${field}`;
 
   const patch = async (
     rowId: number,
     p: Partial<Pick<ImportRow, "title" | "amount" | "date" | "category" | "included">>
   ) => {
+    const seq = (seqRef.current[rowId] ?? 0) + 1;
+    seqRef.current[rowId] = seq;
     try {
       const next = await patchImportRow(session.id, rowId, p);
+      // Drop a stale response: a newer edit to this row already superseded it.
+      if (seqRef.current[rowId] !== seq) return;
       onSessionChange(next);
     } catch {
+      if (seqRef.current[rowId] !== seq) return;
       setError("That edit didn't save. Please try again.");
     }
   };
+
+  /** Commit a free-text field onBlur, only if it actually changed, then clear
+   * the local draft so the row falls back to the (now-updated) server value. */
+  const commitDraft = (
+    rowId: number,
+    field: "title" | "date",
+    serverValue: string
+  ) => {
+    const key = draftKey(rowId, field);
+    const draft = drafts[key];
+    if (draft !== undefined && draft !== serverValue) {
+      patch(rowId, { [field]: draft } as Partial<ImportRow>);
+    }
+    setDrafts((d) => {
+      const next = { ...d };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const draftValue = (rowId: number, field: "title" | "date", serverValue: string) => {
+    const key = draftKey(rowId, field);
+    return drafts[key] !== undefined ? drafts[key] : serverValue;
+  };
+
+  const setDraft = (rowId: number, field: "title" | "date", value: string) =>
+    setDrafts((d) => ({ ...d, [draftKey(rowId, field)]: value }));
 
   const propose = async () => {
     setProposing(true);
@@ -159,16 +201,18 @@ export default function ReconciliationReview({
                   </td>
                   <td className="px-3 py-2">
                     <Input
-                      value={row.title}
-                      onChange={(e) => patch(row.id, { title: e.target.value })}
+                      value={draftValue(row.id, "title", row.title)}
+                      onChange={(e) => setDraft(row.id, "title", e.target.value)}
+                      onBlur={() => commitDraft(row.id, "title", row.title)}
                       className="h-8 border-transparent bg-transparent px-1 shadow-none focus:border-rule-strong/50"
                     />
                   </td>
                   <td className="px-3 py-2">
                     <Input
                       type="date"
-                      value={row.date}
-                      onChange={(e) => patch(row.id, { date: e.target.value })}
+                      value={draftValue(row.id, "date", row.date)}
+                      onChange={(e) => setDraft(row.id, "date", e.target.value)}
+                      onBlur={() => commitDraft(row.id, "date", row.date)}
                       className="h-8 w-36 border-transparent bg-transparent px-1 shadow-none focus:border-rule-strong/50"
                     />
                   </td>

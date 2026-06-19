@@ -2,14 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Message, ActionMessage, AssistantProposal, AssistantBridge, AssistantSources } from "@/types";
 import { apiBase } from "@/lib/apiBase";
+import { refreshOnce } from "@/lib/api";
 
+/** Refresh via the SHARED single-flight refresh (F1), so the SSE path and the
+ * axios interceptor never issue two concurrent POST /refresh/. Returns whether
+ * the refresh succeeded (this hook decides the redirect itself). */
 async function refreshAuth(): Promise<boolean> {
   try {
-    const res = await fetch(`${apiBase}/refresh/`, {
-      method: "POST",
-      credentials: "include",
-    });
-    return res.ok;
+    await refreshOnce();
+    return true;
   } catch {
     return false;
   }
@@ -53,6 +54,9 @@ export function useAssistantChat(): AssistantChat {
   // A ref guard so a second send() can't interleave with an in-flight stream
   // regardless of how the caller debounces (state alone is stale in closures).
   const busyRef = useRef(false);
+  // F3 — the in-flight stream's AbortController, so unmount cancels the fetch +
+  // reader loop instead of leaking them (and setState-after-unmount warnings).
+  const abortRef = useRef<AbortController | null>(null);
 
   // Action notes are ephemeral — drop each one ~5s after it lands.
   useEffect(() => {
@@ -61,6 +65,12 @@ export function useAssistantChat(): AssistantChat {
       setActionMessages((prev) => prev.filter((msg) => now - msg.timestamp < 5000));
     }, 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  // F3 — on unmount, abort any in-flight stream so the reader loop bails and no
+  // state update fires after teardown.
+  useEffect(() => {
+    return () => abortRef.current?.abort();
   }, []);
 
   const send = useCallback(
@@ -74,8 +84,15 @@ export function useAssistantChat(): AssistantChat {
       setActionMessages([]);
       setProposal(null);
 
+      const controller = new AbortController();
+      abortRef.current = controller;
       const chatUrl = `${apiBase}/assistant/chat/?message=${encodeURIComponent(userMessage)}`;
-      const doFetch = () => fetch(chatUrl, { method: "POST", credentials: "include" });
+      const doFetch = () =>
+        fetch(chatUrl, {
+          method: "POST",
+          credentials: "include",
+          signal: controller.signal,
+        });
 
       try {
         let response = await doFetch();
@@ -85,6 +102,7 @@ export function useAssistantChat(): AssistantChat {
             navigate("/login");
             return;
           }
+          // Retry the stream AT MOST ONCE after a successful refresh.
           response = await doFetch();
         }
         if (!response.ok) throw new Error("Failed to send message");
@@ -169,6 +187,7 @@ export function useAssistantChat(): AssistantChat {
         };
 
         while (true) {
+          if (controller.signal.aborted) break;  // F3 — bail on unmount/abort
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
@@ -181,9 +200,17 @@ export function useAssistantChat(): AssistantChat {
         }
         setIsLoading(false);
       } catch (error) {
+        // F3 — an abort (unmount / cancellation) is normal, not an error: don't
+        // log it or surface a toast, and skip the setState below if we're torn down.
+        if (controller.signal.aborted || (error as Error)?.name === "AbortError") {
+          return;
+        }
         console.error("Error sending message:", error);
         setIsLoading(false);
       } finally {
+        // Only clear loading/busy if this send still owns the active controller
+        // (a later send replaced it, or unmount aborted us).
+        if (abortRef.current === controller) abortRef.current = null;
         busyRef.current = false;
       }
     },

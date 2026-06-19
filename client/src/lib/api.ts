@@ -29,19 +29,29 @@ api.interceptors.request.use((config) => {
 // deadlock that leaves the app hung instead of redirecting to /login.
 const AUTH_PATHS = ["/refresh", "/token", "/signup", "/logout"];
 
-let isRefreshing = false;
-let failedQueue: Array<{ resolve: (value: unknown) => void; reject: (reason?: unknown) => void }> = [];
+// A single in-flight refresh promise. Concurrent 401s (from the axios
+// interceptor AND the raw-fetch SSE hook) all await THIS one promise, so the
+// app issues exactly one POST /refresh/ no matter how many requests raced. The
+// promise is cleared once it settles, so a later 401 can refresh again.
+let refreshInFlight: Promise<void> | null = null;
 
-const processQueue = (error: unknown) => {
-  failedQueue.forEach((prom) => {
-    if (error) {
-      prom.reject(error);
-    } else {
-      prom.resolve(null);
-    }
-  });
-  failedQueue = [];
-};
+/**
+ * Refresh the session at most once across all concurrent callers. Both the axios
+ * response interceptor and the SSE hook (raw fetch) call this so they share one
+ * refresh. Rejects if the refresh itself fails (caller decides logout/redirect).
+ */
+export function refreshOnce(): Promise<void> {
+  if (!refreshInFlight) {
+    refreshInFlight = api
+      .post("/refresh/")
+      .then(() => undefined)
+      .finally(() => {
+        // Clear AFTER settle so the next 401 can start a fresh refresh.
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
 
 api.interceptors.response.use(
   (response) => response,
@@ -56,27 +66,13 @@ api.interceptors.response.use(
       !originalRequest._retry &&
       !isAuthRequest
     ) {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        })
-          .then(() => api(originalRequest))
-          .catch((err) => Promise.reject(err));
-      }
-
       originalRequest._retry = true;
-      isRefreshing = true;
-
       try {
-        await api.post("/refresh/");
-        processQueue(null);
+        await refreshOnce();
         return api(originalRequest);
       } catch (refreshError) {
-        processQueue(refreshError);
         window.location.href = "/login";
         return Promise.reject(refreshError);
-      } finally {
-        isRefreshing = false;
       }
     }
 
