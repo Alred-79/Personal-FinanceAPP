@@ -310,6 +310,37 @@ def test_earmark_set_list_and_pull_back(db_session):
     assert db_session.get(GoalORM, g.id).progress == 400_00
 
 
+def test_earmark_list_for_goals_batches_and_groups(db_session):
+    """``list_for_goals`` returns the same per-goal earmark dicts as ``list``, grouped
+    by goal_id, in a single query (N+1 fix on GET /goals/). Goals with no earmarks
+    are absent (caller defaults to []); other users' earmarks never leak in."""
+    u, _ = _user(db_session)
+    g1 = _goal(db_session, u.id, name="A", progress=400_00)
+    g2 = _goal(db_session, u.id, name="B", progress=400_00)
+    g3 = _goal(db_session, u.id, name="C", progress=400_00)  # no earmarks
+    other, _ = _user(db_session, name="other")
+    g_other = _goal(db_session, other.id, name="X", progress=400_00)
+
+    svc = EarmarkService(db_session)
+    svc.set_earmark(u.id, g1.id, "Deposit", 100_00, now=_NOW)
+    svc.set_earmark(u.id, g1.id, "Buffer", 50_00, now=_NOW)
+    svc.set_earmark(u.id, g2.id, "Trip", 75_00, now=_NOW)
+    svc.set_earmark(other.id, g_other.id, "Theirs", 25_00, now=_NOW)
+
+    grouped = svc.list_for_goals(u.id, [g1.id, g2.id, g3.id])
+    # Same content as per-goal list(), just grouped.
+    assert {e["name"] for e in grouped[g1.id]} == {"Deposit", "Buffer"}
+    assert [e["name"] for e in grouped[g2.id]] == ["Trip"]
+    assert g3.id not in grouped  # empty goals omitted
+    # Same dicts as the per-goal list(), order-independent.
+    _by_name = lambda rows: sorted(rows, key=lambda e: e["name"])
+    assert _by_name(grouped[g1.id]) == _by_name(svc.list(u.id, g1.id))
+    # No cross-user leak even if the other user's goal id is requested.
+    assert svc.list_for_goals(u.id, [g_other.id]) == {}
+    # Empty input is a no-op.
+    assert svc.list_for_goals(u.id, []) == {}
+
+
 def test_earmark_cannot_exceed_progress_but_decrease_always_ok(db_session):
     """Raising an earmark above the goal's saved progress is rejected (can't earmark
     money you haven't saved); lowering is ALWAYS allowed."""

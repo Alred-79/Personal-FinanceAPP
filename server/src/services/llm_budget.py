@@ -94,13 +94,16 @@ def check_and_reserve(
         "AND cost_cents + :est_cost <= :cost_budget" if cost_budget > 0 else ""
     )
     result = db.execute(
+        # nosec B608 — not SQL injection: ``cost_clause`` is one of two fixed
+        # internal literals (above); every value is a bound parameter (:req,
+        # :est_cost, :cost_budget, …). No user input is interpolated.
         text(
             "UPDATE llm_usage "
             "SET requests = requests + :req, tokens = tokens + :est, "
             "    cost_cents = cost_cents + :est_cost "
             "WHERE user_id = :uid AND day = :day "
             "AND requests + :req <= :req_budget "
-            f"{cost_clause}"
+            f"{cost_clause}"  # nosec B608
         ),
         {
             "req": requests,

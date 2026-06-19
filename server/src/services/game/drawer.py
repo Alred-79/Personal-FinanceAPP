@@ -13,7 +13,6 @@ flow through the assistant's propose→confirm path.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from .firewall import CRISIS_RESOURCE, is_crisis, screen_output
 

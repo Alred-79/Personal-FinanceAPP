@@ -47,6 +47,14 @@ pytest-asyncio = "*"
 # fails fast instead of hanging the suite. Used as `pytest --timeout=60`.
 pytest-timeout = "*"
 httpx = "*"
+# Static analysis / supply-chain scanners (audit L-Part-C). Config in ruff.toml
+# and .pre-commit-config.yaml. CI runs ruff + bandit + pip-audit (see
+# .github/workflows/ci.yml). Introduced in report-not-autofix mode — a baseline
+# ruleset only — so they surface issues without churning the existing tree.
+ruff = "*"
+bandit = "*"
+pip-audit = "*"
+pre-commit = "*"
 
 [requires]
 python_version = "3.13"

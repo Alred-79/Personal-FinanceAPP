@@ -22,6 +22,20 @@ jobs:
         run: pip install pipenv
       - name: Install dependencies
         run: pipenv install -d
+      - name: Lint (ruff)
+        run: pipenv run ruff check server/src
+      - name: Security scan (bandit, medium+)
+        run: pipenv run bandit -ll -r server/src
+      - name: Dependency audit (pip-audit)
+        # Audit the project's dependency closure. The three known pip-self
+        # advisories (the CI runner's own pip) are ignored — they are not in the
+        # app's runtime deps. Drop these --ignore-vuln flags once the runner pip
+        # is >= 26.1.2.
+        run: >-
+          pipenv run pip-audit
+          --ignore-vuln PYSEC-2026-196
+          --ignore-vuln CVE-2026-3219
+          --ignore-vuln CVE-2026-6357
       - name: Run tests
         run: pipenv run pytest
 

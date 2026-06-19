@@ -548,22 +548,18 @@ export const useStore = create<StoreState>((set, get) => ({
     if (get().accountsLoaded) return;
 
     try {
-      const response = await api.get("/accounts");
+      // One call for the accounts and one for ALL their transactions grouped by
+      // account_id — was an N+1 (one /accounts/{id}/transactions per account).
+      const [accountsRes, txRes] = await Promise.all([
+        api.get("/accounts"),
+        api.get<Record<string, Transaction[]>>("/accounts/all/transactions"),
+      ]);
+      const txByAccount = txRes.data ?? {};
 
-      const accountsWithTransactions = await Promise.all(
-        response.data.map(async (account: Account) => {
-          try {
-            const transactionsResponse = await api.get(
-              `/accounts/${account.id}/transactions`
-            );
-            return { ...account, transactions: transactionsResponse.data };
-          } catch (error) {
-            console.error(
-              `Error fetching transactions for account ${account.id}:`,
-              error
-            );
-            return account;
-          }
+      const accountsWithTransactions = (accountsRes.data as Account[]).map(
+        (account) => ({
+          ...account,
+          transactions: txByAccount[String(account.id)] ?? [],
         })
       );
 

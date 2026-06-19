@@ -11,7 +11,7 @@ deterministically in ``plaid_service.sync_token`` → ``reconcile``.
 from __future__ import annotations
 
 import json
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session

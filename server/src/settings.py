@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     # ``jwt_secret_key`` so single-user/dev deployments encrypt with no extra
     # config (see server/src/services/plaid_crypto.py).
     plaid_token_key: str | None = None
+    # Once the one-shot plaintext→ciphertext migration has run everywhere, flip
+    # this on to HARD-FAIL on any un-prefixed (legacy plaintext) Plaid token at
+    # decrypt time instead of returning it verbatim — closes the legacy path so a
+    # plaintext token can never be silently used post-migration. Default off to
+    # preserve the half-migrated tolerance during rollout.
+    plaid_require_encrypted_tokens: bool = False
     database_url: str = "sqlite:///finance_tracker.db"
 
     # --- Auth and cookie hardening ---

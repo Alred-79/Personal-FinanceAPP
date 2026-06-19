@@ -610,9 +610,7 @@ class PlaidService:
         original = self._find_posted_event(plaid_txn_id)
         if original is None:
             return
-        import json as _json
-
-        orig_payload = _json.loads(original.payload)
+        orig_payload = json.loads(original.payload)
         old_amount = orig_payload.get("amount_cents", 0)
         field_deltas: dict = {}
         if new_amount_cents != old_amount:
@@ -1085,9 +1083,13 @@ class PlaidService:
         transaction and to re-check it — surfacing the change and letting them
         decide which value is right rather than reverting in silence.
 
-        Idempotent by a stable ref keyed on the txn + the new value, so re-syncing
-        the same revision doesn't stack duplicate warnings, while a *later*,
-        different revision still gets its own warning.
+        Idempotent by a stable ref keyed on the txn + the new amount, so re-syncing
+        the same revision doesn't stack duplicate warnings, while a *later* revision
+        with a different amount still gets its own warning. The ref intentionally
+        does NOT embed ``new_title`` — a bank that micro-revises a description
+        (whitespace/case churn) at the same amount would otherwise stack an
+        unbounded pile of near-identical notifications; collapsing title-only churn
+        at a fixed amount to a single notice is the desired anti-stacking behavior.
         """
         if user_id is None:
             return
@@ -1095,7 +1097,7 @@ class PlaidService:
         amount_changed = (row.amount or 0) != new_amount_cents
         if not (title_changed or amount_changed):
             return
-        ref = f"plaid_revision:{plaid_txn_id}:{new_title}:{new_amount_cents}"
+        ref = f"plaid_revision:{plaid_txn_id}:{new_amount_cents}"
         exists = self.db.execute(
             select(NotificationORM.id).where(
                 NotificationORM.user_id == user_id,

@@ -9,7 +9,6 @@ service ``chat``) is monkeypatched.
 
 from unittest.mock import MagicMock
 
-import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
@@ -155,13 +154,16 @@ def test_failed_stream_releases_reserved_request(
     failing_executor.astream_events = _raise_immediately
     assistant_router.assistant_service.agents[uid] = failing_executor
 
-    # The endpoint returns 200 (stream opens), then the generator raises. The
-    # ConnectionError isn't a "rate limit" string, so the generator re-raises;
-    # TestClient surfaces it as the stream is consumed.
-    with pytest.raises(ConnectionError):
-        client.post("/api/assistant/chat/?message=hello", headers=h)
+    # A non-rate-limit error mid-stream no longer bare-raises (that left a broken
+    # SSE with no ``done`` and could hang the client). The generator now emits a
+    # generic apology token + a ``done`` frame and returns cleanly, so the stream
+    # completes (200) instead of surfacing the ConnectionError to the consumer.
+    resp = client.post("/api/assistant/chat/?message=hello", headers=h)
+    assert resp.status_code == 200, resp.text
+    assert "event: done" in resp.text  # stream terminated cleanly, not truncated
 
-    # Pre-flight reserved 1; the finally block released it → back to 0.
+    # The real invariant: pre-flight reserved 1; the finally block released it → 0,
+    # so a failed turn doesn't permanently burn a daily slot.
     assert _usage_requests(session_factory, uid) == 0
     assistant_router.assistant_service.agents.pop(uid, None)
 

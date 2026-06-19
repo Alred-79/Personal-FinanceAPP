@@ -12,9 +12,7 @@ tracebacks.
 """
 
 from server.src.mcp import policy, vault
-from server.src.mcp.policy import PolicyError
 from server.src.mcp.server import get_principal, mcp
-from server.src.mcp.vault import VaultError
 
 
 def _call(scope: str, resource: str, **params):

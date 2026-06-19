@@ -1,0 +1,28 @@
+# Pre-commit hooks (audit L-Part-C). Mirrors the scanners CI runs so issues are
+# caught before push. Conservative baseline — ruff lint (no autofix in CI),
+# black formatting check, and bandit at medium+ severity. Install once with
+# ``./.venv/bin/pre-commit install``.
+#
+# pip-audit is intentionally NOT a pre-commit hook (it needs network + is slow);
+# it runs in CI only.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.18
+    hooks:
+      - id: ruff
+        args: ["--config", "ruff.toml"]
+        files: ^server/src/
+
+  - repo: https://github.com/psf/black
+    rev: 25.9.0
+    hooks:
+      - id: black
+        files: ^server/
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.4
+    hooks:
+      - id: bandit
+        # Medium+ severity only (Low is mostly assert/try-pass noise).
+        args: ["-ll", "-r", "server/src"]
+        pass_filenames: false

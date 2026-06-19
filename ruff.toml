@@ -1,0 +1,28 @@
+# Ruff config (audit L-Part-C). Conservative baseline — introduced report-first so
+# it surfaces real issues without forcing a tree-wide reformat. Black owns
+# formatting; ruff here is the linter only. Tighten the rule set over time.
+target-version = "py313"
+line-length = 88  # match black
+
+# Don't lint generated / vendored / migration scaffolding.
+extend-exclude = [
+    "server/migrations/versions",
+    "client",
+    ".venv",
+    "build",
+    "dist",
+]
+
+[lint]
+# Start with pyflakes (F) + a slice of pycodestyle (E) for real correctness smells
+# (undefined names, unused imports, bare excepts) rather than the full opinionated
+# set — keeps the first run actionable, not a wall of style noise.
+select = ["F", "E9", "E7"]
+ignore = [
+    "E701",  # multiple statements on one line (colon) — common in terse guards here
+    "E731",  # lambda assignment — used intentionally in a couple of tests
+]
+
+[lint.per-file-ignores]
+# Tests intentionally do star-ish fixtures / unused args.
+"server/tests/*" = ["F811", "F401"]

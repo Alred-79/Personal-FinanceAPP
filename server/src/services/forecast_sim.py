@@ -188,7 +188,11 @@ def _conformal_widen(
     # predicted interval (negative when comfortably inside).
     scores = sorted(max(train_low - t, t - train_high) for t in calib_troughs)
     k = len(scores)
-    # Conformal quantile level with the finite-sample (k+1) correction, clamped.
+    # Quantile level over the k conformity scores. NOTE: ``k`` is the number of
+    # *calibration simulation* troughs (``num_sims`` from the calib split), not a
+    # held-out empirical sample count, so this is the simulated analogue of the
+    # split-conformal (k+1)/k inflation — it nudges the level up by one rank to
+    # stay conservative on the finite sim set, clamped to 1.0.
     level = min(1.0, math.ceil((k + 1) * coverage_level) / k)
     q = _percentile_sorted(scores, level)
 

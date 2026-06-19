@@ -387,6 +387,45 @@ class TestSyncModified:
         ).scalars().all()
         assert len(warns2) == 1
 
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_title_only_revisions_at_same_amount_collapse(
+        self, MockPDB, db_session, seed_user, seed_account
+    ):
+        """A bank that micro-revises a title at the SAME amount must not stack an
+        unbounded pile of plaid_revision notices — the dedup ref keys on amount,
+        not the title, so title-only churn collapses to one notice (cleanup:
+        unbounded ref key)."""
+        account_id, token = seed_account
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=[_make_plaid_txn("txn_t", "STARBUCKS #123", 5.00)],
+            modified=[], removed=[], next_cursor="c1",
+        )
+        PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        # Three title-only revisions at the same $5.00 amount.
+        for i, name in enumerate(
+            ["Starbucks #123", "STARBUCKS  123", "Starbucks Coffee"], start=2
+        ):
+            mock_plaid.sync_transactions.return_value = SyncResult(
+                added=[],
+                modified=[_make_plaid_txn("txn_t", name, 5.00)],
+                removed=[], next_cursor=f"c{i}",
+            )
+            PlaidService(db_session).sync_all_tokens(seed_user)
+            db_session.flush()
+
+        warns = db_session.execute(
+            select(NotificationORM).where(
+                NotificationORM.user_id == seed_user.id,
+                NotificationORM.type == "plaid_revision",
+            )
+        ).scalars().all()
+        assert len(warns) == 1  # collapsed, not one-per-title
+
 
 class TestSyncRemoved:
     """sync_transactions removing rows."""
@@ -624,6 +663,22 @@ class TestTokenEncryption:
 
         assert not plaid_crypto.is_encrypted("access-plain")
         assert plaid_crypto.decrypt("access-plain") == "access-plain"
+
+    def test_plaintext_hard_fails_when_required(self, monkeypatch):
+        """With ``plaid_require_encrypted_tokens`` on (post-migration), a plaintext
+        token raises instead of being trusted — closing the legacy path."""
+        from cryptography.fernet import InvalidToken
+
+        from server.src.services import plaid_crypto
+        from server.src.settings import settings
+
+        monkeypatch.setattr(settings, "plaid_require_encrypted_tokens", True)
+        # Encrypted tokens still round-trip with the flag on.
+        stored = plaid_crypto.encrypt("access-sandbox-secret")
+        assert plaid_crypto.decrypt(stored) == "access-sandbox-secret"
+        # A bare plaintext value now hard-fails.
+        with pytest.raises(InvalidToken):
+            plaid_crypto.decrypt("access-plain")
 
     @patch("server.src.services.plaid_service.PlaidClient")
     def test_sync_decrypts_token_for_plaid_call(

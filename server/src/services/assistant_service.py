@@ -513,7 +513,11 @@ class SpendTool(BaseTool):
 
     def _run(self, *args, **kwargs) -> Any:
         with _get_session() as session:
-            return query_spend_summary(session, self.user_id)
+            summary = query_spend_summary(session, self.user_id)
+        # Numeric-only today (no live leak), but route through _safe_for_llm to
+        # hold the "every tool output is scrubbed before Groq" invariant — so a
+        # future field added to the summary can't silently bypass redaction.
+        return _safe_for_llm(summary)
 
 
 class GoalsTool(BaseTool):
@@ -3149,7 +3153,21 @@ class AssistantService:
                 )
                 yield _sse("done", {})
             else:
-                raise e
+                # A non-rate-limit exception raised here would yield a broken SSE
+                # with no ``done`` frame — the client's reader loop ends without
+                # clearing its loading state and may hang. Instead emit a generic
+                # apology as a ``token`` (the client has no ``error`` event type;
+                # it handles ``token``/``done``) and a clean ``done`` so the turn
+                # always terminates. Log the real error server-side.
+                log.error(
+                    "assistant stream failed mid-turn for user %s", user.id,
+                    exc_info=True,
+                )
+                yield _sse(
+                    "token",
+                    "Sorry, something went wrong while answering. Please try again.",
+                )
+                yield _sse("done", {})
         finally:
             # Reconcile the pre-flight reservation in the generator's OWN
             # short-lived session — the endpoint's request ``db`` was for the

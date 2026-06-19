@@ -31,7 +31,7 @@ from ..db.models import Expense as ExpenseORM
 from ..db.models import Income as IncomeORM
 from ..db.models import Notification as NotificationORM
 from ..money import cents_to_dollars
-from .matching import DEFAULT_WINDOW_DAYS, MatchRow, Pairing, find_pairings
+from .matching import MatchRow, Pairing, find_pairings
 
 # A transfer/refund window a little wider than the import-dedup default: a
 # transfer can take a couple of business days to land in the other account, and

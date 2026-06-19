@@ -378,6 +378,16 @@ class EarmarkService:
             raise EarmarkError("goal not found")
         return goal
 
+    @staticmethod
+    def _earmark_dict(r: EarmarkORM) -> dict[str, Any]:
+        return {
+            "id": r.id,
+            "goal_id": r.goal_id,
+            "name": r.name,
+            "amount": cents_to_dollars(int(r.amount_cents or 0)),
+            "amount_cents": int(r.amount_cents or 0),
+        }
+
     def list(self, user_id: int, goal_id: int) -> list[dict[str, Any]]:
         rows = (
             self.db.execute(
@@ -388,16 +398,32 @@ class EarmarkService:
             .scalars()
             .all()
         )
-        return [
-            {
-                "id": r.id,
-                "goal_id": r.goal_id,
-                "name": r.name,
-                "amount": cents_to_dollars(int(r.amount_cents or 0)),
-                "amount_cents": int(r.amount_cents or 0),
-            }
-            for r in rows
-        ]
+        return [self._earmark_dict(r) for r in rows]
+
+    def list_for_goals(
+        self, user_id: int, goal_ids: list[int]
+    ) -> dict[int, list[dict[str, Any]]]:
+        """Earmarks for many goals in ONE query, grouped by ``goal_id``.
+
+        Avoids the N+1 of calling :meth:`list` per goal on ``GET /goals/``. Goals
+        with no earmarks are simply absent from the result (callers default to []).
+        """
+        result: dict[int, list[dict[str, Any]]] = {}
+        if not goal_ids:
+            return result
+        rows = (
+            self.db.execute(
+                select(EarmarkORM).where(
+                    EarmarkORM.user_id == user_id,
+                    EarmarkORM.goal_id.in_(goal_ids),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for r in rows:
+            result.setdefault(int(r.goal_id), []).append(self._earmark_dict(r))
+        return result
 
     def set_earmark(
         self,

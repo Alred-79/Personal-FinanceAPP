@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from typing import Annotated
 
-from server.src.models import Goal as GoalSchema, User, UserInDB
+from server.src.models import Goal as GoalSchema, UserInDB
 from server.src.services.auth_service import AuthService
 from server.src.db.session import get_db
 from server.src.db.models import Goal as GoalORM
@@ -51,10 +51,14 @@ def get_goals(
     from server.src.services.behavioral import EarmarkService
 
     earmark_svc = EarmarkService(db)
+    # One query for ALL goals' earmarks instead of one per goal (was N+1).
+    earmarks_by_goal = earmark_svc.list_for_goals(
+        current_user.id, [g.id for g in goals]
+    )
     out = []
     for g in goals:
         d = _goal_to_dict(g)
-        d["earmarks"] = earmark_svc.list(current_user.id, g.id)
+        d["earmarks"] = earmarks_by_goal.get(g.id, [])
         out.append(d)
     return out
 

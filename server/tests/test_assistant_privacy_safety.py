@@ -147,6 +147,29 @@ def test_assistant_service_wires_the_firewall_and_redaction():
     assert "is_crisis" in src
 
 
+def test_spend_tool_output_is_scrubbed_before_llm(monkeypatch):
+    """Cleanup: SpendTool's output must route through ``_safe_for_llm`` so a
+    high-risk token in the summary can't reach Groq unscrubbed (it previously
+    returned the raw query result)."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _fake_session():
+        yield None  # the tool's session is unused once the query is patched
+
+    monkeypatch.setattr(svc_mod, "_get_session", _fake_session)
+    # The summary is numeric today, but inject a high-risk token to prove the
+    # scrub runs on whatever the query returns.
+    monkeypatch.setattr(
+        svc_mod, "query_spend_summary",
+        lambda session, user_id: {"note": "ssn 123-45-6789", "spent": 42.0},
+    )
+    out = svc_mod.SpendTool(user_id=1)._run()
+    assert "123-45-6789" not in str(out)
+    assert "[REDACTED_SSN]" in str(out)
+    assert out["spent"] == 42.0  # ordinary numeric fields pass through
+
+
 _ADVICE_OUTPUTS = [
     "You should invest in an index fund right now.",
     "I recommend you refinance your mortgage.",

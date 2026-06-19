@@ -94,8 +94,19 @@ def decrypt(stored: str) -> str:
     syncs — such a value is returned unchanged. A prefixed value that fails to
     decrypt (wrong key / tampering) raises ``InvalidToken`` so the failure is
     loud, never a silent wrong-token call to Plaid.
+
+    Once migration is complete, set ``plaid_require_encrypted_tokens=True`` to
+    HARD-FAIL on any remaining plaintext token instead of trusting it — closing
+    the legacy path so a plaintext credential can never be used post-migration.
     """
     if not is_encrypted(stored):
+        if getattr(settings, "plaid_require_encrypted_tokens", False):
+            # Migration is declared complete: a plaintext token here is a bug or
+            # a tampered row, not an expected pre-migration value. Fail loud.
+            raise InvalidToken(
+                "Plaintext Plaid token encountered while "
+                "plaid_require_encrypted_tokens is enabled."
+            )
         # Legacy plaintext (pre-migration) — return as-is. The one-shot migration
         # encrypts these; until then we must not break sync.
         return stored

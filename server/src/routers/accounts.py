@@ -68,6 +68,48 @@ async def get_accounts(
     return [_account_to_dict(a) for a in accounts]
 
 
+@router.get("/all/transactions/")
+async def get_all_account_transactions(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """Every account's transactions in ONE response, grouped by ``account_id``.
+
+    Lets the client load all accounts + their transactions without an N+1
+    (one ``/accounts/{id}/transactions`` call per account). Two queries total —
+    all of the user's expenses and income, scoped to accounts the user owns —
+    instead of 2·N. Declared BEFORE the ``/{id}/...`` routes so the literal
+    ``all`` segment is matched as this route, not parsed as an ``id``.
+    """
+    account_ids = (
+        db.execute(
+            select(AccountORM.id).where(AccountORM.user_id == current_user.id)
+        )
+        .scalars()
+        .all()
+    )
+    grouped: dict[int, list[dict]] = {aid: [] for aid in account_ids}
+    if not account_ids:
+        return grouped
+    expenses = db.execute(
+        select(ExpenseORM).where(ExpenseORM.account_id.in_(account_ids))
+    ).scalars().all()
+    income = db.execute(
+        select(IncomeORM).where(IncomeORM.account_id.in_(account_ids))
+    ).scalars().all()
+    for e in expenses:
+        grouped.setdefault(int(e.account_id), []).append(
+            _transaction_to_dict(e, "expense")
+        )
+    for i in income:
+        grouped.setdefault(int(i.account_id), []).append(
+            _transaction_to_dict(i, "income")
+        )
+    return grouped
+
+
 @router.get("/{id}/")
 async def get_account(
     id: int,

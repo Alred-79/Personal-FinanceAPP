@@ -510,3 +510,51 @@ class TestTransfers:
         )
         assert resp.status_code == 422
         assert "synced" in resp.json()["detail"]
+
+
+class TestBulkAccountTransactions:
+    """GET /accounts/all/transactions/ — every account's txns in one call (N+1 fix)."""
+
+    def test_returns_transactions_grouped_by_account(self, client, db_session):
+        headers = _auth_header(client)
+        _create_account(client, headers, name="A", balance=100.00)
+        _create_account(client, headers, name="B", balance=200.00)
+        accts = db_session.execute(select(AccountORM)).scalars().all()
+        a, b = accts[0], accts[1]
+        db_session.add_all([
+            ExpenseORM(title="Lunch", amount=1500, date="2026-01-15",
+                       category="Food", account_id=a.id),
+            IncomeORM(title="Pay", amount=500000, date="2026-01-01",
+                      category="Work", account_id=a.id),
+            ExpenseORM(title="Gas", amount=4000, date="2026-01-20",
+                       category="Auto", account_id=b.id),
+        ])
+        db_session.commit()
+
+        resp = client.get("/api/accounts/all/transactions/", headers=headers)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        # Keyed by account id (JSON object keys are strings).
+        assert {t["title"] for t in body[str(a.id)]} == {"Lunch", "Pay"}
+        assert [t["title"] for t in body[str(b.id)]] == ["Gas"]
+
+    def test_empty_account_present_with_empty_list(self, client, db_session):
+        headers = _auth_header(client)
+        _create_account(client, headers, name="Solo", balance=10.00)
+        acct = db_session.execute(select(AccountORM)).scalar_one()
+        resp = client.get("/api/accounts/all/transactions/", headers=headers)
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {str(acct.id): []}
+
+    def test_does_not_leak_other_users_transactions(self, client, db_session):
+        headers = _auth_header(client)
+        _create_account(client, headers, name="Mine", balance=10.00)
+        mine = db_session.execute(select(AccountORM)).scalar_one()
+        db_session.add(ExpenseORM(title="Mine-tx", amount=100, date="2026-01-01",
+                                  category="X", account_id=mine.id))
+        db_session.commit()
+
+        other = _auth_header(client, username="other2", email="other2@x.com")
+        resp = client.get("/api/accounts/all/transactions/", headers=other)
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {}  # other user owns no accounts here

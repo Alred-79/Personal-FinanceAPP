@@ -273,7 +273,6 @@ def _has_slack(db: Session, user: UserInDB, as_of: date) -> bool:
     i.e. there is room to offer an optional 'Elite' route. Conservative: any
     error → no slack (no fork)."""
     try:
-        from .stats import StatsService  # reuses discretionary baseline math
         from .baselines import total_spend_baseline
 
         base = total_spend_baseline(db, user.id, as_of)

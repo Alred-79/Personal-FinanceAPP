@@ -147,7 +147,6 @@ class NotificationService:
             by_category.setdefault(r.category, []).append(r)
 
         for category, items in by_category.items():
-            amounts = [cents_to_dollars(i.amount) for i in items]
             for item in items:
                 amount = cents_to_dollars(item.amount)
                 history = [

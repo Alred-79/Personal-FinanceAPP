@@ -130,7 +130,6 @@ class GraceService:
     def evaluate(self, user: UserInDB, day: date) -> GraceSignals:
         from .baselines import income_baseline
         from server.src.services.spend_service import SpendService
-        from server.src.services.forecast_service import ForecastService
 
         # The thresholds in effect — baseline, or WIDENED under neurodivergent_mode
         # (B4-gated). Widening only ever eases targets sooner (soft-land); it never

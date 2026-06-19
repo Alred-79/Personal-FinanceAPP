@@ -10,7 +10,6 @@ This module does NOT interpret the sign; the callers (PlaidService) do that.
 import plaid
 from dataclasses import dataclass, field
 from plaid.api import plaid_api
-from typing import List
 from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.products import Products
 from plaid.model.country_code import CountryCode
