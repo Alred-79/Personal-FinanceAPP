@@ -15,6 +15,7 @@ import Tax from "./pages/Tax/Tax.tsx";
 import Login from "./pages/Login/Login.tsx";
 import Landing from "./pages/Landing/Landing.tsx";
 import Settings from "./pages/Settings/Settings.tsx";
+import Rules from "./pages/Rules/Rules.tsx";
 import Keeper from "./pages/Keeper/Keeper.tsx";
 import Debts from "./pages/Debts/Debts.tsx";
 import Campaigns from "./pages/Campaigns/Campaigns.tsx";
@@ -60,6 +61,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/goals" element={<Goals />} />
               <Route path="/budgets" element={<Budgets />} />
               <Route path="/subscriptions" element={<Subscriptions />} />
+              <Route path="/rules" element={<Rules />} />
               <Route path="/forecast" element={<Forecast />} />
               <Route path="/reconcile" element={<Reconcile />} />
               {/* The Tax Organizer route exists in every instance; the page

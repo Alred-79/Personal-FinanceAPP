@@ -150,6 +150,32 @@ async def update_rule(
     return _to_dict(row)
 
 
+class RulePauseIn(BaseModel):
+    enabled: bool
+
+
+@router.patch("/{rule_id}/")
+async def set_rule_enabled(
+    rule_id: int,
+    body: RulePauseIn,
+    current_user: Annotated[UserInDB, Depends(AuthService.get_current_active_user)],
+    db: Session = Depends(get_db),
+):
+    """Pause or resume a rule (W9 management surface).
+
+    A dedicated toggle so the management UI can pause ANY rule — including the
+    auto-created W4/W5/W7 rules whose full shape the user never typed — without
+    re-submitting (and re-validating) the whole definition. Pause takes effect
+    immediately: ``RuleEngine`` reads ``enabled == 1`` live from the DB on every
+    transaction and is constructed per batch, so flipping this column IS the
+    cache invalidation — there is no separate rule-firing cache to clear.
+    """
+    row = _own_rule(rule_id, current_user.id, db)
+    row.enabled = int(body.enabled)
+    db.flush()
+    return _to_dict(row)
+
+
 @router.delete("/{rule_id}/")
 async def delete_rule(
     rule_id: int,

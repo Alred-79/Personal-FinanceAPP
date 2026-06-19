@@ -12,6 +12,7 @@ import {
   Shield,
   Swords,
   Map,
+  ScrollText,
   type LucideIcon,
 } from "lucide-react";
 
@@ -48,6 +49,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/goals", label: "Goals", termKey: "nav.goals", icon: Target, folio: "V", group: "ledger" },
   { to: "/forecast", label: "Forecast", termKey: "nav.forecast", icon: TrendingUp, folio: "VI", group: "ledger" },
   { to: "/subscriptions", label: "Standing Orders", termKey: "nav.subscriptions", icon: Repeat, folio: "VII", group: "tools" },
+  { to: "/rules", label: "Rule Book", termKey: "nav.rules", icon: ScrollText, folio: "XIV", group: "tools" },
   { to: "/reconcile", label: "Reconciliation Desk", termKey: "nav.reconcile", icon: FileUp, folio: "XII", group: "tools" },
   { to: "/tax", label: "Tax Organizer", termKey: "nav.tax", icon: Receipt, folio: "XIII", taxOnly: true, group: "tools" },
   { to: "/keeper", label: "Profile & Progress", termKey: "nav.keeper", icon: Shield, folio: "IX", gameOnly: true, group: "game" },

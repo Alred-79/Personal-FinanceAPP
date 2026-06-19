@@ -254,6 +254,31 @@ class TestIdempotencyAndOrdering:
         )
         assert [e.rule_id for e in execs] == [high.id, low.id]
 
+    def test_pause_stops_firing_immediately(self, db_session, rule_user):
+        """W9: pausing a rule (enabled=0) must stop it firing on the NEXT
+        evaluation — no stale rule cache. The engine reads ``enabled == 1`` live
+        from the DB on every transaction and is constructed per batch, so there is
+        no firing cache to go stale; flipping ``enabled`` is the invalidation."""
+        user, _, goal = rule_user
+        rule = _mk_rule(db_session, user, "allocate", {"amount": 1.0}, goal=goal)
+
+        # Fires while enabled.
+        execs = RuleEngine(db_session).run_on_transaction(
+            user.id, "expense", 30, TX(id=30)
+        )
+        assert len(execs) == 1
+        assert goal.progress == 100
+
+        # Pause it. The very next transaction must not fire — even reusing the
+        # SAME engine instance (the only per-engine cache is the threshold lookup,
+        # which does not gate firing).
+        rule.enabled = 0
+        db_session.flush()
+        engine = RuleEngine(db_session)
+        execs2 = engine.run_on_transaction(user.id, "expense", 31, TX(id=31))
+        assert execs2 == []
+        assert goal.progress == 100  # unchanged — the paused rule did nothing
+
 
 class TestAutoExecuteThreshold:
     """Pillar 2B — the bounded auto-execute lane.

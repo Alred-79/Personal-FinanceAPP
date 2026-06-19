@@ -16,6 +16,7 @@ from server.src.db.models import (
     Account as AccountORM,
     Expense as ExpenseORM,
     Income as IncomeORM,
+    Notification as NotificationORM,
     Token as TokenORM,
     User as UserORM,
 )
@@ -326,6 +327,65 @@ class TestSyncModified:
         # Bank owns amount; user owns category.
         assert expenses[0].amount == dollars_to_cents(4.50)
         assert expenses[0].category == "Coffee"
+
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_sync_modified_warns_on_overwrite(
+        self, MockPDB, db_session, seed_user, seed_account
+    ):
+        """W9 / assessment P1 #6: a Plaid modify that changes a bank-authoritative
+        field (amount/title) must not silently revert a user edit. The bank stays
+        the source of truth (we don't drop the new value), but the user gets one
+        idempotent ``plaid_revision`` warning so they can re-check it."""
+        account_id, token = seed_account
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=[_make_plaid_txn("txn_warn", "Coffee Shop", 5.00)],
+            modified=[], removed=[], next_cursor="c1",
+        )
+        PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        # Plaid revises the amount on a modify.
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=[],
+            modified=[_make_plaid_txn("txn_warn", "Coffee Shop", 7.50)],
+            removed=[], next_cursor="c2",
+        )
+        PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        # The bank's value is shown (not dropped)…
+        expenses = db_session.execute(select(ExpenseORM)).scalars().all()
+        assert len(expenses) == 1
+        assert expenses[0].amount == dollars_to_cents(7.50)
+
+        # …and exactly one warning was surfaced.
+        warns = db_session.execute(
+            select(NotificationORM).where(
+                NotificationORM.user_id == seed_user.id,
+                NotificationORM.type == "plaid_revision",
+            )
+        ).scalars().all()
+        assert len(warns) == 1
+        assert "revised" in warns[0].title.lower()
+
+        # Re-syncing the SAME revision must not stack a duplicate warning.
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=[],
+            modified=[_make_plaid_txn("txn_warn", "Coffee Shop", 7.50)],
+            removed=[], next_cursor="c3",
+        )
+        PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+        warns2 = db_session.execute(
+            select(NotificationORM).where(
+                NotificationORM.user_id == seed_user.id,
+                NotificationORM.type == "plaid_revision",
+            )
+        ).scalars().all()
+        assert len(warns2) == 1
 
 
 class TestSyncRemoved:

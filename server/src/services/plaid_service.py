@@ -23,6 +23,7 @@ from server.src.db.models import (
     Account as AccountORM,
     Expense as ExpenseORM,
     Income as IncomeORM,
+    Notification as NotificationORM,
     Token as TokenORM,
 )
 from server.src.money import cents_to_dollars, dollars_to_cents
@@ -809,8 +810,13 @@ class PlaidService:
                     )
                     count += 1
                 elif expense:
-                    expense.title = _clean_title(txn["name"])
-                    expense.amount = dollars_to_cents(float(amount))
+                    new_title = _clean_title(txn["name"])
+                    new_amount = dollars_to_cents(float(amount))
+                    self._warn_if_overwriting(
+                        user_id, expense, new_title, new_amount, plaid_txn_id
+                    )
+                    expense.title = new_title
+                    expense.amount = new_amount
                     expense.date = str(txn["date"])
                     expense.category = category
                     count += 1
@@ -844,8 +850,13 @@ class PlaidService:
                     )
                     count += 1
                 elif income:
-                    income.title = _clean_title(txn["name"])
-                    income.amount = dollars_to_cents(-float(amount))
+                    new_title = _clean_title(txn["name"])
+                    new_amount = dollars_to_cents(-float(amount))
+                    self._warn_if_overwriting(
+                        user_id, income, new_title, new_amount, plaid_txn_id
+                    )
+                    income.title = new_title
+                    income.amount = new_amount
                     income.date = str(txn["date"])
                     income.category = category
                     count += 1
@@ -863,6 +874,66 @@ class PlaidService:
                     count += 1
 
         return count
+
+    def _warn_if_overwriting(
+        self,
+        user_id: int | None,
+        row,
+        new_title: str,
+        new_amount_cents: int,
+        plaid_txn_id: str,
+    ) -> None:
+        """Warn the user when Plaid revises a bank-authoritative field (P1 #6).
+
+        The category is already protected on modify (a learned rename wins via the
+        categorizer). Amount/date/title stay bank-authoritative — Plaid IS the
+        source of truth for the money and the bank's description — so we do **not**
+        hard-drop the new Plaid data. But a user who manually corrected a title or
+        amount would otherwise see it silently reverted (assessment P1 #6). So when
+        an existing row's title or amount actually changes on a modify, we emit one
+        idempotent ``plaid_revision`` notification telling them their bank revised a
+        transaction and to re-check it — surfacing the change and letting them
+        decide which value is right rather than reverting in silence.
+
+        Idempotent by a stable ref keyed on the txn + the new value, so re-syncing
+        the same revision doesn't stack duplicate warnings, while a *later*,
+        different revision still gets its own warning.
+        """
+        if user_id is None:
+            return
+        title_changed = (row.title or "") != new_title
+        amount_changed = (row.amount or 0) != new_amount_cents
+        if not (title_changed or amount_changed):
+            return
+        ref = f"plaid_revision:{plaid_txn_id}:{new_title}:{new_amount_cents}"
+        exists = self.db.execute(
+            select(NotificationORM.id).where(
+                NotificationORM.user_id == user_id,
+                NotificationORM.ref == ref,
+            )
+        ).scalar_one_or_none()
+        if exists is not None:
+            return
+        old_dollars = cents_to_dollars(abs(row.amount or 0))
+        new_dollars = cents_to_dollars(abs(new_amount_cents))
+        if amount_changed:
+            detail = (
+                f"changed from ${old_dollars:,.2f} to ${new_dollars:,.2f}"
+            )
+        else:
+            detail = f"renamed to “{new_title}”"
+        self.db.add(
+            NotificationORM(
+                user_id=user_id,
+                type="plaid_revision",
+                title="Your bank revised a transaction",
+                message=(
+                    f"“{row.title}” was {detail} by your bank. If you'd edited it "
+                    f"yourself, re-check it — your bank's version is now shown."
+                ),
+                ref=ref,
+            )
+        )
 
     def _process_removed(
         self,
