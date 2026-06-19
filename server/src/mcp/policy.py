@@ -2,18 +2,21 @@
 
 Pure functions, no network surface.  Every method is independently testable.
 
-Token type isolation
+Token isolation (L3)
 ~~~~~~~~~~~~~~~~~~~~
-Three distinct ``typ`` claims now exist in the system:
+Each token family now signs with its OWN HKDF-derived key and carries a distinct
+``aud``/``iss`` (see ``server/src/services/token_keys.py``), on top of the older
+``typ`` discriminator:
 
-* **``None`` (absent)** — auth access tokens (validated by ``AuthService``).
-* **``"assistant_action"``** — action-confirm tokens (validated by ``ActionService``).
-* **``"mcp_capability"``** — capability tokens (validated here).
+* **session** — auth access tokens (``aud="session"``, validated by ``AuthService``).
+* **assistant_action** — action-confirm tokens (validated by ``ActionService``).
+* **mcp** — capability tokens (``typ="mcp_capability"``, validated here).
 
-``verify_capability`` rejects any token whose ``typ`` is not
-``"mcp_capability"``, so an auth or action token can never be used as a
-capability — and ``ActionService.decode_token`` already rejects anything
-whose ``typ`` is not ``"assistant_action"``, closing the reverse direction.
+``verify_capability`` decodes with the MCP key and REQUIRES ``aud="mcp"``, so an
+auth or action token (different key + different audience) fails verification at
+the signature/audience stage — and the residual ``typ`` check is the
+defense-in-depth backstop for a token that somehow shares the MCP audience.
+``ActionService.decode_token`` mirrors this for the action family.
 """
 
 import secrets
@@ -22,6 +25,7 @@ from datetime import datetime, timedelta, timezone
 import jwt
 
 from server.src.mcp.principal import Principal
+from server.src.services import token_keys
 from server.src.settings import settings
 
 
@@ -86,8 +90,10 @@ def issue_capability(principal: Principal, scopes: list[str]) -> str:
         "exp": datetime.now(timezone.utc)
         + timedelta(seconds=settings.mcp_capability_ttl_seconds),
     }
-    return jwt.encode(
-        payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+    # L3: MCP HKDF key + aud, so a capability token can't satisfy the session or
+    # action audience even with the shared master secret.
+    return token_keys.encode(
+        payload, purpose=token_keys.AUD_MCP, audience=token_keys.AUD_MCP
     )
 
 
@@ -100,10 +106,8 @@ def verify_capability(token: str) -> dict:
     * ``jwt.PyJWTError`` for tampered / invalid tokens.
     """
     try:
-        payload = jwt.decode(
-            token,
-            settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
+        payload = token_keys.decode(
+            token, purpose=token_keys.AUD_MCP, audience=token_keys.AUD_MCP
         )
     except jwt.ExpiredSignatureError:
         raise

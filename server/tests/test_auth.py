@@ -147,6 +147,43 @@ class TestTokenTypeIsolationOnAccessPath:
         ok = client.get("/api/users/me/", headers={"Authorization": f"Bearer {token}"})
         assert ok.status_code == 200
 
+    def test_legacy_raw_secret_token_accepted_during_grace(self, client):
+        """L3 grace window: an access token minted the OLD way (raw secret, no
+        ``aud``) still authenticates while ``jwt_require_aud`` is False, so logins
+        issued before the deploy survive."""
+        _signup(client)
+        client.cookies.clear()
+        legacy = self._signed({"sub": "authuser"})  # raw secret, no aud, no typ
+        resp = client.get(
+            "/api/users/me/", headers={"Authorization": f"Bearer {legacy}"}
+        )
+        assert resp.status_code == 200
+
+    def test_legacy_raw_secret_token_rejected_when_aud_required(
+        self, client, monkeypatch
+    ):
+        """Once the grace window closes (``jwt_require_aud=True``), a legacy
+        raw-secret token is rejected — only the new aud-bearing form is valid."""
+        _signup(client)
+        client.cookies.clear()
+        monkeypatch.setattr(settings, "jwt_require_aud", True)
+        legacy = self._signed({"sub": "authuser"})
+        resp = client.get(
+            "/api/users/me/", headers={"Authorization": f"Bearer {legacy}"}
+        )
+        assert resp.status_code == 401
+
+    def test_new_access_token_still_works_when_aud_required(self, client, monkeypatch):
+        """A freshly-minted (aud-bearing) access token works with the grace window
+        both open and closed."""
+        monkeypatch.setattr(settings, "jwt_require_aud", True)
+        token = _signup(client).json()["access_token"]
+        client.cookies.clear()
+        resp = client.get(
+            "/api/users/me/", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert resp.status_code == 200
+
 
 class TestSingleUserGuard:
     """Step 01 — registration closes after the first account when single_user=True.

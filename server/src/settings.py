@@ -6,6 +6,14 @@ class Settings(BaseSettings):
     groq_api_key: str
     jwt_secret_key: str
     jwt_algorithm: str
+    # L3 — token isolation rollout. Each token family (session / assistant_action /
+    # mcp) now signs with an HKDF-derived per-purpose key and carries a distinct
+    # ``aud``. Short-lived families enforce ``aud`` immediately. SESSION tokens
+    # roll out with a grace window: while this is False, verification ALSO accepts
+    # a legacy access token (signed with the raw secret, no ``aud``) so in-flight
+    # logins survive the deploy. Flip to True once all legacy access tokens have
+    # expired (>= access_token_expire_minutes after deploy) to hard-enforce.
+    jwt_require_aud: bool = False
     tavily_api_key: str
     plaid_client_id: str
     plaid_client_secret: str

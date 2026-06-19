@@ -148,18 +148,24 @@ def test_wrong_secret_key_rejected():
 # ---------------------------------------------------------------------------
 
 def test_auth_access_token_rejected_as_capability():
-    """A plain auth access token (no ``typ`` or ``typ`` absent) must fail."""
+    """A plain auth access token must fail ``verify_capability``.
+
+    L3: each family now signs with its OWN HKDF key and a distinct ``aud``, so a
+    token minted with the raw secret for the session audience fails capability
+    verification at the signature/audience stage (a PyJWTError) — a strictly
+    stronger rejection than the old ``typ``-only check."""
     payload = {
         "sub": "alice",
         "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
     }
     token = jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
-    with pytest.raises(PolicyError, match="not a capability token"):
+    with pytest.raises(jwt.PyJWTError):
         verify_capability(token)
 
 
 def test_action_token_rejected_as_capability():
-    """An ``assistant_action`` token must fail ``verify_capability``."""
+    """An ``assistant_action`` token must fail ``verify_capability`` (wrong aud +
+    wrong signing key under L3)."""
     from server.src.services.assistant_service import ActionService
 
     action_token = ActionService.make_token(
@@ -167,17 +173,36 @@ def test_action_token_rejected_as_capability():
         action="add_goal",
         params={"name": "test", "amount": 100, "date": "2026-12-31"},
     )
-    with pytest.raises(PolicyError, match="not a capability token"):
+    with pytest.raises(jwt.PyJWTError):
         verify_capability(action_token)
 
 
 def test_capability_token_rejected_as_action_token():
-    """A capability token must fail ``ActionService.decode_token``."""
+    """A capability token must fail ``ActionService.decode_token`` (the action leaf
+    wraps the PyJWT signature/audience failure as ActionError)."""
     from server.src.services.assistant_service import ActionError, ActionService
 
     cap_token = issue_capability(_PRINCIPAL, ["transactions:read"])
-    with pytest.raises(ActionError, match="Not an action-confirmation token"):
+    with pytest.raises(ActionError):
         ActionService.decode_token(cap_token)
+
+
+def test_wrong_typ_with_correct_audience_still_rejected():
+    """Defense-in-depth: even a token correctly signed with the MCP key + aud but
+    carrying the wrong ``typ`` is rejected (the ``typ`` check survives L3)."""
+    from server.src.services import token_keys
+
+    forged = token_keys.encode(
+        {
+            "uid": 1,
+            "typ": "not_a_capability",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=1),
+        },
+        purpose=token_keys.AUD_MCP,
+        audience=token_keys.AUD_MCP,
+    )
+    with pytest.raises(PolicyError, match="not a capability token"):
+        verify_capability(forged)
 
 
 # ---------------------------------------------------------------------------

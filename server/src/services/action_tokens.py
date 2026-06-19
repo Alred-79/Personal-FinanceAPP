@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 
-from ..settings import settings
+from . import token_keys
 
 # The token ``typ`` discriminator. An auth access token and an action-confirm
 # token are both JWTs signed with the same secret; this field is what makes them
@@ -60,8 +60,10 @@ def make_token(user_id: int, action: str, params: dict) -> str:
         "params": params,
         "exp": datetime.now(timezone.utc) + ACTION_TOKEN_TTL,
     }
-    return jwt.encode(
-        payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+    # L3: signed with the assistant-action HKDF key + aud, so this token can never
+    # satisfy the session or MCP audience even though the master secret is shared.
+    return token_keys.encode(
+        payload, purpose=token_keys.AUD_ACTION, audience=token_keys.AUD_ACTION
     )
 
 
@@ -73,10 +75,8 @@ def decode_token(token: str) -> dict:
     substituted for an action-confirm token).
     """
     try:
-        payload = jwt.decode(
-            token,
-            settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
+        payload = token_keys.decode(
+            token, purpose=token_keys.AUD_ACTION, audience=token_keys.AUD_ACTION
         )
     except jwt.ExpiredSignatureError:
         raise ActionTokenError(

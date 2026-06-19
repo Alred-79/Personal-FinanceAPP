@@ -313,16 +313,17 @@ class TestToolDispatch:
     @pytest.mark.asyncio
     async def test_user_id_comes_from_principal_not_args(self, monkeypatch):
         """user_id in the capability token must match the principal — never a tool arg."""
-        import jwt
         from fastmcp import Client
         import server.src.mcp.vault as vault_mod
-        from server.src.settings import settings
+        from server.src.services import token_keys
 
         seen_uid = []
 
         def fake_read(cap_token, resource, **params):
-            payload = jwt.decode(
-                cap_token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+            # L3: capability tokens are signed with the MCP HKDF key + aud, so
+            # decode with the MCP purpose (not the raw secret).
+            payload = token_keys.decode(
+                cap_token, purpose=token_keys.AUD_MCP, audience=token_keys.AUD_MCP
             )
             seen_uid.append(int(payload["uid"]))
             return []

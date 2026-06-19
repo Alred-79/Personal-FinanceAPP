@@ -27,6 +27,7 @@ from server.src.db.models import User as UserORM
 from server.src.db.session import get_db
 from server.src.logging_context import set_user_id
 from server.src.models import NewUser, TokenData, UserInDB
+from server.src.services import token_keys
 from server.src.settings import settings
 
 # ---------------------------------------------------------------------------
@@ -48,6 +49,31 @@ _PASSWORD_PATTERN = re.compile(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _decode_access_token(access: str) -> dict:
+    """Decode + verify a session access token (L3).
+
+    New tokens are signed with the session HKDF key and carry ``aud="session"``.
+    During the rollout grace window (``jwt_require_aud`` False) a legacy token —
+    signed with the raw secret and lacking ``aud`` — is still accepted so logins
+    issued before the deploy don't break; once those have expired, set
+    ``jwt_require_aud=True`` to require the new form. Raises ``InvalidTokenError``
+    (PyJWT) when neither path validates; the caller maps that to 401.
+    """
+    try:
+        return token_keys.decode(
+            access, purpose=token_keys.AUD_SESSION, audience=token_keys.AUD_SESSION
+        )
+    except jwt.PyJWTError:
+        if settings.jwt_require_aud:
+            raise  # grace window closed — only the new aud-bearing form is valid
+        # Legacy fallback: pre-L3 access token (raw secret, no aud). Note this path
+        # does NOT bind an audience, so the typ defense-in-depth check downstream
+        # remains the cross-family guard for these old tokens until they expire.
+        return jwt.decode(
+            access, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+        )
+
 
 def _to_user_in_db(user: Any) -> UserInDB:
     """Map an ORM User row to the pydantic UserInDB downstream routers expect."""
@@ -178,7 +204,13 @@ class AuthService:
         # same second (same sub + same exp would otherwise collide byte for
         # byte, e.g. a login immediately followed by a refresh).
         to_encode.update({"exp": expire, "jti": uuid4().hex})
-        return jwt.encode(to_encode, self.SECRET_KEY, algorithm=self.ALGORITHM)
+        # L3: sign session tokens with the session HKDF key + ``aud="session"`` so
+        # they're isolated from the action/MCP families. ``token_keys.encode``
+        # stamps ``aud``/``iss``. Legacy verification accepts the pre-L3 raw-secret
+        # token during the grace window (see ``get_current_user``).
+        return token_keys.encode(
+            to_encode, purpose=token_keys.AUD_SESSION, audience=token_keys.AUD_SESSION
+        )
 
     # -- Refresh tokens -----------------------------------------------------
 
@@ -365,9 +397,7 @@ class AuthService:
             raise credentials_exception
 
         try:
-            payload = jwt.decode(
-                access, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
-            )
+            payload = _decode_access_token(access)
             # Defense-in-depth (assessment P2): the access path is identified by
             # ``sub`` and historically ignored ``typ``. Reject any token carrying
             # a NON-access ``typ`` (an assistant-action or MCP-capability token)
