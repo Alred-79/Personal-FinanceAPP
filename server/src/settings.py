@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     plaid_client_id: str
     plaid_client_secret: str
     plaid_environment: str
+    # L1 — inbound webhooks. The publicly reachable HTTPS URL Plaid POSTs webhooks
+    # to (e.g. https://<host>/api/plaid/webhook). When set, it's registered on the
+    # item at link time; when None (local dev — Plaid can't reach localhost) the
+    # app stays poll-only and the webhook endpoint simply receives nothing.
+    plaid_webhook_url: str | None = None
+    # Rate limit for the public webhook endpoint (Plaid can burst; bounds abuse).
+    plaid_webhook_rate_limit: str = "120/minute"
     # --- Plaid access-token encryption at rest (Step 08) ---
     # The Plaid access token grants read access to the user's real bank, so it
     # is encrypted (Fernet) before it touches the DB. Supply an explicit Fernet

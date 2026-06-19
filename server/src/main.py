@@ -195,6 +195,12 @@ async def oauth_protected_resource():
 # Postgres). The dependency also asserts auth, so an accidentally-public route on
 # an authed router would fail loudly in the suite.
 primary.include_router(auth_router)
+# L1: the Plaid inbound-webhook endpoint is PUBLIC (Plaid calls it with no user
+# session) and verifies a signature itself — register it without the tenant
+# dependency, like auth_router. The GET catch-all won't shadow this POST.
+from server.src.routers.plaid_webhook import router as plaid_webhook_router
+
+primary.include_router(plaid_webhook_router)
 _tenant_dep = [Depends(get_tenant_db)]
 for _router in (
     plaid_router,

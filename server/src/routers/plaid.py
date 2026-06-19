@@ -71,14 +71,17 @@ async def exchange_public_token(
     db: Session = Depends(get_db),
 ):
     databridge = PlaidClient()
-    access_token = databridge.exchange_public_token(token.public_token)
+    exchange = databridge.exchange_public_token(token.public_token)
+    access_token = exchange.access_token
 
     # Store the access token ENCRYPTED at rest (Step 08). A copied DB file is
-    # ciphertext, not live bank access. Never log the decrypted value.
+    # ciphertext, not live bank access. Never log the decrypted value. Persist the
+    # Plaid item_id (L1) so an inbound webhook can route to this token/user.
     new_token = TokenORM(
         user_id=current_user.id,
         name=token.name,
         key=plaid_crypto.encrypt(access_token),
+        item_id=exchange.item_id,
     )
     db.add(new_token)
     db.flush()  # assign PK

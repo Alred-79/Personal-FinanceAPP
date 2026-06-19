@@ -306,6 +306,11 @@ class Token(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     key: Mapped[str] = mapped_column(String, nullable=False)
     cursor: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # Plaid /transactions/sync cursor
+    # L1: the Plaid item_id, set at exchange time. Inbound webhooks are keyed by
+    # item_id, so this is how a webhook routes to the right token/user. Nullable +
+    # non-unique index: pre-webhook tokens have none (re-link to populate), and the
+    # lookup tolerates 0-or-1.
+    item_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
 
     user = relationship("User", back_populates="tokens")
 

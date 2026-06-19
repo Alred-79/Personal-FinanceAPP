@@ -19,6 +19,12 @@ from plaid.model.item_public_token_exchange_request import (
     ItemPublicTokenExchangeRequest,
 )
 from plaid.model.accounts_balance_get_request import AccountsBalanceGetRequest
+from plaid.model.webhook_verification_key_get_request import (
+    WebhookVerificationKeyGetRequest,
+)
+from plaid.model.sandbox_item_fire_webhook_request import (
+    SandboxItemFireWebhookRequest,
+)
 
 from server.src.settings import settings
 
@@ -36,6 +42,18 @@ class SyncResult:
     modified: list = field(default_factory=list)
     removed: list = field(default_factory=list)
     next_cursor: str = ""
+
+
+@dataclass
+class ExchangeResult:
+    """Result of exchanging a public token: the access token + the Plaid item_id.
+
+    item_id is persisted on the Token (L1) so an inbound webhook — which is keyed
+    by item_id — can route to the right token/user server-side.
+    """
+
+    access_token: str
+    item_id: str
 
 
 @dataclass
@@ -81,7 +99,7 @@ class PlaidClient:
         Returns:
             str: The link token to be used on the client side
         """
-        request = LinkTokenCreateRequest(
+        kwargs = dict(
             user=LinkTokenCreateRequestUser(client_user_id=user_id),
             client_name="Finance-Tracker",
             products=[
@@ -90,18 +108,61 @@ class PlaidClient:
             country_codes=[CountryCode("US")],  # List of supported country codes
             language="en",  # Language for the Link interface
         )
+        # L1: register the inbound-webhook URL on the item at link time so Plaid
+        # delivers SYNC_UPDATES_AVAILABLE / ITEM_LOGIN_REQUIRED / … to us. Only when
+        # configured (a publicly reachable HTTPS URL); unset in local dev keeps
+        # today's poll-only behavior. Pass the kwarg only when truthy.
+        if getattr(settings, "plaid_webhook_url", None):
+            kwargs["webhook"] = settings.plaid_webhook_url
+        request = LinkTokenCreateRequest(**kwargs)
 
         response = self.client.link_token_create(
             request, _request_timeout=_PLAID_TIMEOUT
         )
         return response["link_token"]
 
-    def exchange_public_token(self, public_token: str) -> str:
+    def exchange_public_token(self, public_token: str) -> ExchangeResult:
         request = ItemPublicTokenExchangeRequest(public_token=public_token)
         response = self.client.item_public_token_exchange(
             request, _request_timeout=_PLAID_TIMEOUT
         )
-        return response["access_token"]
+        return ExchangeResult(
+            access_token=response["access_token"],
+            item_id=response["item_id"],
+        )
+
+    def get_webhook_verification_key(self, key_id: str) -> dict:
+        """Fetch the Plaid webhook verification JWK for *key_id* (L1).
+
+        Plaid's verification keys are served by an AUTHENTICATED API (not a public
+        JWKS URL), keyed by the ``kid`` in the webhook JWT header. Returned as a
+        plain dict (a standard EC P-256 public JWK) for PyJWK.from_dict.
+        """
+        request = WebhookVerificationKeyGetRequest(key_id=key_id)
+        response = self.client.webhook_verification_key_get(
+            request, _request_timeout=_PLAID_TIMEOUT
+        )
+        return response["key"].to_dict()
+
+    def fire_sandbox_webhook(
+        self, access_token: str, webhook_code: str, webhook_type: str = "TRANSACTIONS"
+    ) -> dict:
+        """Trigger a sandbox webhook for an item (dev/test only — L1).
+
+        Plaid can't reach localhost, so end-to-end webhook testing in sandbox uses
+        this to make Plaid POST a webhook to the registered URL.
+        """
+        from plaid.model.webhook_type import WebhookType
+
+        request = SandboxItemFireWebhookRequest(
+            access_token=access_token,
+            webhook_code=webhook_code,
+            webhook_type=WebhookType(webhook_type),
+        )
+        response = self.client.sandbox_item_fire_webhook(
+            request, _request_timeout=_PLAID_TIMEOUT
+        )
+        return response.to_dict()
 
     def get_balance(self, token: str):
         request = AccountsBalanceGetRequest(access_token=token)
