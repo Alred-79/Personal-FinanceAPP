@@ -33,11 +33,58 @@ GRACE_STATE = "grace_state"
 for _t in ("GraceApplied", "GraceLifted"):
     register_event_type(_t, 1)
 
-# Trigger thresholds.
+# Trigger thresholds (the baseline; widened under neurodivergent_mode — see
+# ``grace_params``). These set WHEN Grace eases off; they never change the day's
+# verdict machinery, only how readily a hard month is recognised.
 NEGATIVE_HORIZON_DAYS = 14
 INCOME_FLOOR_RATIO = 0.70  # this month's income < 70% of baseline
 ESSENTIAL_SHOCK_MULTIPLE = 2.0  # a single essential txn > 2x its category baseline
 STS_FLOOR = 0  # Safe-to-Spend below this dollar floor
+
+
+@dataclass(frozen=True)
+class GraceParams:
+    """The deterministic Grace trigger thresholds in effect for an evaluation.
+
+    Pulled out so :data:`neurodivergent_mode` can WIDEN them (detect a hard month
+    sooner / more leniently) without changing any verdict logic. Widening is a
+    SOFT-LAND: a wider threshold means Grace eases targets earlier — it NEVER
+    disables a challenge verdict or voids a streak day. (Challenges are judged by
+    :mod:`challenges` from posted events; Grace only sets ``grace_active`` →
+    GRAY, which is already the pro-player lenient verdict, never a loss.)
+    """
+
+    negative_horizon_days: int = NEGATIVE_HORIZON_DAYS
+    income_floor_ratio: float = INCOME_FLOOR_RATIO
+    essential_shock_multiple: float = ESSENTIAL_SHOCK_MULTIPLE
+    sts_floor: float = STS_FLOOR
+
+
+def grace_params() -> GraceParams:
+    """The Grace thresholds for this run. Baseline by default; WIDENED when
+    ``settings.neurodivergent_mode`` is on (B4-gated — off ⇒ identical to today).
+
+    Widening only ever makes Grace MORE generous (a higher income-floor ratio, a
+    longer negative horizon, a lower essential-shock multiple), so it can add a
+    Grace episode but can NEVER remove one — the soft-land guarantee.
+    """
+    from server.src.settings import settings
+
+    if not settings.neurodivergent_mode:
+        return GraceParams()
+    return GraceParams(
+        negative_horizon_days=max(
+            int(settings.neurodivergent_grace_horizon_days), NEGATIVE_HORIZON_DAYS
+        ),
+        income_floor_ratio=max(
+            float(settings.neurodivergent_grace_income_floor_ratio), INCOME_FLOOR_RATIO
+        ),
+        essential_shock_multiple=min(
+            float(settings.neurodivergent_grace_essential_shock_multiple),
+            ESSENTIAL_SHOCK_MULTIPLE,
+        ),
+        sts_floor=STS_FLOOR,
+    )
 
 
 @dataclass
@@ -85,24 +132,29 @@ class GraceService:
         from server.src.services.spend_service import SpendService
         from server.src.services.forecast_service import ForecastService
 
-        # 1. will_go_negative within 14 days (forecast lowest balance < 0).
-        will_negative = self._will_go_negative(user, day)
+        # The thresholds in effect — baseline, or WIDENED under neurodivergent_mode
+        # (B4-gated). Widening only ever eases targets sooner (soft-land); it never
+        # voids a verdict.
+        params = grace_params()
 
-        # 2. income this month < 70% of baseline.
+        # 1. will_go_negative within the (possibly widened) horizon.
+        will_negative = self._will_go_negative(user, day, params.negative_horizon_days)
+
+        # 2. income this month < floor-ratio of baseline.
         base = income_baseline(self.db, user.id, day)
         month_income = self._month_income_cents(user.id, day)
         income_low = (
             base.monthly_cents > 0
             and not base.low_confidence
-            and month_income < INCOME_FLOOR_RATIO * base.monthly_cents
+            and month_income < params.income_floor_ratio * base.monthly_cents
         )
 
-        # 3. essential-category shock: a single essential txn > 2x its baseline.
-        shock = self._essential_shock(user, day)
+        # 3. essential-category shock: a single essential txn > multiple x baseline.
+        shock = self._essential_shock(user, day, params.essential_shock_multiple)
 
         # 4. Safe-to-Spend below the floor.
         sts = SpendService(self.db).safe_to_spend(user, as_of=day, include_outlook=False)
-        sts_low = float(sts["available"]) < STS_FLOOR
+        sts_low = float(sts["available"]) < params.sts_floor
 
         return GraceSignals(will_negative, income_low, shock, sts_low)
 
@@ -163,15 +215,18 @@ class GraceService:
 
     # ── trigger helpers ───────────────────────────────────────────────────
 
-    def _will_go_negative(self, user: UserInDB, day: date) -> bool:
+    def _will_go_negative(
+        self, user: UserInDB, day: date, horizon_days: int = NEGATIVE_HORIZON_DAYS
+    ) -> bool:
         from server.src.services.forecast_service import ForecastService
 
         try:
             # Scheduled-only (include_burn=False): Grace protects against a
             # genuine scheduled shortfall, keeping its trigger independent of the
-            # discretionary-burn estimate.
+            # discretionary-burn estimate. ``horizon_days`` is widened under
+            # neurodivergent_mode so a slightly-further-out shortfall still eases.
             fc = ForecastService(self.db).forecast(
-                user.id, day, day + timedelta(days=NEGATIVE_HORIZON_DAYS),
+                user.id, day, day + timedelta(days=horizon_days),
                 include_burn=False,
             )
         except Exception:
@@ -197,7 +252,10 @@ class GraceService:
         ).scalar_one()
         return int(total or 0)
 
-    def _essential_shock(self, user: UserInDB, day: date) -> bool:
+    def _essential_shock(
+        self, user: UserInDB, day: date,
+        shock_multiple: float = ESSENTIAL_SHOCK_MULTIPLE,
+    ) -> bool:
         from ...db.models import (
             Expense as ExpenseORM,
             Account as AccountORM,
@@ -230,6 +288,6 @@ class GraceService:
         ).all()
         for amount_cents, category in rows:
             base = category_baseline(self.db, user.id, category, day)
-            if base.monthly_cents > 0 and amount_cents > ESSENTIAL_SHOCK_MULTIPLE * base.monthly_cents:
+            if base.monthly_cents > 0 and amount_cents > shock_multiple * base.monthly_cents:
                 return True
         return False

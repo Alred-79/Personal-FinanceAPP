@@ -58,6 +58,10 @@ class FeatureFlags(BaseModel):
     """
 
     tax_features_enabled: bool
+    # W8 — when on, the client defaults the home surface to the single
+    # "one thing today" next-action view. The endpoint works regardless (B4); this
+    # flag only drives the client's DEFAULTING to it. Instance-level, read-only.
+    neurodivergent_mode: bool
 
 
 class SettingsResponse(BaseModel):
@@ -120,6 +124,7 @@ async def get_settings(
         ),
         features=FeatureFlags(
             tax_features_enabled=app_settings.tax_features_enabled,
+            neurodivergent_mode=app_settings.neurodivergent_mode,
         ),
     )
 

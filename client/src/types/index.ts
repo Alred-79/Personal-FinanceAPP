@@ -99,6 +99,33 @@ export interface Message {
   sources?: AssistantSources;
 }
 
+// W8 — Neurodivergent mode: the unified "one thing today" next action and the
+// soft goal earmark sub-buckets ("visual jars") that render over Goal.progress.
+export type NextActionType =
+  | "bridge_due"
+  | "rule_proposal"
+  | "challenge_ending"
+  | "streak_recovery"
+  | "auditor_finding"
+  | "all_set";
+
+export interface NextAction {
+  has_action: boolean;
+  action_type: NextActionType;
+  entity_id: number | null;
+  copy: string;
+  deep_link: string | null;
+  source: string | null;
+}
+
+export interface Earmark {
+  id: number;
+  goal_id: number;
+  name: string;
+  amount: number; // dollars at the boundary
+  amount_cents: number;
+}
+
 // Notifications and subscriptions
 export interface Notification {
   id: number;

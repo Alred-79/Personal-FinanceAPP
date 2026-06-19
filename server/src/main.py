@@ -58,6 +58,7 @@ from server.src.routers.scenarios import router as scenarios_router
 from server.src.routers.analytics import router as analytics_router
 from server.src.routers.game import router as game_router
 from server.src.routers.assisted_actions import router as assisted_actions_router
+from server.src.routers.next_action import router as next_action_router
 
 # ---------------------------------------------------------------------------
 # MCP surface (ships dark by default: settings.mcp_enabled = False)
@@ -222,6 +223,7 @@ for _router in (
     analytics_router,
     game_router,
     assisted_actions_router,
+    next_action_router,
 ):
     primary.include_router(_router, dependencies=_tenant_dep)
 app.include_router(primary)

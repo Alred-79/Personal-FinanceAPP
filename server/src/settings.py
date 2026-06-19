@@ -201,6 +201,25 @@ class Settings(BaseSettings):
     # licensing guard.
     behavioral_lapsed_days: int = 30
 
+    # W8 — Neurodivergent mode. Positions the real strength (no-break streaks +
+    # grace + no-shame) for an underserved segment. When ON it (a) widens Grace's
+    # deterministic generosity so a hard month is detected sooner / more leniently
+    # (``grace.widened_params``), (b) lowers reminder frequency/noise, and (c)
+    # tells the CLIENT to default to the single "one thing today" surface.
+    #
+    # SHIP-DARK (B4): default False. The ``GET /next-action/`` endpoint ALWAYS
+    # works regardless of this flag — only the client defaulting to the single
+    # surface and the grace widening are gated by it. The grace widening SOFT-LANDS
+    # (eases targets earlier); it NEVER voids a challenge verdict.
+    neurodivergent_mode: bool = False
+    # How much more generous Grace's triggers get under neurodivergent mode. The
+    # income floor ratio rises (a smaller dip in income still triggers easing) and
+    # the negative-balance horizon lengthens (a shortfall further out still
+    # triggers easing). These widen the SOFT-LAND, never disabling any verdict.
+    neurodivergent_grace_income_floor_ratio: float = 0.85  # vs 0.70 baseline
+    neurodivergent_grace_horizon_days: int = 21  # vs 14 baseline
+    neurodivergent_grace_essential_shock_multiple: float = 1.5  # vs 2.0 baseline
+
     # Rate limiting via slowapi. We turn it off in the test suite so repeated
     # login and refresh calls don't trip the limiter.
     #

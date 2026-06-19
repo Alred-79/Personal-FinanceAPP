@@ -44,7 +44,45 @@ def get_goals(
         .scalars()
         .all()
     )
-    return [_goal_to_dict(g) for g in goals]
+    # W8 visual jars: include each goal's W7 (F4) soft earmark sub-buckets so the
+    # client can render named partitions of Goal.progress without a second round
+    # trip. The earmarks are read-only here; they're created/edited via the
+    # behavioral surface (EarmarkService). Empty list when none / flag off.
+    from server.src.services.behavioral import EarmarkService
+
+    earmark_svc = EarmarkService(db)
+    out = []
+    for g in goals:
+        d = _goal_to_dict(g)
+        d["earmarks"] = earmark_svc.list(current_user.id, g.id)
+        out.append(d)
+    return out
+
+
+@router.get("/{goal_id}/earmarks/")
+def get_goal_earmarks(
+    goal_id: int,
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """W8 visual jars — the soft earmark sub-buckets (W7 F4) over a goal's
+    ``Goal.progress``. Read-only; mutations live on the behavioral surface.
+
+    Ownership is enforced by the goal lookup (a foreign/missing goal → 404), so a
+    user can never read another user's earmark partitions.
+    """
+    goal = db.execute(
+        select(GoalORM).where(
+            GoalORM.id == goal_id, GoalORM.user_id == current_user.id
+        )
+    ).scalar_one_or_none()
+    if goal is None:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    from server.src.services.behavioral import EarmarkService
+
+    return {"goal_id": goal_id, "earmarks": EarmarkService(db).list(current_user.id, goal_id)}
 
 
 @router.post("/")
