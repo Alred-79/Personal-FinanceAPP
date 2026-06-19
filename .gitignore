@@ -39,6 +39,5 @@ venv/
 *.db-shm
 *.db-wal
 node_modules_corrupted_2/
-Pipfile.lock
 
 .shots/

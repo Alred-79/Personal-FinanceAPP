@@ -16,7 +16,7 @@ RUN npm run build
 # Output lands in /build/client/dist/
 
 # ── Stage 2: Python runtime ────────────────────────────────────────────────────
-FROM python:3.11-slim AS runtime
+FROM python:3.13-slim AS runtime
 
 WORKDIR /app
 

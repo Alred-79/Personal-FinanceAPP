@@ -49,7 +49,7 @@ pytest-timeout = "*"
 httpx = "*"
 
 [requires]
-python_version = "3.11"
+python_version = "3.13"
 
 [scripts]
 tailwind = "npx tailwindcss -i ./client/src/input.css -o ./client/src/output.css --watch"
