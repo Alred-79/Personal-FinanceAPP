@@ -11,6 +11,12 @@ fastapi-cors = "*"
 pandas = "*"
 groq = "*"
 langchain = "*"
+# The core assistant agent imports from ``langchain_classic`` (the legacy
+# ConversationBufferWindowMemory + create_tool_calling_agent / AgentExecutor that
+# LangChain 1.0 split out of the top-level ``langchain`` package). It is a real,
+# separately-distributed package and is NOT pulled in transitively by ``langchain``
+# 1.3.x, so it must be declared explicitly or a fresh install breaks the assistant.
+langchain-classic = "*"
 langchain_groq = "*"
 pyjwt = "*"
 passlib = "*"
@@ -47,6 +53,10 @@ pytest-asyncio = "*"
 # fails fast instead of hanging the suite. Used as `pytest --timeout=60`.
 pytest-timeout = "*"
 httpx = "*"
+# Property-based tests for the money/forecast invariant layer (server/src/money.py
+# round-tripping, banker's rounding) — generative coverage of edge cases that
+# example-based tests miss.
+hypothesis = "*"
 # Static analysis / supply-chain scanners (audit L-Part-C). Config in ruff.toml
 # and .pre-commit-config.yaml. CI runs ruff + bandit + pip-audit (see
 # .github/workflows/ci.yml). Introduced in report-not-autofix mode — a baseline

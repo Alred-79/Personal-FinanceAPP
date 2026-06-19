@@ -1,5 +1,15 @@
 from pydantic_settings import BaseSettings
+from pydantic import model_validator
 from functools import lru_cache
+
+# Placeholder/dev secrets that must never reach production. The JWT secret is the
+# HKDF master for every token family (session / assistant_action / mcp) and the
+# default Plaid Fernet key, so a weak value compromises the whole token + at-rest
+# crypto surface at once.
+_WEAK_JWT_SECRETS = frozenset(
+    {"", "secret", "changeme", "change-me", "dev", "development", "test", "password"}
+)
+_MIN_JWT_SECRET_LEN = 32
 
 
 class Settings(BaseSettings):
@@ -355,6 +365,14 @@ class Settings(BaseSettings):
     # remembers. These used to be hardcoded inside the assistant service.
     groq_chat_model: str = "llama-3.3-70b-versatile"
     assistant_temperature: float = 0.0
+    # Per-request timeout (seconds) for the chat LLM on the SSE path. Bounds a
+    # provider stall so an agent turn can't hold a request open indefinitely.
+    assistant_request_timeout: float = 30.0
+    # Wall-clock backstop (seconds) for a whole agent turn, which may chain several
+    # LLM + tool calls. Bounds total time so a slow multi-iteration run can't hold
+    # the SSE request open beyond this even if each individual call stays under
+    # ``assistant_request_timeout``.
+    assistant_turn_timeout: float = 120.0
     assistant_memory_window: int = 4
     # --- Context hygiene: cap large tool outputs before they enter agent memory.
     # A "show all transactions" tool call can return up to MAX_TX_LIMIT (500)
@@ -449,6 +467,26 @@ class Settings(BaseSettings):
     mcp_key_default_ttl_days: int = 90
     mcp_capability_ttl_seconds: int = 60
     mcp_context_forecast_days: int = 30
+
+    @model_validator(mode="after")
+    def _validate_jwt_secret(self) -> "Settings":
+        """Reject weak/placeholder JWT secrets. Always hard-fail on a known
+        placeholder; in production additionally require >= 32 chars of entropy.
+        This secret is the HKDF master for every token family, so a guessable
+        value is a single point of total compromise."""
+        secret = self.jwt_secret_key or ""
+        is_prod = self.environment.lower() == "production"
+        if secret.strip().lower() in _WEAK_JWT_SECRETS:
+            raise ValueError(
+                "JWT_SECRET_KEY is a known weak/placeholder value; set a random "
+                "secret (e.g. `python -c \"import secrets;print(secrets.token_urlsafe(48))\"`)."
+            )
+        if is_prod and len(secret) < _MIN_JWT_SECRET_LEN:
+            raise ValueError(
+                f"JWT_SECRET_KEY must be >= {_MIN_JWT_SECRET_LEN} chars in production "
+                f"(got {len(secret)})."
+            )
+        return self
 
     @property
     def cookie_secure(self) -> bool:

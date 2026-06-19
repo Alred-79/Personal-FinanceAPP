@@ -526,6 +526,7 @@ class EarmarkService:
                 rng=random.Random(1729),
             )
         except Exception:  # noqa: BLE001 — advisory must never raise into the action
+            log.warning("balance-dip advisory forecast failed", exc_info=True)
             return None
         if result.get("will_go_negative"):
             return _safe_message(

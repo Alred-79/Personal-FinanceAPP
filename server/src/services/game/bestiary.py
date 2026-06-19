@@ -13,6 +13,8 @@ the name; category words like "streaming" are fine).
 
 from __future__ import annotations
 
+import logging
+
 import hashlib
 import json
 import re
@@ -23,6 +25,8 @@ from sqlalchemy.orm import Session
 
 from ...db.models import LlmCache
 from .firewall import screen_output
+
+log = logging.getLogger(__name__)
 
 BESTIARY_TEMPLATE_VERSION = "v1"
 BESTIARY_MODEL = "llama-3.3-70b-versatile"
@@ -120,6 +124,7 @@ def _generate_uncached(kind, seed_facts, merchant, llm_call) -> dict:
         try:
             entry = json.loads(llm_call(prompt))
         except Exception:
+            log.warning("bestiary entry LLM call/parse failed; retrying", exc_info=True)
             continue
         ok, _reason = validate_entry(entry, seed_facts, merchant)
         if ok:

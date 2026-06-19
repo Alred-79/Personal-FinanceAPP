@@ -18,6 +18,7 @@ DailyService passing grace_active=True).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -27,6 +28,8 @@ from sqlalchemy.orm import Session
 from ...models import UserInDB
 from . import folds as folds_mod
 from .events import GameEventDraft, record_events, register_event_type
+
+log = logging.getLogger(__name__)
 
 GRACE_STATE = "grace_state"
 
@@ -229,6 +232,7 @@ class GraceService:
                 include_burn=False,
             )
         except Exception:
+            log.warning("grace hard-month forecast failed; failing open", exc_info=True)
             return False
         return bool(fc.get("will_go_negative"))
 

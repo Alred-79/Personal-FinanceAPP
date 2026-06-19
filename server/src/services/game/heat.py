@@ -15,6 +15,7 @@ or a goal. The honesty constraints are absolute:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date
 from typing import Optional
@@ -30,6 +31,8 @@ from ...db.models import (
 )
 from ...models import UserInDB
 from .baselines import category_baseline
+
+log = logging.getLogger(__name__)
 
 MONTHLY_HEAT_CAP = 6  # frugality-burnout guard
 MAX_ACTIVE_CONTRACTS = 3
@@ -154,6 +157,10 @@ class HeatService:
                 user.id, as_of, as_of + timedelta(days=30), include_burn=False)
             return bool(fc.get("will_go_negative"))
         except Exception:
+            # Fail open (don't block contract creation on a forecast outage), but
+            # be loud: a persistent failure silently disables the negative-balance
+            # veto for every user.
+            log.warning("heat veto forecast failed; failing open", exc_info=True)
             return False
 
     # ── verification + the capped sweep ─────────────────────────────────────

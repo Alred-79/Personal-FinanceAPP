@@ -51,12 +51,21 @@ export function AccountDialog({ onAccountCreated }: AccountDialogProps) {
       return;
     }
 
+    // Guard the numeric parse: an empty/blank balance yields parseFloat("") → NaN,
+    // which would otherwise be posted to the accounts API (mirrors the guards in
+    // TransactionDialog/TransferDialog).
+    const parsedBalance = parseFloat(balance);
+    if (!balance || Number.isNaN(parsedBalance)) {
+      setError("Please enter a valid starting balance");
+      return;
+    }
+
     try {
       const finalType = type === "other" ? otherType : type;
       await onAccountCreated({
         name,
         type: finalType,
-        balance: parseFloat(balance),
+        balance: parsedBalance,
       });
 
       // Reset form and close dialog

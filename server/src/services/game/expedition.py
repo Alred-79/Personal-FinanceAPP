@@ -17,6 +17,8 @@ same inputs produce a byte-identical snapshot.
 
 from __future__ import annotations
 
+import logging
+
 import hashlib
 import json
 import math
@@ -306,7 +308,7 @@ def _append_boss_node(db: Session, user: UserInDB, nodes: list[MapNode], month_e
             nodes.append(MapNode(kind="boss", day=day, label=boss.name,
                                  bucket=_amount_bucket(boss.principal_cents)))
     except Exception:
-        pass
+        log.warning("expedition boss-node append failed; map marker omitted", exc_info=True)
 
 
 # ── draft & terrain ranking ─────────────────────────────────────────────────
@@ -399,6 +401,8 @@ def mint_prestige(score_normalized: float, green_weeks: int) -> int:
 # ── RunService — draft, overlay, seal/score (the only writer to runs) ───────
 
 from .events import GameEventDraft, record_events, register_event_type  # noqa: E402
+
+log = logging.getLogger(__name__)
 
 for _t in ("RunDrafted", "PrestigeMinted", "ModifierOffered"):
     register_event_type(_t, 1)

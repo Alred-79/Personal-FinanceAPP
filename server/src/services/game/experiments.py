@@ -19,6 +19,8 @@ kill criterion (target money metric vs holdout after a full campaign cycle).
 
 from __future__ import annotations
 
+import logging
+
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -27,6 +29,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...db.models import ExperimentExposure, User as UserORM
+
+log = logging.getLogger(__name__)
 
 HOLDOUT_BUCKETS = 10  # 1 bucket in 10 → 10% holdout
 COHORT_HOLDOUT = "holdout"
@@ -215,7 +219,7 @@ def _seed_from_settings() -> None:
             if name:
                 _KILLED.add(name)
     except Exception:
-        pass
+        log.warning("failed to parse killed_features config", exc_info=True)
 
 
 _seed_from_settings()

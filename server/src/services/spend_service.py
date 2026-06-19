@@ -78,7 +78,7 @@ class SpendService:
         if paycheck_row is None:
             return 0
 
-        paycheck_amount = cents_to_dollars(paycheck_row)
+        paycheck_cents = paycheck_row  # int cents
 
         # Fixed (recurring) expenses with their recurrence cadence.
         # ``recurrence`` is SELECTed but was previously absent from GROUP BY, so
@@ -104,11 +104,13 @@ class SpendService:
             .all()
         )
 
-        total_fixed = 0.0
+        # All math is done in integer cents (matching ``safe_to_spend`` below) so a
+        # per-bill + per-goal accumulation can't pick up binary-float drift and the
+        # result is exact to the cent. Dollars only re-appear at the return.
+        total_fixed_cents = 0
         for amount_cents, recurrence in fixed_rows:
-            amount_dollars = cents_to_dollars(amount_cents)
             days = RECURRENCE_TO_DAYS.get(recurrence, 30)
-            total_fixed += (amount_dollars * 14) / days
+            total_fixed_cents += (amount_cents * 14) // days
 
         # Active goals
         goal_rows = (
@@ -121,15 +123,16 @@ class SpendService:
             .all()
         )
 
-        total_goal_contributions = 0.0
+        total_goal_contributions_cents = 0
         today = datetime.now().date()
         for goal_amount_cents, goal_date_str, goal_progress_cents in goal_rows:
-            goal_amount = cents_to_dollars(goal_amount_cents)
-            goal_progress = cents_to_dollars(goal_progress_cents or 0)
-            remaining_amount = goal_amount - goal_progress
+            remaining_cents = goal_amount_cents - (goal_progress_cents or 0)
 
             if not goal_date_str:
-                log.warning("Goal with amount=%s has no date, skipping it", goal_amount)
+                log.warning(
+                    "Goal with amount_cents=%s has no date, skipping it",
+                    goal_amount_cents,
+                )
                 continue
             goal_date = parse_iso_date(goal_date_str)
             if goal_date is None:
@@ -138,19 +141,20 @@ class SpendService:
 
             days_until_deadline = (goal_date - today).days
             if days_until_deadline > 0:
-                daily_contribution = remaining_amount / days_until_deadline
-                total_goal_contributions += daily_contribution * 14
+                total_goal_contributions_cents += (
+                    remaining_cents * 14
+                ) // days_until_deadline
 
         savings_pct = float(user.savings_percent or 0)
-        savings_amount = paycheck_amount * (savings_pct / 100)
+        savings_cents = round(paycheck_cents * savings_pct / 100)
 
-        remaining_income = (
-            paycheck_amount
-            - total_fixed
-            - savings_amount
-            - max(0, total_goal_contributions)
+        remaining_cents = (
+            paycheck_cents
+            - total_fixed_cents
+            - savings_cents
+            - max(0, total_goal_contributions_cents)
         )
-        return remaining_income / 2
+        return cents_to_dollars(remaining_cents // 2)
 
     def safe_to_spend(
         self,

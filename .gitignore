@@ -41,3 +41,7 @@ venv/
 node_modules_corrupted_2/
 
 .shots/
+
+# Stray DB backups (the *.pre-vN.bak naming slips past *.db.bak)
+*.bak
+finance_tracker.db*

@@ -12,6 +12,8 @@ keys) for the same inputs — it is the cache key input.
 
 from __future__ import annotations
 
+import logging
+
 import hashlib
 import json
 import re
@@ -27,6 +29,8 @@ from ...models import UserInDB
 from .canon import render_canon
 from .events import GameEventDraft, record_events, register_event_type
 from .firewall import screen_output
+
+log = logging.getLogger(__name__)
 
 register_event_type("ChapterGenerated", 1)
 
@@ -137,7 +141,7 @@ def select_one_action(db: Session, user: UserInDB, as_of: date) -> dict:
                     "deep_link": f"/alerts/{alert.type}",
                 }
     except Exception:
-        pass
+        log.warning("chronicler one-tap action lookup failed; using default", exc_info=True)
     return dict(DEFAULT_ACTION)
 
 
@@ -337,6 +341,7 @@ def _generate_uncached(db, user, fact_sheet, canon_text, llm_call) -> dict:
             raw = llm_call(prompt)
             chapter = json.loads(raw)
         except Exception:
+            log.warning("chronicler chapter LLM call/parse failed (attempt %s)", _attempt, exc_info=True)
             continue
         result = validate_chapter(chapter, fact_sheet, canon_text)
         if result.ok:

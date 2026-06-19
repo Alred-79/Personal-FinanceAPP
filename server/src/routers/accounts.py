@@ -29,6 +29,23 @@ from server.src.money import dollars_to_cents, cents_to_dollars
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
 
+def _get_owned_account_or_404(db: Session, account_id: int, user_id: int) -> AccountORM:
+    """Load an account by id scoped to its owner, or 404.
+
+    Centralizes the ``user_id == current_user.id`` ownership predicate so no
+    endpoint can forget it (a missing scope here is an IDOR — another user's
+    account by id). A not-found and a not-owned both 404 (don't leak existence).
+    """
+    account = db.execute(
+        select(AccountORM).where(
+            AccountORM.id == account_id, AccountORM.user_id == user_id
+        )
+    ).scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return account
+
+
 def _account_to_dict(account: AccountORM) -> dict:
     """Serialize an ORM Account row to a dict with dollars (not cents)."""
     return {
@@ -118,13 +135,7 @@ async def get_account(
     ],
     db: Session = Depends(get_db),
 ):
-    account = db.execute(
-        select(AccountORM).where(
-            AccountORM.id == id, AccountORM.user_id == current_user.id
-        )
-    ).scalar_one_or_none()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    account = _get_owned_account_or_404(db, id, current_user.id)
     return _account_to_dict(account)
 
 
@@ -136,13 +147,7 @@ async def get_account_transactions(
     ],
     db: Session = Depends(get_db),
 ):
-    account = db.execute(
-        select(AccountORM).where(
-            AccountORM.id == id, AccountORM.user_id == current_user.id
-        )
-    ).scalar_one_or_none()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    _get_owned_account_or_404(db, id, current_user.id)
 
     expenses = db.execute(
         select(ExpenseORM).where(ExpenseORM.account_id == id)
@@ -193,13 +198,7 @@ async def update_account(
     ],
     db: Session = Depends(get_db),
 ):
-    existing = db.execute(
-        select(AccountORM).where(
-            AccountORM.id == id, AccountORM.user_id == current_user.id
-        )
-    ).scalar_one_or_none()
-    if not existing:
-        raise HTTPException(status_code=404, detail="Account not found")
+    existing = _get_owned_account_or_404(db, id, current_user.id)
 
     existing.name = account.name
     existing.type = account.type
@@ -393,13 +392,7 @@ async def delete_account(
     ],
     db: Session = Depends(get_db),
 ):
-    account = db.execute(
-        select(AccountORM).where(
-            AccountORM.id == id, AccountORM.user_id == current_user.id
-        )
-    ).scalar_one_or_none()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    account = _get_owned_account_or_404(db, id, current_user.id)
 
     # The ORM cascade (delete-orphan) takes care of the child expense and income rows.
     # get_db commits on success and rolls back on any exception, so it's atomic.

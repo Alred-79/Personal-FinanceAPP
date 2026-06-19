@@ -140,8 +140,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Constrain to what the SPA actually sends rather than "*". Origins are already
+    # an explicit allowlist (never wildcard), so this is hardening, not a fix — but
+    # "*" methods/headers alongside credentials is broader than necessary.
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
 )
 
 

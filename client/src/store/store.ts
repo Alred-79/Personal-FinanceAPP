@@ -500,6 +500,13 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ safeToSpend: response.data });
     } catch (error) {
       console.error("Error fetching safe-to-spend:", error);
+      // Safe-to-Spend is the app's most prominent number; a silent failure shows
+      // a stale/empty hero that reads as real. Surface it like fetchInitialData.
+      toast({
+        variant: "destructive",
+        title: "Could not refresh Safe-to-Spend",
+        description: "The figure shown may be out of date. Please refresh.",
+      });
     }
   },
 
