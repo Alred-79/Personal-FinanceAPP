@@ -10,6 +10,7 @@ from datetime import date
 
 import pytest
 
+from .conftest import wire_plaid_pages  # L5: bridge sync_transactions → pages
 from server.src.db.models import (
     Account,
     Expense,
@@ -589,7 +590,7 @@ class TestRulesFireOnSync:
 
         with patch("server.src.services.plaid_service.PlaidClient") as MockPDB:
             mock_plaid = MagicMock()
-            MockPDB.return_value = mock_plaid
+            MockPDB.return_value = wire_plaid_pages(mock_plaid)
             mock_plaid.get_balance.return_value = []
             mock_plaid.sync_transactions.return_value = SyncResult(
                 added=[
@@ -761,7 +762,7 @@ class TestAllocationRounding:
 
         with patch("server.src.services.plaid_service.PlaidClient") as MockPDB:
             mock_plaid = MagicMock()
-            MockPDB.return_value = mock_plaid
+            MockPDB.return_value = wire_plaid_pages(mock_plaid)
             mock_plaid.get_balance.return_value = []
             mock_plaid.sync_transactions.return_value = SyncResult(
                 added=[txn], modified=[], removed=[], next_cursor="c1",

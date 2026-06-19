@@ -30,6 +30,7 @@ from server.src.db.models import (
     Notification as NotificationORM,
     Token as TokenORM,
 )
+from server.src.db.rls import advisory_unlock, try_advisory_lock
 from server.src.money import cents_to_dollars, dollars_to_cents
 from server.src.models import UserInDB
 from server.src.services import plaid_crypto
@@ -321,13 +322,104 @@ class PlaidService:
             )
             self._notify_relink(token.user_id, token.id)
             return {"added": 0, "modified": 0, "removed": 0}
-        # B4 — a single bounded retry for PRODUCT_NOT_READY (Plaid still warming
-        # up the item's transactions). Capped sleep; this runs in a sync
-        # BackgroundTask thread so a brief blocking pause is acceptable. Any other
-        # ApiException (incl. re-auth codes) propagates to sync_all_tokens, which
-        # differentiates it. Non-retryable codes are never retried.
+        # L5 — per-page cursor checkpointing under a session-level advisory lock.
+        # Each page is applied and its cursor committed BEFORE the next is fetched,
+        # so a mid-pagination failure resumes from the last good page (not a full
+        # re-pull from "") and a large initial pull doesn't buffer the whole item
+        # in one transaction. The advisory lock (Postgres; no-op on SQLite) stops a
+        # second worker from racing the same token's cursor across those commits.
+        if not try_advisory_lock(self.db, int(token.id)):
+            logger.info(
+                "plaid sync: token %s advisory-locked by another worker; skipping",
+                token.id,
+            )
+            return {"added": 0, "modified": 0, "removed": 0}
+
+        added = modified = removed = skipped = 0
+        any_added_or_modified = False
         try:
-            result = self.plaid.sync_transactions(access_token, token.cursor or "")
+            pages = self._iter_sync_pages(access_token, token)
+            for page in pages:
+                # Apply one page atomically in a SAVEPOINT so a mid-page failure
+                # rolls back ONLY that page's partial work (not prior committed
+                # pages, not the rest of the session), then commit it as a durable
+                # checkpoint before fetching the next page.
+                with self.db.begin_nested():
+                    drafts: list[GameEventDraft] = []
+                    a, a_sk = self._process_added(
+                        page.added, resolve, token.user_id, drafts
+                    )
+                    m, m_sk = self._process_modified(
+                        page.modified, resolve, token.user_id, drafts
+                    )
+                    r = self._process_removed(page.removed, resolve, drafts)
+                    # Record this page's game events in the SAME (nested) txn as its
+                    # apply (Law 1). Best-effort: a fold bug must never break sync.
+                    if drafts:
+                        try:
+                            record_events(self.db, drafts)
+                        except Exception:  # noqa: BLE001 — game layer best-effort
+                            logger.exception(
+                                "game event recording failed during sync for "
+                                "token %s", token.id,
+                            )
+                    token.cursor = page.next_cursor
+                added += a
+                modified += m
+                removed += r
+                skipped += a_sk + m_sk
+                any_added_or_modified = any_added_or_modified or bool(a or m)
+                # Checkpoint: commit this page (+ its cursor) before the next fetch.
+                # The next sync resumes here even if a later page / the process fails.
+                self.db.commit()
+
+            # After all pages land: refresh balances + reconcile Bridges ONCE.
+            # Both are aggregate + idempotent + best-effort, so deferring them to
+            # the end (and to the next sync if pagination failed mid-way) is safe.
+            if account_map:
+                self._refresh_balances(token, account_map)
+            if any_added_or_modified:
+                try:
+                    self._reconcile_bridges(token.user_id)
+                except Exception:  # noqa: BLE001 — Bridge reconcile is best-effort
+                    logger.exception(
+                        "bridge reconciliation failed during sync for token %s",
+                        token.id,
+                    )
+            self.db.commit()
+        finally:
+            # Release the session-level advisory lock. If a page failed, the PG
+            # transaction is aborted and the unlock statement can't run until we
+            # roll back — do so (committed pages are already durable) so the lock
+            # is never leaked onto the pooled connection.
+            try:
+                advisory_unlock(self.db, int(token.id))
+            except Exception:  # noqa: BLE001
+                self.db.rollback()
+                try:
+                    advisory_unlock(self.db, int(token.id))
+                except Exception:  # noqa: BLE001 — last resort; conn-close frees it
+                    logger.exception(
+                        "failed to release advisory lock for token %s", token.id
+                    )
+
+        summary = {"added": added, "modified": modified, "removed": removed}
+        # Surface malformed-row drops (B2) so they aren't silent. Omit when zero
+        # to keep the common-case summary unchanged for existing callers/tests.
+        if skipped:
+            summary["skipped"] = skipped
+        return summary
+
+    def _iter_sync_pages(self, access_token: str, token: TokenORM):
+        """Yield Plaid sync pages, applying the B4 PRODUCT_NOT_READY retry to the
+        FIRST page fetch (the warming-up case happens at the start of a cycle).
+
+        Wrapping the generator lets ``_sync_token_inner`` consume pages while the
+        bounded retry still covers the initial ``transactions_sync`` call.
+        """
+        try:
+            gen = self.plaid.sync_transactions_pages(access_token, token.cursor or "")
+            first = next(gen, None)
         except ApiException as exc:
             if _plaid_error_code(exc) != _RETRYABLE_ERROR_CODE:
                 raise
@@ -336,61 +428,12 @@ class PlaidService:
                 token.id,
             )
             time.sleep(_PRODUCT_NOT_READY_BACKOFF_SECONDS)
-            result = self.plaid.sync_transactions(access_token, token.cursor or "")
-
-        # Game event drafts collected during the CRUD apply. They are recorded
-        # in the SAME transaction (Law 1: fold synchronously with the apply) so
-        # the event log and the financial rows commit together or not at all.
-        drafts: list[GameEventDraft] = []
-
-        added, added_skipped = self._process_added(
-            result.added, resolve, token.user_id, drafts
-        )
-        modified, modified_skipped = self._process_modified(
-            result.modified, resolve, token.user_id, drafts
-        )
-        removed = self._process_removed(result.removed, resolve, drafts)
-        skipped = added_skipped + modified_skipped
-
-        # Refresh each mapped account's balance from Plaid so forecasts and
-        # Safe-to-Spend run off the live balance, not the link-time snapshot.
-        if account_map:
-            self._refresh_balances(token, account_map)
-
-        # Record the game events (posted txns, corrections, reversals). This is
-        # best-effort: a fold bug must never break the finance sync, so a failure
-        # here is logged and swallowed — the financial rows are already applied.
-        if drafts:
-            try:
-                record_events(self.db, drafts)
-            except Exception:  # noqa: BLE001 — game layer is best-effort
-                logger.exception(
-                    "game event recording failed during sync for token %s",
-                    token.id,
-                )
-
-        # Pillar 2C — reconcile open Assisted Action Bridges against the now-synced
-        # ledger: an "I did it" transfer/payment the user marked done gets VERIFIED
-        # when its matching real transaction(s) appear. Best-effort like the game
-        # fold: a reconcile bug must never break the finance sync.
-        if added or modified:
-            try:
-                self._reconcile_bridges(token.user_id)
-            except Exception:  # noqa: BLE001 — Bridge reconcile is best-effort
-                logger.exception(
-                    "bridge reconciliation failed during sync for token %s",
-                    token.id,
-                )
-
-        # Persist the cursor so the next sync is incremental.
-        token.cursor = result.next_cursor
-
-        summary = {"added": added, "modified": modified, "removed": removed}
-        # Surface malformed-row drops (B2) so they aren't silent. Omit when zero
-        # to keep the common-case summary unchanged for existing callers/tests.
-        if skipped:
-            summary["skipped"] = skipped
-        return summary
+            gen = self.plaid.sync_transactions_pages(access_token, token.cursor or "")
+            first = next(gen, None)
+        if first is None:
+            return
+        yield first
+        yield from gen
 
     def _reconcile_bridges(self, user_id: int | None) -> None:
         """Feed the user's recent ledger to the Bridge reconciler (Pillar 2C).
@@ -467,10 +510,15 @@ class PlaidService:
     def sync_all_tokens(self, current_user: UserInDB) -> list[dict]:
         """Sync every Plaid token or item owned by *current_user*.
 
-        Returns one summary dict per token. Each token's sync is isolated in its
-        own SAVEPOINT, so one item's ``ITEM_LOGIN_REQUIRED`` / network failure
-        rolls back ONLY that token's partial work and does not abort the others
-        (the report's "one bad token aborts all" finding).
+        Returns one summary dict per token. One item's failure does not abort the
+        others (the report's "one bad token aborts all" finding): each token is
+        wrapped in its own try/except, and L5's per-page commits mean a token's
+        successfully-applied pages are already durable when a later page fails —
+        the next sync resumes from the last good cursor. (We can no longer wrap a
+        token in a SAVEPOINT here because ``sync_token`` commits per page; a roll
+        back of the whole token's work is neither possible nor desired now that
+        each page is a durable checkpoint.) On entry we roll back any pending
+        state so a prior token's partial work can't ride along.
         """
         tokens = (
             self.db.execute(
@@ -483,8 +531,7 @@ class PlaidService:
         summaries = []
         for token in tokens:
             try:
-                with self.db.begin_nested():
-                    summary = self.sync_token(token)
+                summary = self.sync_token(token)
                 summaries.append({"token": token.name, **summary})
             except ApiException as exc:
                 # B4 — differentiate Plaid errors. A re-auth code gets a re-link
@@ -516,6 +563,10 @@ class PlaidService:
                     }
                 )
             except Exception:  # noqa: BLE001 — isolate one failing item
+                # Each page applied in its own SAVEPOINT + commit, so a failure
+                # leaves the session at a clean committed boundary (prior pages
+                # durable) — no rollback of the whole session needed; resume next
+                # sync from the last good cursor.
                 logger.exception(
                     "sync failed for token %s (%s); other tokens unaffected",
                     token.id,

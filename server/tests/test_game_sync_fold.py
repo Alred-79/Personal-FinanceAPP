@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy import select
 
+from .conftest import wire_plaid_pages  # L5: bridge sync_transactions → pages
 from server.src.databridge.plaid_client import SyncResult
 from server.src.db.models import (
     Account as AccountORM,
@@ -85,7 +86,7 @@ def _events(db_session, **where):
 @patch("server.src.services.plaid_service.PlaidClient")
 def test_pending_transaction_emits_no_events(MockPC, db_session, seed_user, seed_account):
     mock = MagicMock()
-    MockPC.return_value = mock
+    MockPC.return_value = wire_plaid_pages(mock)
     mock.sync_transactions.return_value = SyncResult(
         added=[_txn("p1", "Pending Coffee", 4.50, pending=True)],
         modified=[], removed=[], next_cursor="c1",
@@ -102,7 +103,7 @@ def test_pending_transaction_emits_no_events(MockPC, db_session, seed_user, seed
 @patch("server.src.services.plaid_service.PlaidClient")
 def test_pending_then_posted_emits_one_posted_event(MockPC, db_session, seed_user, seed_account):
     mock = MagicMock()
-    MockPC.return_value = mock
+    MockPC.return_value = wire_plaid_pages(mock)
     # First sync: the pending charge — no event.
     mock.sync_transactions.return_value = SyncResult(
         added=[_txn("pending-1", "Coffee", 4.50, pending=True)],
@@ -166,7 +167,7 @@ def test_sync_gap_open_then_close_recorded_in_projection(db_session, seed_accoun
 def test_posted_txn_emits_event_and_ledger_reflects_it(MockPC, db_session, seed_user, seed_account):
     account_id, _ = seed_account
     mock = MagicMock()
-    MockPC.return_value = mock
+    MockPC.return_value = wire_plaid_pages(mock)
     mock.sync_transactions.return_value = SyncResult(
         added=[_txn("a1", "Coffee", 4.50, pending=False),
                _txn("a2", "Paycheck", -2500.00, pending=False)],

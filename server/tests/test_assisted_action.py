@@ -12,6 +12,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from .conftest import wire_plaid_pages  # L5: bridge sync_transactions → pages
 from server.src.db.models import (
     Account as AccountORM,
     Goal as GoalORM,
@@ -555,7 +556,7 @@ def test_reconcile_verifies_on_plaid_sync(db_session):
     today = date.today().isoformat()
     with patch("server.src.services.plaid_service.PlaidClient") as MockPDB:
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = wire_plaid_pages(mock_plaid)
         mock_plaid.sync_transactions.return_value = SyncResult(
             added=[
                 # Checking debit (+ = money out) and Savings credit (- = money in).

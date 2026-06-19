@@ -130,3 +130,39 @@ def set_tenant(session: Session, user_id) -> None:
         text("SELECT set_config('app.user_id', :uid, true)"),
         {"uid": str(int(user_id))},
     )
+
+
+# A namespace key for our advisory locks so a ``key`` (e.g. a token id) can't
+# collide with an advisory lock taken by unrelated code. ``pg_*_advisory_lock``
+# with two int4 args uses (classid, objid); we pass (this namespace, key).
+_ADVISORY_NAMESPACE = 0x504C4149  # "PLAI"
+
+
+def try_advisory_lock(session: Session, key: int) -> bool:
+    """Try to take a SESSION-level Postgres advisory lock for *key* (L5).
+
+    Session-level (not xact-level) so it spans the per-page ``commit()`` calls in
+    a paginated sync — two workers can't race the same token's cursor. Returns
+    True if acquired (always True on non-Postgres, where there's no shared
+    connection to race and the in-process guard suffices). Pair with
+    :func:`advisory_unlock` in a ``finally``.
+    """
+    bind = session.get_bind()
+    if bind.dialect.name != "postgresql":
+        return True
+    got = session.execute(
+        text("SELECT pg_try_advisory_lock(:ns, :key)"),
+        {"ns": _ADVISORY_NAMESPACE, "key": int(key)},
+    ).scalar()
+    return bool(got)
+
+
+def advisory_unlock(session: Session, key: int) -> None:
+    """Release the session-level advisory lock taken by :func:`try_advisory_lock`."""
+    bind = session.get_bind()
+    if bind.dialect.name != "postgresql":
+        return
+    session.execute(
+        text("SELECT pg_advisory_unlock(:ns, :key)"),
+        {"ns": _ADVISORY_NAMESPACE, "key": int(key)},
+    )

@@ -51,6 +51,54 @@ from server.src.db.models import Base
 from server.src.settings import settings
 
 
+def wire_plaid_pages(mock_plaid):
+    """Bridge a mocked PlaidClient from the old ``sync_transactions`` API to L5's
+    ``sync_transactions_pages``.
+
+    ``PlaidService._sync_token_inner`` now consumes ``sync_transactions_pages``
+    (per-page checkpointing). Tests across several files configure the older
+    ``sync_transactions`` (return_value or side_effect); this makes
+    ``sync_transactions_pages`` yield ONE equivalent page per call, reading the
+    current ``sync_transactions`` config at call time so list/callable/exception
+    side_effects (e.g. the PRODUCT_NOT_READY retry) all still work. Returns the
+    same mock for chaining.
+    """
+    from server.src.databridge.plaid_client import SyncPage
+
+    state = {"it": None}
+
+    def _pages(access_token, cursor=""):
+        src = mock_plaid.sync_transactions
+        if src.side_effect is not None:
+            se = src.side_effect
+            if isinstance(se, BaseException) or (
+                isinstance(se, type) and issubclass(se, BaseException)
+            ):
+                raise se
+            if callable(se):
+                res = se(access_token, cursor)
+            else:  # an iterable of results/exceptions, advanced across calls
+                if state["it"] is None:
+                    state["it"] = iter(se)
+                res = next(state["it"])
+                if isinstance(res, BaseException) or (
+                    isinstance(res, type) and issubclass(res, BaseException)
+                ):
+                    raise res
+        else:
+            res = src.return_value
+        yield SyncPage(
+            added=list(res.added),
+            modified=list(res.modified),
+            removed=list(res.removed),
+            next_cursor=res.next_cursor,
+            has_more=False,
+        )
+
+    mock_plaid.sync_transactions_pages.side_effect = _pages
+    return mock_plaid
+
+
 @pytest.fixture(autouse=True)
 def _suite_single_user_off():
     """Default the whole suite to multi-user-allowed (Step 01).

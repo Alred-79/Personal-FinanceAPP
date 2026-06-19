@@ -195,3 +195,35 @@ def test_c1_scheduler_job_write_needs_tenant_binding(_engine):
                 "ON metric_rollups"
             ))
             conn.execute(text("DELETE FROM users WHERE username='c1u'"))
+
+
+def test_advisory_lock_is_mutually_exclusive(_engine):
+    """L5 — pg_try_advisory_lock (session-level) blocks a second holder until the
+    first releases, so two workers can't race a token's cursor across page commits.
+
+    The test engine uses a StaticPool (one shared connection), so a genuine second
+    holder needs an INDEPENDENT connection — we open a second engine to the same DB
+    (mirroring two real worker processes)."""
+    from sqlalchemy import create_engine
+
+    from server.src.db.rls import advisory_unlock, try_advisory_lock
+
+    key = 987654
+    # render_as_string(hide_password=False) — str(url) masks the password as ***.
+    other = create_engine(_engine.url.render_as_string(hide_password=False))
+    try:
+        with Session(_engine) as s1, Session(other) as s2:
+            assert try_advisory_lock(s1, key) is True
+            # A different connection can't take the same key while s1 holds it.
+            assert try_advisory_lock(s2, key) is False
+            # The lock survives a commit (session-level, not xact-level) — the
+            # property L5 relies on for per-page commits.
+            s1.commit()
+            assert try_advisory_lock(s2, key) is False
+            advisory_unlock(s1, key)
+            s1.commit()  # flush the unlock to the backend
+            # Now the other connection can acquire it.
+            assert try_advisory_lock(s2, key) is True
+            advisory_unlock(s2, key)
+    finally:
+        other.dispose()

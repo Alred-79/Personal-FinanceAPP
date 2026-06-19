@@ -38,6 +38,23 @@ class SyncResult:
     next_cursor: str = ""
 
 
+@dataclass
+class SyncPage:
+    """One page of a Plaid /transactions/sync cycle (L5 per-page checkpointing).
+
+    ``next_cursor`` is the cursor to persist AFTER applying this page; ``has_more``
+    says whether another page follows. The service applies+commits each page under
+    its own cursor so a mid-pagination failure resumes from the last good page
+    rather than re-pulling from the start.
+    """
+
+    added: list = field(default_factory=list)
+    modified: list = field(default_factory=list)
+    removed: list = field(default_factory=list)
+    next_cursor: str = ""
+    has_more: bool = False
+
+
 class PlaidClient:
     def __init__(self):
         self.config = plaid.Configuration(
@@ -134,3 +151,31 @@ class PlaidClient:
             removed=removed,
             next_cursor=cursor,
         )
+
+    def sync_transactions_pages(self, access_token: str, cursor: str = ""):
+        """Yield Plaid /transactions/sync results ONE PAGE at a time (L5).
+
+        Unlike :meth:`sync_transactions` (which accumulates every page in memory
+        and returns one result), this is a generator so the caller can apply and
+        commit each page under its own cursor before the next is fetched — bounding
+        memory on a large initial pull and making a mid-pagination failure
+        resumable from the last persisted cursor instead of restarting from ``""``.
+        """
+        has_more = True
+        while has_more:
+            request = TransactionsSyncRequest(
+                access_token=access_token,
+                cursor=cursor,
+            )
+            response = self.client.transactions_sync(
+                request, _request_timeout=_PLAID_TIMEOUT
+            )
+            cursor = response["next_cursor"]
+            has_more = response["has_more"]
+            yield SyncPage(
+                added=[t.to_dict() for t in response["added"]],
+                modified=[t.to_dict() for t in response["modified"]],
+                removed=[t.to_dict() for t in response["removed"]],
+                next_cursor=cursor,
+                has_more=has_more,
+            )

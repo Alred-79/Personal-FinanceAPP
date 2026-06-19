@@ -23,7 +23,10 @@ from server.src.db.models import (
 from server.src.money import dollars_to_cents
 from server.src.models import UserInDB
 from server.src.services.plaid_service import PlaidService
-from server.src.databridge.plaid_client import SyncResult
+from server.src.databridge.plaid_client import SyncPage, SyncResult
+
+# L5: bridge old ``sync_transactions`` mocks to ``sync_transactions_pages``.
+from .conftest import wire_plaid_pages as _wire_pages
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -125,7 +128,7 @@ class TestSyncAdded:
         account_id, token = seed_account
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.sync_transactions.return_value = SyncResult(
             added=[
                 _make_plaid_txn("txn_1", "Coffee", 4.50),
@@ -162,7 +165,7 @@ class TestSyncAdded:
         txns = [_make_plaid_txn("txn_dup", "Duplicate Purchase", 19.99)]
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.sync_transactions.return_value = SyncResult(
             added=txns, modified=[], removed=[], next_cursor="c1",
         )
@@ -188,7 +191,7 @@ class TestSyncAdded:
         account_id, token = seed_account
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.sync_transactions.return_value = SyncResult(
             added=[
                 _make_plaid_txn("txn_exp", "ATM Withdrawal", 200.00),
@@ -229,7 +232,7 @@ class TestSyncAdded:
         usd["iso_currency_code"] = "USD"
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.sync_transactions.return_value = SyncResult(
             added=[eur, crypto, usd], modified=[], removed=[], next_cursor="c1",
         )
@@ -251,7 +254,7 @@ class TestSyncModified:
         account_id, token = seed_account
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
 
         # First sync: add a transaction
         mock_plaid.sync_transactions.return_value = SyncResult(
@@ -295,7 +298,7 @@ class TestSyncModified:
 
         account_id, token = seed_account
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
 
         # First sync adds the row with Plaid's category.
         mock_plaid.sync_transactions.return_value = SyncResult(
@@ -338,7 +341,7 @@ class TestSyncModified:
         idempotent ``plaid_revision`` warning so they can re-check it."""
         account_id, token = seed_account
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
 
         mock_plaid.sync_transactions.return_value = SyncResult(
             added=[_make_plaid_txn("txn_warn", "Coffee Shop", 5.00)],
@@ -397,7 +400,7 @@ class TestSyncModified:
         unbounded ref key)."""
         account_id, token = seed_account
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
 
         mock_plaid.sync_transactions.return_value = SyncResult(
             added=[_make_plaid_txn("txn_t", "STARBUCKS #123", 5.00)],
@@ -436,7 +439,7 @@ class TestSyncRemoved:
         account_id, token = seed_account
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
 
         # First sync: add
         mock_plaid.sync_transactions.return_value = SyncResult(
@@ -473,7 +476,7 @@ class TestCursorPersistence:
         account_id, token = seed_account
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.sync_transactions.return_value = SyncResult(
             added=[], modified=[], removed=[], next_cursor="cursor_xyz_123",
         )
@@ -485,6 +488,79 @@ class TestCursorPersistence:
         db_session.refresh(token)
         assert token.cursor == "cursor_xyz_123"
 
+
+class TestPerPageCheckpoint:
+    """L5 — per-page cursor commit: a failure on page N keeps pages 1..N-1 and the
+    page-(N-1) cursor (resume, not restart)."""
+
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_failure_on_later_page_keeps_earlier_pages_and_cursor(
+        self, MockPDB, db_session, seed_user, seed_id_keyed_account
+    ):
+        account, token = seed_id_keyed_account
+
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid  # NOT _wire_pages — drive pages directly
+        mock_plaid.get_balance.return_value = []
+
+        def _pages(access_token, cursor=""):
+            yield SyncPage(
+                added=[_make_plaid_txn("p1", "One", 1.00, account_id="plaid_acct_A")],
+                modified=[], removed=[], next_cursor="cur1", has_more=True,
+            )
+            yield SyncPage(
+                added=[_make_plaid_txn("p2", "Two", 2.00, account_id="plaid_acct_A")],
+                modified=[], removed=[], next_cursor="cur2", has_more=True,
+            )
+            raise RuntimeError("network died fetching page 3")
+
+        mock_plaid.sync_transactions_pages.side_effect = _pages
+
+        summaries = PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        # Pages 1 and 2 are durable despite page 3 failing.
+        rows = db_session.execute(
+            select(ExpenseORM).order_by(ExpenseORM.plaid_transaction_id)
+        ).scalars().all()
+        assert [r.plaid_transaction_id for r in rows] == ["p1", "p2"]
+        # The cursor advanced to the last GOOD page (cur2), so the next sync resumes
+        # there instead of re-pulling from the start.
+        db_session.refresh(token)
+        assert token.cursor == "cur2"
+        # The token is reported as failed (so the caller knows it didn't finish).
+        assert summaries[0].get("error") == "sync_failed"
+
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_all_pages_apply_and_final_cursor_persists(
+        self, MockPDB, db_session, seed_user, seed_id_keyed_account
+    ):
+        account, token = seed_id_keyed_account
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+        mock_plaid.get_balance.return_value = []
+
+        def _pages(access_token, cursor=""):
+            yield SyncPage(
+                added=[_make_plaid_txn("a", "A", 1.00, account_id="plaid_acct_A")],
+                modified=[], removed=[], next_cursor="c1", has_more=True,
+            )
+            yield SyncPage(
+                added=[_make_plaid_txn("b", "B", 2.00, account_id="plaid_acct_A")],
+                modified=[], removed=[], next_cursor="c2", has_more=False,
+            )
+
+        mock_plaid.sync_transactions_pages.side_effect = _pages
+
+        summary = PlaidService(db_session).sync_all_tokens(seed_user)[0]
+        db_session.flush()
+
+        assert summary["added"] == 2
+        rows = db_session.execute(select(ExpenseORM)).scalars().all()
+        assert {r.plaid_transaction_id for r in rows} == {"a", "b"}
+        db_session.refresh(token)
+        assert token.cursor == "c2"  # final cursor
+
     @patch("server.src.services.plaid_service.PlaidClient")
     def test_cursor_passed_on_subsequent_sync(self, MockPDB, db_session, seed_user, seed_account):
         """The saved cursor should be passed to the next sync call."""
@@ -493,7 +569,7 @@ class TestCursorPersistence:
         db_session.flush()
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.sync_transactions.return_value = SyncResult(
             added=[], modified=[], removed=[], next_cursor="new_cursor",
         )
@@ -502,8 +578,8 @@ class TestCursorPersistence:
         svc.sync_all_tokens(seed_user)
         db_session.flush()
 
-        # Verify the databridge was called with the previously saved cursor
-        mock_plaid.sync_transactions.assert_called_once_with(
+        # L5: the paginating sync method is called with the previously saved cursor.
+        mock_plaid.sync_transactions_pages.assert_called_once_with(
             token.key, "saved_cursor_abc"
         )
 
@@ -524,7 +600,7 @@ class TestEmptyAccountGuard:
         db_session.flush()
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
 
         svc = PlaidService(db_session)
         summaries = svc.sync_all_tokens(seed_user)
@@ -547,7 +623,7 @@ class TestCategoryExtraction:
         account_id, token = seed_account
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
 
         # Use a merchant with no keyword rule so this test isolates the
         # PFC-vs-legacy choice (not the categorizer's rules).
@@ -573,7 +649,7 @@ class TestCategoryExtraction:
         account_id, token = seed_account
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.sync_transactions.return_value = SyncResult(
             added=[_make_plaid_txn("txn_leg", "Walmart", 50.00, category=["Shops", "Supermarkets"])],
             modified=[],
@@ -594,7 +670,7 @@ class TestCategoryExtraction:
         account_id, token = seed_account
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
 
         txn = _make_plaid_txn("txn_none", "Mystery", 10.00, category=[])
         txn["personal_finance_category"] = None
@@ -688,7 +764,7 @@ class TestTokenEncryption:
         account, token = seed_id_keyed_account
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.sync_transactions.return_value = SyncResult(
             added=[], modified=[], removed=[], next_cursor="c1",
         )
@@ -696,7 +772,7 @@ class TestTokenEncryption:
 
         PlaidService(db_session).sync_all_tokens(seed_user)
 
-        called_token = mock_plaid.sync_transactions.call_args[0][0]
+        called_token = mock_plaid.sync_transactions_pages.call_args[0][0]
         assert called_token == "access-sandbox-fake"  # decrypted
         assert not called_token.startswith("enc:")
 
@@ -719,7 +795,7 @@ class TestMultiAccountRouting:
         db_session.flush()
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.sync_transactions.return_value = SyncResult(
             added=[
                 _make_plaid_txn("t_a1", "Coffee", 4.50, account_id="plaid_acct_A"),
@@ -750,7 +826,7 @@ class TestMultiAccountRouting:
         db_session.flush()
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.sync_transactions.return_value = SyncResult(
             added=[_make_plaid_txn("t1", "Coffee", 4.50, account_id="plaid_acct_A")],
             modified=[],
@@ -776,7 +852,7 @@ class TestDedupConstraint:
         account, token = seed_id_keyed_account
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.get_balance.return_value = []
         txns = [_make_plaid_txn("dup", "Once", 19.99, account_id="plaid_acct_A")]
         mock_plaid.sync_transactions.return_value = SyncResult(
@@ -821,7 +897,7 @@ class TestBalanceRefresh:
         account, token = seed_id_keyed_account
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.sync_transactions.return_value = SyncResult(
             added=[], modified=[], removed=[], next_cursor="c1",
         )
@@ -857,7 +933,7 @@ class TestPerTokenIsolation:
         db_session.flush()
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.get_balance.return_value = []
 
         good_result = SyncResult(
@@ -905,7 +981,7 @@ class TestModifiedCrossAccount:
         db_session.flush()
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.get_balance.return_value = []
 
         # 1) Add under account A.
@@ -945,7 +1021,7 @@ class TestMalformedRowsSkipped:
         account, token = seed_id_keyed_account
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.get_balance.return_value = []
         good = _make_plaid_txn("ok_1", "Lunch", 12.00, account_id="plaid_acct_A")
         missing_amount = {
@@ -1004,7 +1080,7 @@ class TestDecryptFailureRelink:
         plaid_crypto.reset_key_cache()
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
 
         try:
             PlaidService(db_session).sync_all_tokens(seed_user)
@@ -1057,7 +1133,7 @@ class TestPlaidErrorCodes:
 
         account, token = seed_id_keyed_account
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.get_balance.return_value = []
         exc = ApiException(status=400)
         exc.body = '{"error_code": "ITEM_LOGIN_REQUIRED", "error_type": "ITEM_ERROR"}'
@@ -1087,7 +1163,7 @@ class TestPlaidErrorCodes:
         monkeypatch.setattr(plaid_service_mod.time, "sleep", lambda _s: None)
 
         mock_plaid = MagicMock()
-        MockPDB.return_value = mock_plaid
+        MockPDB.return_value = _wire_pages(mock_plaid)
         mock_plaid.get_balance.return_value = []
         not_ready = ApiException(status=400)
         not_ready.body = '{"error_code": "PRODUCT_NOT_READY"}'
@@ -1100,6 +1176,7 @@ class TestPlaidErrorCodes:
         PlaidService(db_session).sync_all_tokens(seed_user)
         db_session.flush()
 
-        assert mock_plaid.sync_transactions.call_count == 2  # one retry
+        # L5: the paginating method is the one retried (once) after PRODUCT_NOT_READY.
+        assert mock_plaid.sync_transactions_pages.call_count == 2  # one retry
         rows = db_session.execute(select(ExpenseORM)).scalars().all()
         assert [r.plaid_transaction_id for r in rows] == ["pr_1"]

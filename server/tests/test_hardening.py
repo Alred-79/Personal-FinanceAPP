@@ -460,6 +460,15 @@ def _fake_plaid_result(added):
                            next_cursor="cursor-2")
 
 
+def _fake_plaid_pages(added):
+    """L5: a one-page ``sync_transactions_pages`` stub (the method
+    ``_sync_token_inner`` now consumes) yielding *added* as a single page."""
+    def _pages(key, cursor):
+        yield SimpleNamespace(added=added, modified=[], removed=[],
+                              next_cursor="cursor-2", has_more=False)
+    return _pages
+
+
 def _txn(txn_id, amount, day, name="Latte"):
     return {"transaction_id": txn_id, "amount": amount, "date": day,
             "name": name, "pending": False, "iso_currency_code": "USD",
@@ -485,8 +494,8 @@ def test_sync_apply_is_atomic_crash_leaves_no_orphans(db_session, user_acct):
     poison = {"transaction_id": "t-2", "amount": "not-a-number",
               "date": "2026-06-02", "name": "Bad", "pending": False,
               "iso_currency_code": "USD"}
-    svc.plaid = SimpleNamespace(sync_transactions=lambda key, cursor: (
-        _fake_plaid_result([_txn("t-1", 4.5, "2026-06-01"), poison])))
+    svc.plaid = SimpleNamespace(sync_transactions_pages=_fake_plaid_pages(
+        [_txn("t-1", 4.5, "2026-06-01"), poison]))
 
     with pytest.raises(TypeError):
         svc.sync_token(token)
@@ -515,8 +524,8 @@ def test_sync_apply_is_atomic_crash_leaves_no_orphans(db_session, user_acct):
     db_session.add(token2)
     db_session.flush()
     svc2 = PlaidService(db_session)
-    svc2.plaid = SimpleNamespace(sync_transactions=lambda key, cursor: (
-        _fake_plaid_result([_txn("t-3", 4.5, "2026-06-01")])))
+    svc2.plaid = SimpleNamespace(sync_transactions_pages=_fake_plaid_pages(
+        [_txn("t-3", 4.5, "2026-06-01")]))
     svc2.sync_token(token2)
     expenses = db_session.execute(text(
         "SELECT COUNT(*) FROM expenses WHERE plaid_transaction_id = 't-3'"
