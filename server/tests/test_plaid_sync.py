@@ -828,3 +828,221 @@ class TestPerTokenIsolation:
         # Per-token summary reflects one error, one success.
         errored = [s for s in summaries if s.get("error")]
         assert len(errored) == 1 and errored[0]["token"] == "BadBank"
+
+
+# ── B1 — cross-account "modified" delta ──────────────────────────────────────
+
+
+class TestModifiedCrossAccount:
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_modified_under_different_account_updates_existing_row(
+        self, MockPDB, db_session, seed_user, seed_id_keyed_account
+    ):
+        """A txn first added under account A, then a 'modified' delta reports it
+        under account B. The global-keyed lookup must FIND and UPDATE the existing
+        row (adopting B) — never insert a duplicate or crash on the global index."""
+        account_a, token = seed_id_keyed_account
+        account_b = AccountORM(
+            name="Chase Savings", type="depository", balance=0,
+            plaid_account_id="plaid_acct_B", user_id=seed_user.id,
+        )
+        db_session.add(account_b)
+        db_session.flush()
+
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+        mock_plaid.get_balance.return_value = []
+
+        # 1) Add under account A.
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=[_make_plaid_txn("moved_1", "Coffee", 4.50, account_id="plaid_acct_A")],
+            modified=[], removed=[], next_cursor="c1",
+        )
+        PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        # 2) Modify the SAME txn id, now reported under account B.
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=[],
+            modified=[_make_plaid_txn("moved_1", "Coffee Shop", 5.25, account_id="plaid_acct_B")],
+            removed=[], next_cursor="c2",
+        )
+        PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        rows = db_session.execute(select(ExpenseORM)).scalars().all()
+        assert len(rows) == 1  # updated in place, NOT duplicated
+        assert rows[0].account_id == account_b.id  # adopted the new account
+        assert rows[0].amount == dollars_to_cents(5.25)
+        assert rows[0].title == "Coffee Shop"
+
+
+# ── B2 — malformed rows skipped, siblings persist, count surfaced ─────────────
+
+
+class TestMalformedRowsSkipped:
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_added_malformed_row_skipped_siblings_persist(
+        self, MockPDB, db_session, seed_user, seed_id_keyed_account
+    ):
+        """A row missing transaction_id/amount/date is skipped (no crash) while
+        well-formed siblings persist, and the skipped count is surfaced."""
+        account, token = seed_id_keyed_account
+
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+        mock_plaid.get_balance.return_value = []
+        good = _make_plaid_txn("ok_1", "Lunch", 12.00, account_id="plaid_acct_A")
+        missing_amount = {
+            "transaction_id": "bad_1", "name": "NoAmount", "date": "2024-06-15",
+            "category": ["Shops"], "personal_finance_category": None,
+            "account_id": "plaid_acct_A",
+        }
+        missing_date = {
+            "transaction_id": "bad_2", "name": "NoDate", "amount": 9.99,
+            "category": ["Shops"], "personal_finance_category": None,
+            "account_id": "plaid_acct_A",
+        }
+        mock_plaid.sync_transactions.return_value = SyncResult(
+            added=[good, missing_amount, missing_date], modified=[], removed=[],
+            next_cursor="c1",
+        )
+        summaries = PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        rows = db_session.execute(select(ExpenseORM)).scalars().all()
+        assert [r.plaid_transaction_id for r in rows] == ["ok_1"]  # only the good one
+        # The skipped count is surfaced (not a silent drop).
+        assert summaries[0].get("skipped") == 2
+
+
+# ── B3 — decrypt failure → re-link notice; production guard ───────────────────
+
+
+class TestDecryptFailureRelink:
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_undecryptable_token_emits_relink_not_crash(
+        self, MockPDB, db_session, seed_user, monkeypatch
+    ):
+        """A stored ciphertext that won't decrypt under the active key (e.g. JWT
+        secret rotated) yields a re-link Notification and skips the token — it
+        must NOT raise out of sync_all_tokens."""
+        from server.src.services import plaid_crypto
+
+        # Encrypt under the CURRENT key, then swap the key so decrypt fails.
+        ciphertext = plaid_crypto.encrypt("access-secret")
+        token = TokenORM(user_id=seed_user.id, name="RotatedBank", key=ciphertext)
+        account = AccountORM(
+            name="RotatedBank", type="depository", balance=0,
+            plaid_account_id="acct_rot", user_id=seed_user.id,
+        )
+        db_session.add_all([token, account])
+        db_session.flush()
+
+        from cryptography.fernet import Fernet
+        monkeypatch.setattr(
+            plaid_crypto.settings, "plaid_token_key",
+            Fernet.generate_key().decode(), raising=False,
+        )
+        plaid_crypto._fernet.cache_clear()
+
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+
+        try:
+            PlaidService(db_session).sync_all_tokens(seed_user)
+        finally:
+            plaid_crypto._fernet.cache_clear()  # don't leak the swapped key
+        db_session.flush()
+
+        notes = db_session.execute(
+            select(NotificationORM).where(NotificationORM.type == "plaid_relink")
+        ).scalars().all()
+        assert len(notes) == 1
+        assert notes[0].ref == f"plaid_relink:{token.id}"
+        # sync_transactions was never called (we bailed before the Plaid call).
+        mock_plaid.sync_transactions.assert_not_called()
+
+    def test_production_without_token_key_raises(self, monkeypatch):
+        """In production with Plaid configured but no PLAID_TOKEN_KEY, _fernet()
+        fails closed (lazily) rather than deriving from the JWT secret."""
+        from server.src.services import plaid_crypto
+
+        monkeypatch.setattr(
+            plaid_crypto.settings, "plaid_token_key", None, raising=False
+        )
+        monkeypatch.setattr(
+            plaid_crypto.settings, "environment", "production", raising=False
+        )
+        monkeypatch.setattr(
+            plaid_crypto.settings, "plaid_client_id", "client-123", raising=False
+        )
+        plaid_crypto._fernet.cache_clear()
+        try:
+            with pytest.raises(RuntimeError, match="PLAID_TOKEN_KEY"):
+                plaid_crypto._fernet()
+        finally:
+            plaid_crypto._fernet.cache_clear()
+
+
+# ── B4 — error-code differentiation ──────────────────────────────────────────
+
+
+class TestPlaidErrorCodes:
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_item_login_required_yields_relink_notification(
+        self, MockPDB, db_session, seed_user, seed_id_keyed_account
+    ):
+        """An ITEM_LOGIN_REQUIRED ApiException is differentiated from a generic
+        failure: a re-link Notification is created and the summary error is
+        'relink_required', not 'sync_failed'."""
+        from plaid.exceptions import ApiException
+
+        account, token = seed_id_keyed_account
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+        mock_plaid.get_balance.return_value = []
+        exc = ApiException(status=400)
+        exc.body = '{"error_code": "ITEM_LOGIN_REQUIRED", "error_type": "ITEM_ERROR"}'
+        mock_plaid.sync_transactions.side_effect = exc
+
+        summaries = PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        notes = db_session.execute(
+            select(NotificationORM).where(NotificationORM.type == "plaid_relink")
+        ).scalars().all()
+        assert len(notes) == 1
+        assert notes[0].ref == f"plaid_relink:{token.id}"
+        assert summaries[0]["error"] == "relink_required"
+
+    @patch("server.src.services.plaid_service.PlaidClient")
+    def test_product_not_ready_retries_once_then_succeeds(
+        self, MockPDB, db_session, seed_user, seed_id_keyed_account, monkeypatch
+    ):
+        """PRODUCT_NOT_READY triggers exactly one bounded retry; the retry's
+        success applies normally."""
+        import server.src.services.plaid_service as plaid_service_mod
+        from plaid.exceptions import ApiException
+
+        account, token = seed_id_keyed_account
+        # Don't actually sleep in the test.
+        monkeypatch.setattr(plaid_service_mod.time, "sleep", lambda _s: None)
+
+        mock_plaid = MagicMock()
+        MockPDB.return_value = mock_plaid
+        mock_plaid.get_balance.return_value = []
+        not_ready = ApiException(status=400)
+        not_ready.body = '{"error_code": "PRODUCT_NOT_READY"}'
+        good = SyncResult(
+            added=[_make_plaid_txn("pr_1", "Lunch", 8.00, account_id="plaid_acct_A")],
+            modified=[], removed=[], next_cursor="c1",
+        )
+        mock_plaid.sync_transactions.side_effect = [not_ready, good]
+
+        PlaidService(db_session).sync_all_tokens(seed_user)
+        db_session.flush()
+
+        assert mock_plaid.sync_transactions.call_count == 2  # one retry
+        rows = db_session.execute(select(ExpenseORM)).scalars().all()
+        assert [r.plaid_transaction_id for r in rows] == ["pr_1"]

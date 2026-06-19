@@ -57,6 +57,22 @@ def _fernet() -> Fernet:
         # An explicit key must already be a valid Fernet key; fail loud at first
         # use rather than silently mis-encrypting.
         return Fernet(explicit.encode("utf-8") if isinstance(explicit, str) else explicit)
+    # B3 — fail closed in production: deriving the Fernet key from jwt_secret_key
+    # means rotating that secret (routine credential hygiene) would brick every
+    # stored Plaid token forever. In production with Plaid configured, REQUIRE a
+    # dedicated PLAID_TOKEN_KEY so the two rotate independently. This check is
+    # lazy (first use), NOT at import, so it never breaks test collection / dev
+    # startup. Dev / self-host keep the convenient derivation.
+    if (
+        settings.environment.lower() == "production"
+        and getattr(settings, "plaid_client_id", None)
+    ):
+        raise RuntimeError(
+            "PLAID_TOKEN_KEY must be set in production: deriving the token "
+            "encryption key from JWT_SECRET_KEY would make every stored Plaid "
+            "token undecryptable if the JWT secret is ever rotated. Set a "
+            "dedicated PLAID_TOKEN_KEY (and set it BEFORE rotating JWT_SECRET_KEY)."
+        )
     return Fernet(_derive_key_from_secret(settings.jwt_secret_key))
 
 

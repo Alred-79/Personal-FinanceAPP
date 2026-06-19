@@ -476,14 +476,19 @@ def test_sync_apply_is_atomic_crash_leaves_no_orphans(db_session, user_acct):
     db_session.flush()
 
     svc = PlaidService(db_session)
-    # Txn 2 is poison: no 'name' → the apply crashes AFTER txn 1's CRUD row
-    # and event draft are staged, BEFORE anything commits.
-    poison = {"transaction_id": "t-2", "amount": 5.0, "date": "2026-06-02",
-              "pending": False, "iso_currency_code": "USD"}
+    # Txn 2 is poison: a non-numeric ``amount`` passes the missing-field guard
+    # (it isn't None) but crashes at the ``amount > 0`` sign test (str vs int) —
+    # AFTER txn 1's CRUD row and event draft are staged, BEFORE anything commits.
+    # (A row merely *missing* a soft field like ``name`` is no longer fatal after
+    # the B2 parse-then-mutate hardening; this poison still triggers a hard crash
+    # mid-batch, which is what this atomicity test exercises.)
+    poison = {"transaction_id": "t-2", "amount": "not-a-number",
+              "date": "2026-06-02", "name": "Bad", "pending": False,
+              "iso_currency_code": "USD"}
     svc.plaid = SimpleNamespace(sync_transactions=lambda key, cursor: (
         _fake_plaid_result([_txn("t-1", 4.5, "2026-06-01"), poison])))
 
-    with pytest.raises(KeyError):
+    with pytest.raises(TypeError):
         svc.sync_token(token)
     db_session.rollback()
 

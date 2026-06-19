@@ -10,10 +10,14 @@ Sign convention (Plaid to Finance-Tracker):
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
+import time
 from typing import Optional
 
+from cryptography.fernet import InvalidToken
+from plaid.exceptions import ApiException
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -57,6 +61,35 @@ _MAX_TITLE_LEN = 200
 def _clean_title(name: object) -> str:
     """Trim and length-cap a raw Plaid transaction name before storing it."""
     return str(name or "").strip()[:_MAX_TITLE_LEN]
+
+
+# Plaid error codes that mean "this item needs the user to re-authenticate" —
+# a re-link notice is the right response, not an opaque retry/fail.
+_RELINK_ERROR_CODES = {"ITEM_LOGIN_REQUIRED", "INVALID_ACCESS_TOKEN"}
+# A transient code Plaid returns before the product's data is ready; worth ONE
+# short bounded retry (we run in a sync BackgroundTask thread).
+_RETRYABLE_ERROR_CODE = "PRODUCT_NOT_READY"
+_PRODUCT_NOT_READY_BACKOFF_SECONDS = 2.0
+
+
+def _plaid_error_code(exc: "ApiException") -> Optional[str]:
+    """Best-effort ``error_code`` from a Plaid ``ApiException`` body.
+
+    The body is JSON like ``{"error_code": "ITEM_LOGIN_REQUIRED", ...}`` but may
+    be malformed or empty; never raise from the parse — fall back to ``None`` so
+    the caller treats it as a generic failure.
+    """
+    body = getattr(exc, "body", None)
+    if not body:
+        return None
+    try:
+        data = json.loads(body)
+    except (ValueError, TypeError):
+        return None
+    if isinstance(data, dict):
+        code = data.get("error_code")
+        return code if isinstance(code, str) else None
+    return None
 
 
 def _extract_category(txn: dict) -> str:
@@ -126,8 +159,17 @@ class PlaidService:
         if token is None:
             return None
         # Decrypt the access token only at the boundary, right before the Plaid
-        # call. Never log the decrypted value.
-        access_token = plaid_crypto.decrypt(token.key)  # type: ignore[arg-type]
+        # call. Never log the decrypted value. A token that won't decrypt (B3)
+        # surfaces a re-link notice and returns None (router → no data), not a 500.
+        try:
+            access_token = plaid_crypto.decrypt(token.key)  # type: ignore[arg-type]
+        except InvalidToken:
+            logger.warning(
+                "plaid get_balance: token %s won't decrypt; emitting re-link notice",
+                token.id,
+            )
+            self._notify_relink(token.user_id, token.id)
+            return None
         accounts = self.plaid.get_balance(access_token)
         if not accounts:
             return None
@@ -182,6 +224,18 @@ class PlaidService:
         """
         try:
             access_token = plaid_crypto.decrypt(token.key)  # type: ignore[arg-type]
+        except InvalidToken:
+            # B3 — a decrypt failure here is not a transient balance hiccup; the
+            # token is unusable. Surface a re-link notice rather than silently
+            # skipping, then bail (transactions for this token are already applied
+            # by the caller path; balance just won't refresh).
+            logger.warning(
+                "balance refresh: token %s won't decrypt; emitting re-link notice",
+                token.id,
+            )
+            self._notify_relink(token.user_id, token.id)
+            return
+        try:
             plaid_accounts = self.plaid.get_balance(access_token)
         except Exception:  # noqa: BLE001 — balance refresh is best-effort
             logger.exception(
@@ -255,23 +309,48 @@ class PlaidService:
                 return account_map.get(str(txn.get("account_id") or ""))
             return fallback_account_id
 
-        access_token = plaid_crypto.decrypt(token.key)  # type: ignore[arg-type]
-        result = self.plaid.sync_transactions(
-            access_token, token.cursor or ""
-        )
+        # B3 — decrypt only at the boundary; a stored token that won't decrypt
+        # (e.g. JWT secret rotated without PLAID_TOKEN_KEY) must not crash the
+        # whole run. Surface a re-link notice and skip just this token.
+        try:
+            access_token = plaid_crypto.decrypt(token.key)  # type: ignore[arg-type]
+        except InvalidToken:
+            logger.warning(
+                "plaid sync: token %s won't decrypt; emitting re-link notice",
+                token.id,
+            )
+            self._notify_relink(token.user_id, token.id)
+            return {"added": 0, "modified": 0, "removed": 0}
+        # B4 — a single bounded retry for PRODUCT_NOT_READY (Plaid still warming
+        # up the item's transactions). Capped sleep; this runs in a sync
+        # BackgroundTask thread so a brief blocking pause is acceptable. Any other
+        # ApiException (incl. re-auth codes) propagates to sync_all_tokens, which
+        # differentiates it. Non-retryable codes are never retried.
+        try:
+            result = self.plaid.sync_transactions(access_token, token.cursor or "")
+        except ApiException as exc:
+            if _plaid_error_code(exc) != _RETRYABLE_ERROR_CODE:
+                raise
+            logger.info(
+                "plaid sync: token %s PRODUCT_NOT_READY; one bounded retry",
+                token.id,
+            )
+            time.sleep(_PRODUCT_NOT_READY_BACKOFF_SECONDS)
+            result = self.plaid.sync_transactions(access_token, token.cursor or "")
 
         # Game event drafts collected during the CRUD apply. They are recorded
         # in the SAME transaction (Law 1: fold synchronously with the apply) so
         # the event log and the financial rows commit together or not at all.
         drafts: list[GameEventDraft] = []
 
-        added = self._process_added(
+        added, added_skipped = self._process_added(
             result.added, resolve, token.user_id, drafts
         )
-        modified = self._process_modified(
+        modified, modified_skipped = self._process_modified(
             result.modified, resolve, token.user_id, drafts
         )
         removed = self._process_removed(result.removed, resolve, drafts)
+        skipped = added_skipped + modified_skipped
 
         # Refresh each mapped account's balance from Plaid so forecasts and
         # Safe-to-Spend run off the live balance, not the link-time snapshot.
@@ -306,7 +385,12 @@ class PlaidService:
         # Persist the cursor so the next sync is incremental.
         token.cursor = result.next_cursor
 
-        return {"added": added, "modified": modified, "removed": removed}
+        summary = {"added": added, "modified": modified, "removed": removed}
+        # Surface malformed-row drops (B2) so they aren't silent. Omit when zero
+        # to keep the common-case summary unchanged for existing callers/tests.
+        if skipped:
+            summary["skipped"] = skipped
+        return summary
 
     def _reconcile_bridges(self, user_id: int | None) -> None:
         """Feed the user's recent ledger to the Bridge reconciler (Pillar 2C).
@@ -402,6 +486,35 @@ class PlaidService:
                 with self.db.begin_nested():
                     summary = self.sync_token(token)
                 summaries.append({"token": token.name, **summary})
+            except ApiException as exc:
+                # B4 — differentiate Plaid errors. A re-auth code gets a re-link
+                # notice (actionable) instead of an opaque "sync_failed". The
+                # notice is added in its OWN savepoint so the failed token's
+                # rolled-back work doesn't take the notification with it.
+                code = _plaid_error_code(exc)
+                logger.warning(
+                    "plaid sync: token %s failed with ApiException code=%s",
+                    token.id,
+                    code,
+                )
+                if code in _RELINK_ERROR_CODES:
+                    try:
+                        with self.db.begin_nested():
+                            self._notify_relink(token.user_id, token.id)
+                    except Exception:  # noqa: BLE001 — notice is best-effort
+                        logger.exception(
+                            "failed to emit re-link notice for token %s", token.id
+                        )
+                summaries.append(
+                    {
+                        "token": token.name,
+                        "added": 0,
+                        "modified": 0,
+                        "removed": 0,
+                        "error": "relink_required" if code in _RELINK_ERROR_CODES
+                        else (code or "sync_failed"),
+                    }
+                )
             except Exception:  # noqa: BLE001 — isolate one failing item
                 logger.exception(
                     "sync failed for token %s (%s); other tokens unaffected",
@@ -624,8 +737,11 @@ class PlaidService:
         resolve,
         user_id: int | None = None,
         drafts: list[GameEventDraft] | None = None,
-    ) -> int:
+    ) -> tuple[int, int]:
         """Insert new transactions, deduplicating on ``plaid_transaction_id``.
+
+        Returns ``(applied_count, skipped_count)`` — skipped rows are malformed
+        (missing id/amount/date) and surfaced so silent drops are visible.
 
         *resolve* maps a transaction dict to the local ``accounts.id`` it belongs
         to (by the txn's own Plaid ``account_id``); a txn whose account isn't
@@ -646,6 +762,7 @@ class PlaidService:
             CategorizationService(self.db) if user_id is not None else None
         )
         count = 0
+        skipped = 0
         for txn in transactions:
             if not _is_usd(txn):
                 logger.warning(
@@ -662,9 +779,23 @@ class PlaidService:
                     txn.get("account_id"),
                 )
                 continue
-            plaid_txn_id = txn["transaction_id"]
+            # B2 — parse-then-mutate: read required fields defensively and skip a
+            # malformed row before any DB mutation. Never log the full txn (PII).
+            plaid_txn_id = txn.get("transaction_id")
+            amount = txn.get("amount")
+            if plaid_txn_id is None or amount is None:
+                logger.warning("plaid sync: skipping added row missing id/amount")
+                skipped += 1
+                continue
+            txn_date = txn.get("date")
+            if txn_date is None:
+                logger.warning(
+                    "plaid sync: skipping added row missing date %s", plaid_txn_id
+                )
+                skipped += 1
+                continue
+            title = _clean_title(txn.get("name"))  # _clean_title is None-safe
             category = _extract_category(txn)
-            amount = txn["amount"]
 
             # A zero-dollar transaction carries no financial meaning and the
             # expense/income sign is undefined for it, so don't import a bogus
@@ -680,12 +811,12 @@ class PlaidService:
                 if categorizer is not None:
                     assert user_id is not None
                     category = categorizer.categorize(
-                        user_id, txn["name"], default=category, use_llm=False
+                        user_id, title, default=category, use_llm=False
                     )[0]
                 row = ExpenseORM(
-                    title=_clean_title(txn["name"]),
+                    title=title,
                     amount=dollars_to_cents(float(amount)),
-                    date=str(txn["date"]),
+                    date=str(txn_date),
                     category=category,
                     plaid_transaction_id=plaid_txn_id,
                     account_id=account_id,
@@ -700,9 +831,9 @@ class PlaidService:
             else:
                 # Income (money entering account)
                 row = IncomeORM(
-                    title=_clean_title(txn["name"]),
+                    title=title,
                     amount=dollars_to_cents(-float(amount)),
-                    date=str(txn["date"]),
+                    date=str(txn_date),
                     category=category,
                     plaid_transaction_id=plaid_txn_id,
                     account_id=account_id,
@@ -715,7 +846,12 @@ class PlaidService:
                     self._run_rules_on_synced(user_id, "income", row)
                     count += 1
 
-        return count
+        if skipped:
+            logger.warning(
+                "plaid sync: %d added row(s) skipped (missing id/amount/date)",
+                skipped,
+            )
+        return count, skipped
 
     def _process_modified(
         self,
@@ -723,8 +859,11 @@ class PlaidService:
         resolve,
         user_id: int | None = None,
         drafts: list[GameEventDraft] | None = None,
-    ) -> int:
+    ) -> tuple[int, int]:
         """Update existing transactions by ``plaid_transaction_id``.
+
+        Returns ``(applied_count, skipped_count)`` — malformed rows (missing
+        id/amount/date) are skipped before any DB mutation and counted.
 
         *resolve* maps a txn dict to its local ``accounts.id`` (Step 08 routing).
 
@@ -741,6 +880,7 @@ class PlaidService:
             CategorizationService(self.db) if user_id is not None else None
         )
         count = 0
+        skipped = 0
         for txn in transactions:
             if not _is_usd(txn):
                 logger.warning(
@@ -757,16 +897,32 @@ class PlaidService:
                     txn.get("account_id"),
                 )
                 continue
-            plaid_txn_id = txn["transaction_id"]
+            # B2 — parse-then-mutate: read the required fields defensively and
+            # skip a malformed row BEFORE touching self.db (the modify path
+            # mutates rows directly, with no SAVEPOINT), so a bad row never leaves
+            # the session dirty. Never log the full txn (PII) — the id only.
+            plaid_txn_id = txn.get("transaction_id")
+            amount = txn.get("amount")
+            if plaid_txn_id is None or amount is None:
+                logger.warning("plaid sync: skipping modified row missing id/amount")
+                skipped += 1
+                continue
+            txn_date = txn.get("date")
+            if txn_date is None:
+                logger.warning(
+                    "plaid sync: skipping modified row missing date %s", plaid_txn_id
+                )
+                skipped += 1
+                continue
+            title = _clean_title(txn.get("name"))  # _clean_title is None-safe
             category = _extract_category(txn)
             # Respect a user's learned rename on modify (don't clobber a manual
             # category with Plaid's re-guess); falls back to Plaid's category.
             if categorizer is not None:
                 assert user_id is not None
                 category = categorizer.categorize(
-                    user_id, txn["name"], default=category, use_llm=False
+                    user_id, title, default=category, use_llm=False
                 )[0]
-            amount = txn["amount"]
             # New signed amount in cents: expense (amount>=0) positive, income
             # negative — matches how _process_added stored amount_cents.
             new_amount_cents = (
@@ -778,17 +934,20 @@ class PlaidService:
                 drafts, txn, account_id, new_amount_cents, category
             )
 
-            # Try to find in expenses first, then income
+            # B1 — key the lookup on plaid_transaction_id ALONE (the unique index
+            # and _process_removed are global, not account-scoped). Plaid can
+            # report a modify under a DIFFERENT account_id than the original was
+            # stored under; an account-scoped lookup would miss it, fall to
+            # "treat as new", and collide with the global index — aborting the
+            # whole token sync. Expense-first precedence (as before).
             expense = self.db.execute(
                 select(ExpenseORM).where(
-                    ExpenseORM.account_id == account_id,
                     ExpenseORM.plaid_transaction_id == plaid_txn_id,
                 )
             ).scalar_one_or_none()
 
             income = self.db.execute(
                 select(IncomeORM).where(
-                    IncomeORM.account_id == account_id,
                     IncomeORM.plaid_transaction_id == plaid_txn_id,
                 )
             ).scalar_one_or_none()
@@ -796,84 +955,115 @@ class PlaidService:
             if amount >= 0:
                 # Should be an expense
                 if income:
-                    # Sign flipped: it was income, now it's an expense. Delete the old one, create a new one.
+                    # Sign flipped: it was income, now it's an expense. Delete the
+                    # old row; insert the new via the dedup helper so a residual
+                    # global collision skips instead of aborting the sync.
                     self.db.delete(income)
-                    self.db.add(
+                    if self._insert_deduped(
                         ExpenseORM(
-                            title=_clean_title(txn["name"]),
+                            title=title,
                             amount=dollars_to_cents(float(amount)),
-                            date=str(txn["date"]),
+                            date=str(txn_date),
                             category=category,
                             plaid_transaction_id=plaid_txn_id,
                             account_id=account_id,
                         )
-                    )
-                    count += 1
+                    ):
+                        count += 1
+                    else:
+                        logger.warning(
+                            "plaid sync: modified->expense insert skipped (exists) %s",
+                            plaid_txn_id,
+                        )
                 elif expense:
-                    new_title = _clean_title(txn["name"])
                     new_amount = dollars_to_cents(float(amount))
                     self._warn_if_overwriting(
-                        user_id, expense, new_title, new_amount, plaid_txn_id
+                        user_id, expense, title, new_amount, plaid_txn_id
                     )
-                    expense.title = new_title
+                    expense.title = title
                     expense.amount = new_amount
-                    expense.date = str(txn["date"])
+                    expense.date = str(txn_date)
                     expense.category = category
+                    # Handle a cross-account move: adopt the new account.
+                    if expense.account_id != account_id:
+                        expense.account_id = account_id
                     count += 1
                 else:
-                    # Not found, so treat it as new
-                    self.db.add(
+                    # Not found under any account → treat as new, deduped so a
+                    # global-index collision skips instead of raising.
+                    if self._insert_deduped(
                         ExpenseORM(
-                            title=_clean_title(txn["name"]),
+                            title=title,
                             amount=dollars_to_cents(float(amount)),
-                            date=str(txn["date"]),
+                            date=str(txn_date),
                             category=category,
                             plaid_transaction_id=plaid_txn_id,
                             account_id=account_id,
                         )
-                    )
-                    count += 1
+                    ):
+                        count += 1
+                    else:
+                        logger.warning(
+                            "plaid sync: modified-as-new expense skipped (exists) %s",
+                            plaid_txn_id,
+                        )
             else:
                 # Should be income
                 if expense:
-                    # Sign flipped: it was an expense, now it's income. Delete the old one, create a new one.
+                    # Sign flipped: it was an expense, now it's income.
                     self.db.delete(expense)
-                    self.db.add(
+                    if self._insert_deduped(
                         IncomeORM(
-                            title=_clean_title(txn["name"]),
+                            title=title,
                             amount=dollars_to_cents(-float(amount)),
-                            date=str(txn["date"]),
+                            date=str(txn_date),
                             category=category,
                             plaid_transaction_id=plaid_txn_id,
                             account_id=account_id,
                         )
-                    )
-                    count += 1
+                    ):
+                        count += 1
+                    else:
+                        logger.warning(
+                            "plaid sync: modified->income insert skipped (exists) %s",
+                            plaid_txn_id,
+                        )
                 elif income:
-                    new_title = _clean_title(txn["name"])
                     new_amount = dollars_to_cents(-float(amount))
                     self._warn_if_overwriting(
-                        user_id, income, new_title, new_amount, plaid_txn_id
+                        user_id, income, title, new_amount, plaid_txn_id
                     )
-                    income.title = new_title
+                    income.title = title
                     income.amount = new_amount
-                    income.date = str(txn["date"])
+                    income.date = str(txn_date)
                     income.category = category
+                    if income.account_id != account_id:
+                        income.account_id = account_id
                     count += 1
                 else:
-                    self.db.add(
+                    if self._insert_deduped(
                         IncomeORM(
-                            title=_clean_title(txn["name"]),
+                            title=title,
                             amount=dollars_to_cents(-float(amount)),
-                            date=str(txn["date"]),
+                            date=str(txn_date),
                             category=category,
                             plaid_transaction_id=plaid_txn_id,
                             account_id=account_id,
                         )
-                    )
-                    count += 1
+                    ):
+                        count += 1
+                    else:
+                        logger.warning(
+                            "plaid sync: modified-as-new income skipped (exists) %s",
+                            plaid_txn_id,
+                        )
 
-        return count
+        if skipped:
+            logger.warning(
+                "plaid sync: %d modified row(s) skipped (missing id/amount/date)",
+                skipped,
+            )
+        return count, skipped
 
     def _warn_if_overwriting(
         self,
@@ -930,6 +1120,40 @@ class PlaidService:
                 message=(
                     f"“{row.title}” was {detail} by your bank. If you'd edited it "
                     f"yourself, re-check it — your bank's version is now shown."
+                ),
+                ref=ref,
+            )
+        )
+
+    def _notify_relink(self, user_id: int | None, token_id: int | None) -> None:
+        """Emit one idempotent 're-link this bank' notification (B3/B4).
+
+        Used when a token can no longer be used — the stored Plaid access token
+        won't decrypt (e.g. JWT secret rotated without PLAID_TOKEN_KEY) or Plaid
+        reports ITEM_LOGIN_REQUIRED / INVALID_ACCESS_TOKEN. Deduped on a stable
+        ``ref`` per token so repeated failed syncs don't stack notices. NEVER
+        references the secret — only the item. Best-effort: a notify failure must
+        not mask the original error, so callers may wrap this in try/except.
+        """
+        if user_id is None or token_id is None:
+            return
+        ref = f"plaid_relink:{token_id}"
+        exists = self.db.execute(
+            select(NotificationORM.id).where(
+                NotificationORM.user_id == user_id,
+                NotificationORM.ref == ref,
+            )
+        ).scalar_one_or_none()
+        if exists is not None:
+            return
+        self.db.add(
+            NotificationORM(
+                user_id=user_id,
+                type="plaid_relink",
+                title="Reconnect your bank",
+                message=(
+                    "We couldn't sync one of your linked banks. Please reconnect "
+                    "it from Settings to resume automatic transaction updates."
                 ),
                 ref=ref,
             )

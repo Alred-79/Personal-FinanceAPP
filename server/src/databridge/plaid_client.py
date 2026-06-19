@@ -23,6 +23,11 @@ from plaid.model.accounts_balance_get_request import AccountsBalanceGetRequest
 
 from server.src.settings import settings
 
+# Connect / read timeout (seconds) for every Plaid HTTP call. plaid-python 40.x
+# passes this straight to urllib3 as a (connect, read) pair. Without it a hung
+# Plaid endpoint would block the sync BackgroundTask thread indefinitely (B4).
+_PLAID_TIMEOUT = (5, 30)
+
 
 @dataclass
 class SyncResult:
@@ -70,17 +75,23 @@ class PlaidClient:
             language="en",  # Language for the Link interface
         )
 
-        response = self.client.link_token_create(request)
+        response = self.client.link_token_create(
+            request, _request_timeout=_PLAID_TIMEOUT
+        )
         return response["link_token"]
 
     def exchange_public_token(self, public_token: str) -> str:
         request = ItemPublicTokenExchangeRequest(public_token=public_token)
-        response = self.client.item_public_token_exchange(request)
+        response = self.client.item_public_token_exchange(
+            request, _request_timeout=_PLAID_TIMEOUT
+        )
         return response["access_token"]
 
     def get_balance(self, token: str):
         request = AccountsBalanceGetRequest(access_token=token)
-        response = self.client.accounts_balance_get(request)
+        response = self.client.accounts_balance_get(
+            request, _request_timeout=_PLAID_TIMEOUT
+        )
         return response["accounts"]
 
     def sync_transactions(self, access_token: str, cursor: str = "") -> SyncResult:
@@ -108,7 +119,9 @@ class PlaidClient:
                 access_token=access_token,
                 cursor=cursor,
             )
-            response = self.client.transactions_sync(request)
+            response = self.client.transactions_sync(
+                request, _request_timeout=_PLAID_TIMEOUT
+            )
 
             added.extend([t.to_dict() for t in response["added"]])
             modified.extend([t.to_dict() for t in response["modified"]])
