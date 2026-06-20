@@ -59,6 +59,9 @@ export interface ModeFlags {
   /** Game collectibles: Cabinet, minted coins, bestiary (ambient + full). */
   cabinet: boolean;
   bestiary: boolean;
+  /** The Reliquary: the 3D goal-vault hero (ambient + full). off = the
+   * elevated-2D goal cards. Gated so the three.js chunk never loads in off. */
+  reliquary: boolean;
 }
 
 function flagsFor(mode: GameMode): ModeFlags {
@@ -74,6 +77,7 @@ function flagsFor(mode: GameMode): ModeFlags {
     moodTimeOfDay: full,
     cabinet: game,
     bestiary: game,
+    reliquary: game,
   };
 }
 

@@ -104,6 +104,39 @@ def monthly_self_employment_income_cents(
     return {m: by_month[m] for m in sorted(months)}
 
 
+def monthly_income_cents_by_type(
+    db: Session, user_id: int, *, window_months: int = DEFAULT_WINDOW_MONTHS
+) -> dict[str, dict[str, int]]:
+    """Income per calendar month split into ``self_employment`` / ``w2`` / ``total``.
+
+    Like ``monthly_self_employment_income_cents`` but keeps EVERY income row and
+    buckets by ``source_type``: ``self_employment`` rows count to the SE bucket,
+    everything else (w2 / other / NULL) folds into ``w2`` (the non-SE bucket).
+    This powers the income-volatility dispersion plot's W-2-vs-SE split. Returns
+    the trailing ``window_months`` months, oldest→newest. Integer cents.
+    """
+    rows = db.execute(
+        select(IncomeORM.date, IncomeORM.amount, IncomeORM.source_type)
+        .join(AccountORM, IncomeORM.account_id == AccountORM.id)
+        .where(AccountORM.user_id == user_id)
+    ).all()
+
+    by_month: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"self_employment": 0, "w2": 0, "total": 0}
+    )
+    for date_str, amount_cents, source_type in rows:
+        month = str(date_str)[:7]  # 'YYYY-MM'
+        if len(month) != 7:
+            continue
+        amt = abs(int(amount_cents))
+        bucket = "self_employment" if source_type == "self_employment" else "w2"
+        by_month[month][bucket] += amt
+        by_month[month]["total"] += amt
+
+    months = sorted(by_month, reverse=True)[:window_months]
+    return {m: dict(by_month[m]) for m in sorted(months)}
+
+
 def recommend_buffer(
     monthly_income_cents: list[int],
     *,

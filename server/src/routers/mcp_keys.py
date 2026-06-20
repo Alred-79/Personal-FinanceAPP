@@ -53,6 +53,16 @@ class CreateKeyResponse(BaseModel):
     expires_at: Optional[str]
 
 
+class AuditEntry(BaseModel):
+    id: int
+    key_id: Optional[int]
+    resource: str
+    decision: str  # "allow" | "deny:<reason>"
+    latency_ms: float
+    params_hash: str  # truncated hash — never raw params
+    created_at: Optional[str]
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -90,6 +100,44 @@ async def list_keys(
 ):
     """List all API keys for the current user (prefixes only — never hashes or raw keys)."""
     return MCPKeyService.list_keys(db, current_user.id)
+
+
+@router.get("/audit/", response_model=list[AuditEntry])
+async def list_audit(
+    current_user: Annotated[UserInDB, Depends(AuthService.get_current_active_user)],
+    db: Session = Depends(get_db),
+    key_id: Optional[int] = None,
+    limit: int = 50,
+):
+    """The Agent Vault's audit ledger: recent MCP reads/denials for this user.
+
+    Owner-scoped (filtered by ``user_id``, RLS-bound on Postgres). Surfaces only
+    the structured decision + a params HASH — never raw parameter values. Not
+    gated by ``mcp_enabled`` (it is the owner's own view and is simply empty when
+    the agent surface has never been used); the client gates the UI instead.
+    """
+    from sqlalchemy import select
+    from server.src.db.models import MCPAuditLog
+
+    stmt = select(MCPAuditLog).where(MCPAuditLog.user_id == current_user.id)
+    if key_id is not None:
+        stmt = stmt.where(MCPAuditLog.key_id == key_id)
+    stmt = stmt.order_by(
+        MCPAuditLog.created_at.desc(), MCPAuditLog.id.desc()
+    ).limit(min(max(1, limit), 200))
+    rows = db.execute(stmt).scalars().all()
+    return [
+        AuditEntry(
+            id=r.id,
+            key_id=r.key_id,
+            resource=r.resource,
+            decision=r.decision,
+            latency_ms=r.latency_ms,
+            params_hash=r.params_hash,
+            created_at=str(r.created_at) if r.created_at else None,
+        )
+        for r in rows
+    ]
 
 
 @router.delete("/{key_id}/")

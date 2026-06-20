@@ -15,8 +15,12 @@ import { NAV_ITEMS, NAV_GROUPS } from "./nav";
 export default function SidebarRail() {
   const { gameLayer } = useFlags();
   const taxEnabled = useStore((s) => s.taxFeaturesEnabled);
+  const freelancerEnabled = useStore((s) => s.freelancerModeEnabled);
   const items = NAV_ITEMS.filter(
-    (i) => (!i.gameOnly || gameLayer) && (!i.taxOnly || taxEnabled)
+    (i) =>
+      (!i.gameOnly || gameLayer) &&
+      (!i.taxOnly || taxEnabled) &&
+      (!i.freelancerOnly || freelancerEnabled)
   );
 
   return (

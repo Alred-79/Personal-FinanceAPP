@@ -6,6 +6,8 @@ import {
   PieChart,
   Repeat,
   TrendingUp,
+  BookOpen,
+  Activity,
   FileUp,
   Receipt,
   Settings,
@@ -39,6 +41,9 @@ export interface NavItem {
    * flag is on. The ROUTE always exists (and self-handles the disabled state);
    * this flags its nav PRESENCE. */
   taxOnly?: boolean;
+  /** When true, this entry only appears in nav when the server's freelancer
+   * mode flag is on (W5). The ROUTE always exists; this flags nav PRESENCE. */
+  freelancerOnly?: boolean;
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -48,9 +53,11 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/budgets", label: "Budgets", termKey: "nav.budgets", icon: PieChart, folio: "IV", group: "ledger" },
   { to: "/goals", label: "Goals", termKey: "nav.goals", icon: Target, folio: "V", group: "ledger" },
   { to: "/forecast", label: "Forecast", termKey: "nav.forecast", icon: TrendingUp, folio: "VI", group: "ledger" },
+  { to: "/almanac", label: "Almanac", termKey: "nav.almanac", icon: BookOpen, folio: "XV", group: "tools" },
   { to: "/subscriptions", label: "Standing Orders", termKey: "nav.subscriptions", icon: Repeat, folio: "VII", group: "tools" },
   { to: "/rules", label: "Rule Book", termKey: "nav.rules", icon: ScrollText, folio: "XIV", group: "tools" },
   { to: "/reconcile", label: "Reconciliation Desk", termKey: "nav.reconcile", icon: FileUp, folio: "XII", group: "tools" },
+  { to: "/income", label: "Income", termKey: "nav.income", icon: Activity, folio: "XVI", freelancerOnly: true, group: "tools" },
   { to: "/tax", label: "Tax Organizer", termKey: "nav.tax", icon: Receipt, folio: "XIII", taxOnly: true, group: "tools" },
   { to: "/keeper", label: "Profile & Progress", termKey: "nav.keeper", icon: Shield, folio: "IX", gameOnly: true, group: "game" },
   { to: "/debts", label: "Debts", termKey: "nav.debts", icon: Swords, folio: "X", gameOnly: true, group: "game" },

@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/useToast";
+import { QuarterlyCalendar } from "@/components/custom/Tax/QuarterlyCalendar";
 
 /**
  * The Tax Organizer — a read-only-by-default desk that ORGANIZES, SUMMARIZES,
@@ -51,6 +52,13 @@ export default function Tax() {
     () => [thisYear, thisYear - 1, thisYear - 2],
     [thisYear]
   );
+
+  // For the Schedule-C share bars: each bucket's slice of total deductions.
+  const totalDeductible =
+    (summary?.deductions_by_bucket ?? []).reduce(
+      (s, d) => s + d.deductible,
+      0
+    ) || 1;
 
   async function load(y: number) {
     setLoading(true);
@@ -234,16 +242,27 @@ export default function Tax() {
               ) : (
                 <ul className="divide-y divide-rule/50">
                   {summary.deductions_by_bucket.map((d) => (
-                    <li key={d.bucket} className="ledger-row flex items-center justify-between py-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-[15px]">{d.label}</p>
-                        <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
-                          {d.irs_line} · {formatCurrency(d.total)} tagged
-                        </p>
+                    <li key={d.bucket} className="ledger-row py-2">
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0">
+                          <p className="truncate text-[15px]">{d.label}</p>
+                          <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+                            {d.irs_line} · {formatCurrency(d.total)} tagged
+                          </p>
+                        </div>
+                        <span className="ledger-figures ink-debit tabular-nums">
+                          {formatCurrency(d.deductible)}
+                        </span>
                       </div>
-                      <span className="ledger-figures ink-debit tabular-nums">
-                        {formatCurrency(d.deductible)}
-                      </span>
+                      {/* Schedule-C share: this bucket's slice of total deductions. */}
+                      <div className="mt-1.5 h-1 w-full overflow-hidden bg-secondary">
+                        <div
+                          className="h-full bg-debit/60"
+                          style={{
+                            width: `${(d.deductible / totalDeductible) * 100}%`,
+                          }}
+                        />
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -413,15 +432,9 @@ export default function Tax() {
               <p className="border-l-2 border-gold/50 pl-3 text-xs font-medium text-foreground">
                 {summary.estimated_quarterly.disclaimer}
               </p>
-              <div className="flex flex-wrap gap-2 pt-1">
-                {summary.estimated_quarterly.due_dates.map(([q, d]) => (
-                  <span
-                    key={q}
-                    className="border border-rule-strong/40 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground"
-                  >
-                    {q} {d}
-                  </span>
-                ))}
+              <div className="pt-1">
+                <p className="dept-label mb-2">Payment schedule</p>
+                <QuarterlyCalendar quarterly={summary.estimated_quarterly} />
               </div>
             </CardContent>
           </Card>

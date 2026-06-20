@@ -34,7 +34,7 @@ async def get_expenses(
     return _svc(db).list_all(current_user.id, ExpenseORM)
 
 
-@router.get("/fixed per month/")
+@router.get("/fixed-per-month/")
 async def get_fixed_per_month(
     current_user: Annotated[
         UserInDB, Depends(AuthService.get_current_active_user)

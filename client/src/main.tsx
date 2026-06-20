@@ -9,6 +9,8 @@ import Transactions from "./pages/Transactions/Transactions.tsx";
 import Goals from "./pages/Goals/Goals.tsx";
 import Budgets from "./pages/Budgets/Budgets.tsx";
 import Subscriptions from "./pages/Subscriptions/Subscriptions.tsx";
+import Almanac from "./pages/Almanac/Almanac.tsx";
+import Income from "./pages/Income/Income.tsx";
 import Forecast from "./pages/Forecast/Forecast.tsx";
 import Reconcile from "./pages/Reconcile/Reconcile.tsx";
 import Tax from "./pages/Tax/Tax.tsx";
@@ -61,6 +63,11 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/goals" element={<Goals />} />
               <Route path="/budgets" element={<Budgets />} />
               <Route path="/subscriptions" element={<Subscriptions />} />
+              <Route path="/almanac" element={<Almanac />} />
+              {/* The Income (freelancer wedge) route exists in every instance;
+                  its NAV presence is gated by the server freelancer flag, and the
+                  inner surface self-handles the disabled (404) state. */}
+              <Route path="/income" element={<Income />} />
               <Route path="/rules" element={<Rules />} />
               <Route path="/forecast" element={<Forecast />} />
               <Route path="/reconcile" element={<Reconcile />} />

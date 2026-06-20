@@ -341,4 +341,8 @@ class NotificationService:
             "message": r.message,
             "read": bool(r.read),
             "created_at": str(r.created_at) if r.created_at else None,
+            # The stable dedup key. Carries the actionable payload for proposal
+            # types (rule_proposal/rule_suggest); the client gates the one-tap
+            # Approve affordance on type, and mints a fresh token by id.
+            "ref": r.ref,
         }

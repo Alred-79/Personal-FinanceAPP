@@ -62,6 +62,12 @@ class FeatureFlags(BaseModel):
     # "one thing today" next-action view. The endpoint works regardless (B4); this
     # flag only drives the client's DEFAULTING to it. Instance-level, read-only.
     neurodivergent_mode: bool
+    # The MCP surface ships dark (mcp_enabled default False). The client reads
+    # this to decide whether to show the Agent Vault surface in Settings.
+    mcp_enabled: bool
+    # W5 freelancer wedge. When on, the client surfaces the Income-Volatility
+    # nav entry; the endpoint itself 404s when off (ships dark).
+    freelancer_mode_enabled: bool
 
 
 class SettingsResponse(BaseModel):
@@ -125,6 +131,8 @@ async def get_settings(
         features=FeatureFlags(
             tax_features_enabled=app_settings.tax_features_enabled,
             neurodivergent_mode=app_settings.neurodivergent_mode,
+            mcp_enabled=app_settings.mcp_enabled,
+            freelancer_mode_enabled=app_settings.freelancer_mode_enabled,
         ),
     )
 

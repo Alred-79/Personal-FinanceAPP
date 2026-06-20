@@ -71,7 +71,14 @@ api.interceptors.response.use(
         await refreshOnce();
         return api(originalRequest);
       } catch (refreshError) {
-        window.location.href = "/login";
+        // Don't bounce to /login if we're already on a public page. Otherwise a
+        // failed background probe on a logged-out visit (e.g. GameModeProvider's
+        // settings read, which fires above the auth boundary) turns into an
+        // infinite reload loop: 401 → refresh fails → redirect → remount → 401…
+        const path = window.location.pathname;
+        if (path !== "/login" && path !== "/welcome") {
+          window.location.href = "/login";
+        }
         return Promise.reject(refreshError);
       }
     }

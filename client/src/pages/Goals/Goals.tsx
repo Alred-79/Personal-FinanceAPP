@@ -1,5 +1,4 @@
 import React, { useState, ChangeEvent, useEffect } from "react";
-import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import { Calendar } from "@/components/ui/calendar";
 import { useReducedMotion } from "@/hooks/useEnvironment";
@@ -16,21 +15,21 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Plus } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import { useStore } from "@/store/store";
 import { useToast } from "@/hooks/useToast";
-import { formatCurrency } from "@/lib/format";
-import { Certificate } from "@/components/engraving/Certificate";
-import { Seal } from "@/components/engraving/Seal";
-import { EmptyState } from "@/components/engraving/EmptyState";
 import { SectionRule } from "@/components/engraving/SectionRule";
 import { Guilloche } from "@/components/engraving/Guilloche";
 import { MintedCoin } from "@/components/custom/MintedCoin/MintedCoin";
 import { RuleEditor } from "@/components/custom/RuleEditor/RuleEditor";
+import ReliquaryLazy from "@/components/reliquary/ReliquaryLazy";
 import { useFlags } from "@/store/gameMode";
 import api from "@/lib/api";
 import type { Goal } from "@/store/store";
+
+const calculateProgress = (saved = 0, target: number) =>
+  (saved / (target || 1)) * 100;
 
 const Goals: React.FC = () => {
   const [newGoal, setNewGoal] = useState<Omit<Goal, "id">>({
@@ -48,7 +47,9 @@ const Goals: React.FC = () => {
   const [newGoalDialogOpen, setNewGoalDialogOpen] = useState(false);
   const [editGoalDialogOpen, setEditGoalDialogOpen] = useState(false);
   // Which goals have auto-fund rules (goal id → true) for the ⟳ badge.
-  const [automatedGoals, setAutomatedGoals] = useState<Record<number, boolean>>({});
+  const [automatedGoals, setAutomatedGoals] = useState<Record<number, boolean>>(
+    {}
+  );
 
   const {
     goals,
@@ -66,15 +67,8 @@ const Goals: React.FC = () => {
   const { cabinet } = useFlags();
   const reduce = useReducedMotion();
 
-  // These store actions rethrow on failure; without a catch the awaiting
-  // handlers below would leak an unhandled rejection AND still close/clear the
-  // dialog as if the save succeeded. Wrap them so a failure is surfaced.
   const notifyFailure = (title: string) =>
-    toast({
-      variant: "destructive",
-      title,
-      description: "Please try again.",
-    });
+    toast({ variant: "destructive", title, description: "Please try again." });
 
   useEffect(() => {
     fetchGoals();
@@ -144,31 +138,18 @@ const Goals: React.FC = () => {
     setProgressUpdateGoal(null);
   };
 
-  const calculateProgress = (savedAmount: number = 0, targetAmount: number) =>
-    (savedAmount / targetAmount) * 100;
-
-  const getDeadlineStatus = (deadline: Date) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const deadlineDate = new Date(deadline);
-    deadlineDate.setHours(0, 0, 0, 0);
-
-    const diffDays = Math.ceil(
-      (deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
-    );
-
-    if (diffDays < 0) return { color: "text-destructive", text: "Past due" };
-    if (diffDays === 0) return { color: "text-destructive", text: "Due today" };
-    if (diffDays <= 3) {
-      return {
-        color: "text-orange-500",
-        text: `${diffDays} day${diffDays === 1 ? "" : "s"} left`,
-      };
+  // CRUD entry points shared by the 3D focus panel and the 2D fallback cards.
+  const onEdit = (g: Goal) => {
+    setSelectedGoal(g);
+    setEditGoalDialogOpen(true);
+  };
+  const onDelete = async (g: Goal) => {
+    if (!g.id) return;
+    try {
+      await deleteGoal(g.id);
+    } catch {
+      notifyFailure("Could not delete goal");
     }
-    return {
-      color: "text-muted-foreground",
-      text: deadlineDate.toLocaleDateString(),
-    };
   };
 
   const newGoalDialog = (
@@ -254,286 +235,172 @@ const Goals: React.FC = () => {
           Loading goals...
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
-          {goals.map((goal) => (
-            <div key={goal.id} className="w-full">
-              <Dialog
-                open={editGoalDialogOpen && selectedGoal?.id === goal.id}
-                onOpenChange={(open) => {
-                  setEditGoalDialogOpen(open);
-                  setSelectedGoal(open ? goal : null);
-                }}
-              >
-                <DialogTrigger asChild>
-                  <Certificate seed={(goal.id ?? 1) * 17 + 3} alive className="h-full">
-                    <button
-                      aria-label="Delete goal"
-                      className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center text-muted-foreground opacity-0 transition-opacity hover:text-debit group-hover:opacity-100"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (!goal.id) return;
-                        try {
-                          await deleteGoal(goal.id);
-                        } catch {
-                          notifyFailure("Could not delete goal");
-                        }
-                      }}
-                    >
-                      <Trash2 size={17} />
-                    </button>
-
-                    <div className="p-6">
-                      <div className="mb-4 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="dept-label">Certificate of Savings</p>
-                          <h2 className="font-display text-xl font-semibold leading-tight">
-                            {goal.name}
-                          </h2>
-                        </div>
-                        {goal.completed && (
-                          <Seal label="Goal · Met · Goal · Met" size={56} tone="approved" pulse />
-                        )}
-                      </div>
-
-                      <p className="mb-5 line-clamp-2 font-sans text-sm italic text-muted-foreground">
-                        {goal.description || "—"}
-                      </p>
-
-                      <div className="mb-2 flex items-baseline justify-between">
-                        <span className="intaglio text-2xl text-foreground">
-                          {formatCurrency(goal.progress || 0)}
-                        </span>
-                        <span className="ledger-figures text-xs text-muted-foreground">
-                          of {formatCurrency(goal.amount)}
-                        </span>
-                      </div>
-
-                      <div className="relative mb-1 h-2 w-full overflow-hidden border border-rule-strong/40 bg-secondary">
-                        <motion.div
-                          className="absolute inset-y-0 left-0 origin-left bg-credit"
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              calculateProgress(goal.progress || 0, goal.amount)
-                            )}%`,
-                          }}
-                          initial={reduce ? false : { scaleX: 0 }}
-                          animate={{ scaleX: 1 }}
-                          transition={{ duration: 0.7, ease: [0.23, 1, 0.32, 1] }}
-                        />
-                      </div>
-                      <p className="mb-4 text-right font-mono text-[11px] text-muted-foreground">
-                        {calculateProgress(goal.progress || 0, goal.amount).toFixed(0)}% subscribed
-                      </p>
-
-                      <div className="flex items-center justify-between border-t border-rule pt-3">
-                        <p className={`flex items-center gap-1.5 font-mono text-[11px] ${getDeadlineStatus(goal.deadline).color}`}>
-                          Matures {getDeadlineStatus(goal.deadline).text}
-                          {goal.id != null && automatedGoals[goal.id] && (
-                            <span
-                              className="flex items-center gap-0.5 text-credit"
-                              title="Auto-funded by a rule"
-                            >
-                              <RefreshCw size={10} /> auto
-                            </span>
-                          )}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            aria-label="What if"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate(`/forecast?goal=${goal.id}`);
-                            }}
-                          >
-                            What if…
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setProgressUpdateGoal(goal);
-                            }}
-                          >
-                            Deposit
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </Certificate>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Edit Goal</DialogTitle>
-                    <DialogDescription>
-                      Update your savings goal details.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="edit-name">Name</Label>
-                      <Input
-                        id="edit-name"
-                        value={selectedGoal?.name || ""}
-                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                          setSelectedGoal((prev) =>
-                            prev ? { ...prev, name: e.target.value } : null
-                          )
-                        }
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="edit-description">Description</Label>
-                      <Textarea
-                        id="edit-description"
-                        value={selectedGoal?.description || ""}
-                        onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
-                          setSelectedGoal((prev) =>
-                            prev ? { ...prev, description: e.target.value } : null
-                          )
-                        }
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="edit-amount">Amount</Label>
-                      <Input
-                        id="edit-amount"
-                        type="number"
-                        value={selectedGoal?.amount || 0}
-                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                          setSelectedGoal((prev) =>
-                            prev ? { ...prev, amount: Number(e.target.value) } : null
-                          )
-                        }
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Deadline</Label>
-                      <Calendar
-                        mode="single"
-                        selected={selectedGoal?.deadline}
-                        onSelect={(date) => {
-                          if (date)
-                            setSelectedGoal((prev) =>
-                              prev ? { ...prev, deadline: date } : null
-                            );
-                        }}
-                        className="rounded-md border"
-                        disabled={(date) =>
-                          date < new Date(new Date().setHours(0, 0, 0, 0))
-                        }
-                      />
-                    </div>
-                    {/* Auto-fund: the embedded rule editor, target pre-bound */}
-                    {goal.id != null && (
-                      <RuleEditor targetKind="goal" targetId={goal.id} />
-                    )}
-                  </div>
-                  <DialogFooter className="flex flex-col gap-2 sm:flex-row">
-                    <Button
-                      onClick={handleUpdateGoal}
-                      className="order-1 w-full sm:w-auto"
-                    >
-                      Update Goal
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (!selectedGoal?.id) return;
-                        try {
-                          await deleteGoal(selectedGoal.id);
-                        } catch {
-                          notifyFailure("Could not delete goal");
-                          return;
-                        }
-                        setEditGoalDialogOpen(false);
-                      }}
-                      className="order-2 w-full sm:w-auto"
-                    >
-                      Delete Goal
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-
-              <Dialog
-                open={progressUpdateGoal?.id === goal.id}
-                onOpenChange={(open) => {
-                  if (!open) setProgressUpdateGoal(null);
-                }}
-              >
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Update Saved Amount</DialogTitle>
-                    <DialogDescription>
-                      Update how much you've saved towards this goal.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="progress">Amount Saved ($)</Label>
-                      <Input
-                        id="progress"
-                        type="number"
-                        min="0"
-                        max={progressUpdateGoal?.amount}
-                        value={progressUpdateGoal?.progress || 0}
-                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                          setProgressUpdateGoal((prev) =>
-                            prev
-                              ? { ...prev, progress: Number(e.target.value) }
-                              : null
-                          )
-                        }
-                      />
-                      <p className="text-sm text-muted-foreground">
-                        {progressUpdateGoal
-                          ? `${calculateProgress(
-                              progressUpdateGoal.progress || 0,
-                              progressUpdateGoal.amount
-                            ).toFixed(1)}% of goal`
-                          : null}
-                      </p>
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button onClick={handleProgressUpdate}>
-                      Update Saved Amount
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-          ))}
-          {goals.length === 0 && (
-            <EmptyState
-              seed={20}
-              eyebrow="Goals · A dark sky"
-              title="Awaiting its first star"
-              description="You haven't charted a destination yet. Set a goal and watch its coin mint as you approach — saving you'll actually want to finish."
-              action={
-                <Button onClick={() => setNewGoalDialogOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Chart your first goal
-                </Button>
-              }
-            />
-          )}
-        </div>
+        <ReliquaryLazy
+          goals={goals}
+          automatedGoals={automatedGoals}
+          reduce={reduce}
+          onEdit={onEdit}
+          onDeposit={(g) => setProgressUpdateGoal(g)}
+          onWhatIf={(g) => navigate(`/forecast?goal=${g.id}`)}
+          onDelete={onDelete}
+          onNew={() => setNewGoalDialogOpen(true)}
+        />
       )}
 
+      {/* Edit dialog — one instance, opened by the 3D panel or a 2D card. */}
+      <Dialog
+        open={editGoalDialogOpen}
+        onOpenChange={(open) => {
+          setEditGoalDialogOpen(open);
+          if (!open) setSelectedGoal(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Goal</DialogTitle>
+            <DialogDescription>
+              Update your savings goal details.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="edit-name">Name</Label>
+              <Input
+                id="edit-name"
+                value={selectedGoal?.name || ""}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setSelectedGoal((prev) =>
+                    prev ? { ...prev, name: e.target.value } : null
+                  )
+                }
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-description">Description</Label>
+              <Textarea
+                id="edit-description"
+                value={selectedGoal?.description || ""}
+                onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
+                  setSelectedGoal((prev) =>
+                    prev ? { ...prev, description: e.target.value } : null
+                  )
+                }
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-amount">Amount</Label>
+              <Input
+                id="edit-amount"
+                type="number"
+                value={selectedGoal?.amount || 0}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setSelectedGoal((prev) =>
+                    prev ? { ...prev, amount: Number(e.target.value) } : null
+                  )
+                }
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Deadline</Label>
+              <Calendar
+                mode="single"
+                selected={selectedGoal?.deadline}
+                onSelect={(date) => {
+                  if (date)
+                    setSelectedGoal((prev) =>
+                      prev ? { ...prev, deadline: date } : null
+                    );
+                }}
+                className="rounded-md border"
+                disabled={(date) =>
+                  date < new Date(new Date().setHours(0, 0, 0, 0))
+                }
+              />
+            </div>
+            {/* Auto-fund: the embedded rule editor, target pre-bound */}
+            {selectedGoal?.id != null && (
+              <RuleEditor targetKind="goal" targetId={selectedGoal.id} />
+            )}
+          </div>
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              onClick={handleUpdateGoal}
+              className="order-1 w-full sm:w-auto"
+            >
+              Update Goal
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (!selectedGoal?.id) return;
+                try {
+                  await deleteGoal(selectedGoal.id);
+                } catch {
+                  notifyFailure("Could not delete goal");
+                  return;
+                }
+                setEditGoalDialogOpen(false);
+                setSelectedGoal(null);
+              }}
+              className="order-2 w-full sm:w-auto"
+            >
+              Delete Goal
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Deposit (saved-amount) dialog — one instance. */}
+      <Dialog
+        open={progressUpdateGoal != null}
+        onOpenChange={(open) => {
+          if (!open) setProgressUpdateGoal(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Update Saved Amount</DialogTitle>
+            <DialogDescription>
+              Update how much you've saved towards this goal.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="progress">Amount Saved ($)</Label>
+              <Input
+                id="progress"
+                type="number"
+                min="0"
+                max={progressUpdateGoal?.amount}
+                value={progressUpdateGoal?.progress || 0}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setProgressUpdateGoal((prev) =>
+                    prev ? { ...prev, progress: Number(e.target.value) } : null
+                  )
+                }
+              />
+              <p className="text-sm text-muted-foreground">
+                {progressUpdateGoal
+                  ? `${calculateProgress(
+                      progressUpdateGoal.progress || 0,
+                      progressUpdateGoal.amount
+                    ).toFixed(1)}% of goal`
+                  : null}
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleProgressUpdate}>Update Saved Amount</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* The Cabinet — minted coins for met goals, awaiting discs for the rest.
-          Game-layer collectibles (cabinet flag = ambient + full). Off mode keeps
-          pure finance, so this stays hidden. */}
+          Game-layer collectibles (cabinet flag = ambient + full). */}
       {cabinet && goals.length > 0 && (
         <section className="mt-12">
           <SectionRule className="mb-4">The Cabinet</SectionRule>
           <div className="plate relative overflow-hidden bg-card p-8">
-            {/* faint constellation backdrop — the charted sky behind the case */}
             <div
               aria-hidden
               className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-rule-strong/[0.06] dark:text-rule-strong/[0.1]"
@@ -543,7 +410,10 @@ const Goals: React.FC = () => {
             <div className="relative flex flex-wrap justify-center gap-x-10 gap-y-8 sm:justify-start">
               {goals.map((goal) =>
                 goal.completed ? (
-                  <figure key={goal.id} className="flex w-24 flex-col items-center gap-2 text-center">
+                  <figure
+                    key={goal.id}
+                    className="flex w-24 flex-col items-center gap-2 text-center"
+                  >
                     <MintedCoin label={goal.name} />
                     <figcaption className="font-display text-sm font-semibold leading-tight">
                       {goal.name}
@@ -551,10 +421,16 @@ const Goals: React.FC = () => {
                     <span className="dept-label text-[9px]">minted</span>
                   </figure>
                 ) : (
-                  <figure key={goal.id} className="flex w-24 flex-col items-center gap-2 text-center opacity-70">
+                  <figure
+                    key={goal.id}
+                    className="flex w-24 flex-col items-center gap-2 text-center opacity-70"
+                  >
                     <span className="grid h-[84px] w-[84px] place-items-center rounded-full border border-dashed border-rule-strong/40 text-rule-strong/40">
                       <span className="font-mono text-[10px] uppercase tracking-wider">
-                        {Math.round(((goal.progress || 0) / (goal.amount || 1)) * 100)}%
+                        {Math.round(
+                          ((goal.progress || 0) / (goal.amount || 1)) * 100
+                        )}
+                        %
                       </span>
                     </span>
                     <figcaption className="font-display text-sm font-semibold leading-tight text-muted-foreground">

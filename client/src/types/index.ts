@@ -126,14 +126,80 @@ export interface Earmark {
   amount_cents: number;
 }
 
+// The Almanac — the category × time spending pivot (GET /analytics/spending).
+export interface AnalyticsCell {
+  bucket: string; // e.g. "2026-01" | "2026-W03" | "2026-01-15"
+  category: string;
+  total: number; // dollars
+  count: number;
+}
+
+export interface AnalyticsSpending {
+  bucket: "month" | "week" | "day";
+  tx_type: "expense" | "income";
+  cells: AnalyticsCell[];
+  totals_by_category: Record<string, number>; // sorted desc by the backend
+  totals_by_bucket: Record<string, number>; // chronological keys
+  grand_total: number;
+}
+
+export interface AnalyticsParams {
+  bucket: "month" | "week" | "day";
+  tx_type: "expense" | "income";
+  include_recurring: boolean;
+}
+
+// W5 — freelancer income-volatility (GET /spend/income-volatility).
+export interface MonthlyIncomePoint {
+  month: string; // "YYYY-MM"
+  self_employment: number; // dollars
+  w2: number; // dollars
+  total: number; // dollars
+}
+
+export interface IncomeVolatility {
+  months: MonthlyIncomePoint[];
+  months_observed: number;
+  mean_monthly: number; // dollars
+  recommended_buffer: number; // dollars
+  current_buffer: number; // dollars
+  target_percentile: number;
+  sufficient_data: boolean;
+  rationale: string;
+  coefficient_of_variation: number | null;
+  tax_reserve: {
+    goal_id: number;
+    name: string;
+    target: number;
+    progress: number;
+  } | null;
+}
+
 // Notifications and subscriptions
+export type NotificationType =
+  | "budget_overrun"
+  | "anomaly"
+  | "overdraft_risk"
+  | "plan_drift"
+  | "audit_digest"
+  | "merchant_lifecycle"
+  | "price_creep"
+  | "goal_reminder"
+  | "rule_proposal"
+  | "rule_suggest"
+  | "landmark_reentry";
+
 export interface Notification {
   id: number;
-  type: "budget_overrun" | "anomaly" | string;
+  // The known kinds, but tolerant of future server types (string & {} keeps the
+  // union autocompletion without rejecting an unknown value).
+  type: NotificationType | (string & {});
   title: string;
   message: string;
   read: boolean;
   created_at: string | null;
+  // Stable dedup key; carries the actionable payload for proposal types.
+  ref?: string | null;
 }
 
 export interface Subscription {

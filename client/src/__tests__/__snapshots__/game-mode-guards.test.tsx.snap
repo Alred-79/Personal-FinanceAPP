@@ -618,6 +618,37 @@ exports[`off-mode shell > matches the off-mode sidebar snapshot 1`] = `
       <a
         class="group flex items-center gap-3 border-l-2 border-transparent px-3 py-2.5 font-sans text-[12px] font-semibold uppercase tracking-[0.14em] transition-colors text-sidebar-foreground/60 hover:bg-white/5 hover:text-sidebar-foreground"
         data-discover="true"
+        href="/almanac"
+      >
+        <span
+          class="w-6 shrink-0 font-mono text-[10px] tracking-normal text-sidebar-foreground/40 group-hover:text-sidebar-foreground/60"
+        >
+          XV
+        </span>
+        <svg
+          class="lucide lucide-book-open h-[16px] w-[16px] shrink-0"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M12 7v14"
+          />
+          <path
+            d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"
+          />
+        </svg>
+        Almanac
+      </a>
+      <a
+        class="group flex items-center gap-3 border-l-2 border-transparent px-3 py-2.5 font-sans text-[12px] font-semibold uppercase tracking-[0.14em] transition-colors text-sidebar-foreground/60 hover:bg-white/5 hover:text-sidebar-foreground"
+        data-discover="true"
         href="/subscriptions"
       >
         <span

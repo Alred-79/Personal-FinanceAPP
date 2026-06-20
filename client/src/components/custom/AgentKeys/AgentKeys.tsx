@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useStore } from "@/store/store";
 import { useToast } from "@/hooks/useToast";
 import { Seal } from "@/components/engraving/Seal";
 import { Stamp } from "@/components/engraving/Stamp";
 import { GuillocheBand, CornerRosette } from "@/components/engraving/Guilloche";
+import { CapabilityStamps } from "./CapabilityStamps";
+import { AuditLedger } from "./AuditLedger";
 
 /* ──────────────────────────────────────────────────────────────────────────
  * THE BUREAU OF SEALED AUTHORIZATIONS
@@ -81,6 +84,8 @@ function relTime(iso: string | null): string {
 
 export function AgentKeys() {
   const { toast } = useToast();
+  const mcpEnabled = useStore((s) => s.mcpEnabled);
+  const settingsLoaded = useStore((s) => s.settingsLoaded);
   const [keys, setKeys] = useState<KeyMeta[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [minted, setMinted] = useState<MintedKey | null>(null);
@@ -105,6 +110,12 @@ export function AgentKeys() {
     [keys]
   );
 
+  // The MCP surface ships dark: when it's not enabled server-side, no key can be
+  // issued or used, so the whole Bureau is sealed shut rather than misleadingly live.
+  if (settingsLoaded && !mcpEnabled) {
+    return <ShipsDark />;
+  }
+
   return (
     <section className="relative">
       <BureauMasthead liveCount={liveCount} />
@@ -114,8 +125,36 @@ export function AgentKeys() {
         <KeyRegister keys={keys} loaded={loaded} onRevoke={refresh} />
       </div>
 
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <CapabilityStamps />
+        <AuditLedger />
+      </div>
+
       {minted && <RevealNote minted={minted} onClose={() => setMinted(null)} />}
     </section>
+  );
+}
+
+/* ── Sealed shut: the MCP surface is not enabled on this instance ──────────── */
+function ShipsDark() {
+  return (
+    <div className="plate relative overflow-hidden bg-card px-6 py-12 text-center">
+      <div className="pointer-events-none absolute -right-6 -top-8 text-gold/10">
+        <CornerRosette size={120} seed={42} />
+      </div>
+      <div className="relative mx-auto grid max-w-md place-items-center">
+        <div className="text-rule-strong/40">
+          <CornerRosette size={72} seed={5} />
+        </div>
+        <p className="mt-3 font-display text-xl">The Bureau is sealed shut</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Agent access ships dark on this instance — the MCP vault isn't mounted,
+          so no key can be issued or used. Enable it server-side
+          (<code className="font-mono text-[12px]">mcp_enabled</code>) to let an AI
+          agent read your ledger through the scoped, audited door.
+        </p>
+      </div>
+    </div>
   );
 }
 

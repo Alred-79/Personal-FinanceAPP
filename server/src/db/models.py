@@ -1609,6 +1609,35 @@ class MileageLog(Base):
     user = relationship("User", back_populates="mileage_logs")
 
 
+class MCPAuditLog(Base):
+    """An append-only record of one MCP read (or auth denial), so the owner can
+    SEE what an external agent actually did — the read side of the security
+    story the Agent Vault surfaces.
+
+    Privacy-preserving by construction: it stores only a truncated ``params_hash``
+    (never raw parameter values — same hash ``mcp/audit.py`` already computes) and
+    no financial detail. ``key_id`` is nullable because a denial can precede key
+    resolution (an unknown key has no id). RLS-scoped to the owner like any tenant
+    table; written best-effort on its own committing session (the vault's read
+    session always rolls back, so audit rows must not ride it).
+    """
+
+    __tablename__ = "mcp_audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    key_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    resource: Mapped[str] = mapped_column(String, nullable=False)
+    decision: Mapped[str] = mapped_column(String, nullable=False)
+    latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    params_hash: Mapped[str] = mapped_column(String, nullable=False, default="")
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), server_default=func.current_timestamp(), index=True
+    )
+
+
 # ── WS2: denormalized user_id backfill ──────────────────────────────────────
 # These 6 child tables carry a denormalized ``user_id`` (== their parent's) so
 # RLS policies can filter them directly instead of joining through the parent on

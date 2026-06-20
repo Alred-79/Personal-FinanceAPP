@@ -1,15 +1,6 @@
 import { FC, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Bell,
-  AlertTriangle,
-  TrendingUp,
-  FileText,
-  CheckCheck,
-  Store,
-  Waves,
-  type LucideIcon,
-} from "lucide-react";
+import { Bell, CheckCheck, ScrollText } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -20,57 +11,24 @@ import { Reveal, RevealItem } from "@/components/motion/Reveal";
 import { Guilloche } from "@/components/engraving/Guilloche";
 import { useStore } from "@/store/store";
 import type { Notification } from "@/types";
-
-/**
- * The notice registry. Each kind carries its engraved tell (icon + ink) and the
- * ledger page it deep-links to. `tone` stays inside the colour law: debit-red
- * for money-out warnings, gold for an attention nudge, neutral otherwise — never
- * the amber `--game-accent`, which belongs to the game layer alone.
- */
-const NOTICE: Record<
-  string,
-  { icon: LucideIcon; tone: "debit" | "gold" | "muted"; to?: string; verb?: string }
-> = {
-  budget_overrun: { icon: AlertTriangle, tone: "debit", to: "/budgets", verb: "Review budget" },
-  anomaly: { icon: TrendingUp, tone: "gold", to: "/transactions", verb: "Inspect ledger" },
-  // F2 — merchant lifecycle (the nightly Auditor emits these).
-  merchant_lifecycle: { icon: Store, tone: "gold", to: "/subscriptions", verb: "Review subscription" },
-  price_creep: { icon: TrendingUp, tone: "debit", to: "/subscriptions", verb: "Check price" },
-  // F1/F3 — calibrated overdraft risk + plan drift, deep-linking to the forecast.
-  overdraft_risk: { icon: Waves, tone: "debit", to: "/forecast", verb: "View forecast" },
-  plan_drift: { icon: TrendingUp, tone: "gold", to: "/forecast", verb: "Review plan" },
-  // F3 — the nightly Auditor digest.
-  audit_digest: { icon: FileText, tone: "gold", to: "/", verb: "Review findings" },
-};
-const FALLBACK = { icon: FileText, tone: "muted" as const, to: undefined, verb: undefined };
-
-const TONE_TEXT = { debit: "text-debit", gold: "text-gold", muted: "text-muted-foreground" };
-const TONE_EDGE = {
-  debit: "border-l-debit/70",
-  gold: "border-l-gold/70",
-  muted: "border-l-transparent",
-};
-
-/** Compact "2h ago" / "3d ago" / "Jun 14" stamp from an ISO string. */
-function relTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "";
-  const s = (Date.now() - then) / 1000;
-  if (s < 45) return "just now";
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86_400) return `${Math.round(s / 3600)}h ago`;
-  if (s < 604_800) return `${Math.round(s / 86_400)}d ago`;
-  return new Date(then).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
+import {
+  metaFor,
+  isProposal,
+  relTime,
+  TONE_TEXT,
+  TONE_EDGE,
+} from "@/lib/notices";
+import ProposalApprove from "@/components/custom/AuditorsReport/ProposalApprove";
+import AuditorsReport from "@/components/custom/AuditorsReport/AuditorsReport";
 
 /**
  * The Notices & Nudges centre.
  *
  * A bell + unread badge opens a grouped feed: unread notices first, then the
- * read "earlier" pile, each typed (budget overrun, anomaly, …) with its own ink
- * and a deep-link to the relevant ledger page. Activating a notice marks it read
- * and, when it carries a destination, navigates there. Polls on mount and every
- * 60s while mounted.
+ * read "earlier" pile, each typed (budget overrun, anomaly, proposal, …) with
+ * its own ink and either a deep-link or an inline one-tap Approve. "Open full
+ * report" hands off to the roomier Auditor's Report sheet. Polls on mount and
+ * every 60s while mounted.
  */
 const NotificationBell: FC = () => {
   const {
@@ -83,6 +41,7 @@ const NotificationBell: FC = () => {
   } = useStore();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
 
   useEffect(() => {
     if (!isLoggedIn) return;
@@ -101,7 +60,7 @@ const NotificationBell: FC = () => {
 
   const activate = (n: Notification) => {
     if (!n.read) markNotificationRead(n.id);
-    const to = (NOTICE[n.type] ?? FALLBACK).to;
+    const to = metaFor(n.type).to;
     if (to) {
       setOpen(false);
       navigate(to);
@@ -109,8 +68,64 @@ const NotificationBell: FC = () => {
   };
 
   const Row = ({ n }: { n: Notification }) => {
-    const meta = NOTICE[n.type] ?? FALLBACK;
+    const meta = metaFor(n.type);
     const Icon = meta.icon;
+    const proposal = isProposal(n.type);
+
+    const body = (
+      <div className="flex items-start gap-2.5">
+        <Icon size={14} className={`mt-0.5 shrink-0 ${TONE_TEXT[meta.tone]}`} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="font-sans text-sm font-semibold text-foreground">
+              {n.title}
+            </span>
+            {n.created_at && (
+              <span className="shrink-0 font-mono text-[10px] text-muted-foreground/60">
+                {relTime(n.created_at)}
+              </span>
+            )}
+          </div>
+          <p className="mt-0.5 font-sans text-xs text-muted-foreground">
+            {n.message}
+          </p>
+          {proposal ? (
+            <ProposalApprove
+              notificationId={n.id}
+              label={meta.verb ?? "Approve"}
+            />
+          ) : (
+            meta.verb && (
+              <span className="mt-1 inline-block font-sans text-[10px] uppercase tracking-[0.14em] text-gold opacity-0 transition-opacity group-hover:opacity-100">
+                {meta.verb} →
+              </span>
+            )
+          )}
+        </div>
+        {!n.read && (
+          <span
+            className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-gold"
+            aria-hidden
+          />
+        )}
+      </div>
+    );
+
+    // Proposal rows carry an inner Approve button — they can't be a <button>
+    // (no nested buttons), so render a static row instead.
+    if (proposal) {
+      return (
+        <RevealItem>
+          <div
+            className={`ledger-row block w-full border-l-2 px-4 py-3 text-left ${
+              TONE_EDGE[meta.tone]
+            } ${n.read ? "opacity-60" : ""}`}
+          >
+            {body}
+          </div>
+        </RevealItem>
+      );
+    }
     return (
       <RevealItem>
         <button
@@ -120,84 +135,81 @@ const NotificationBell: FC = () => {
             TONE_EDGE[meta.tone]
           } ${n.read ? "opacity-60" : ""}`}
         >
-          <div className="flex items-start gap-2.5">
-            <Icon size={14} className={`mt-0.5 shrink-0 ${TONE_TEXT[meta.tone]}`} />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="font-sans text-sm font-semibold text-foreground">
-                  {n.title}
-                </span>
-                {n.created_at && (
-                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground/60">
-                    {relTime(n.created_at)}
-                  </span>
-                )}
-              </div>
-              <p className="mt-0.5 font-sans text-xs text-muted-foreground">{n.message}</p>
-              {meta.verb && (
-                <span className="mt-1 inline-block font-sans text-[10px] uppercase tracking-[0.14em] text-gold opacity-0 transition-opacity group-hover:opacity-100">
-                  {meta.verb} →
-                </span>
-              )}
-            </div>
-            {!n.read && (
-              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-gold" aria-hidden />
-            )}
-          </div>
+          {body}
         </button>
       </RevealItem>
     );
   };
 
   const GroupLabel = ({ children }: { children: string }) => (
-    <p className="dept-label px-4 pb-1 pt-3 text-muted-foreground/70">{children}</p>
+    <p className="dept-label px-4 pb-1 pt-3 text-muted-foreground/70">
+      {children}
+    </p>
   );
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        aria-label={`Notices${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
-        className="press relative grid h-9 w-9 place-items-center border border-rule-strong/50 bg-card text-foreground shadow-plate transition-all hover:bg-wash"
-      >
-        <Bell size={17} />
-        {unreadCount > 0 && (
-          <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full border border-background bg-debit px-1 font-mono text-[10px] font-semibold text-destructive-foreground">
-            {unreadCount > 9 ? "9+" : unreadCount}
-          </span>
-        )}
-      </PopoverTrigger>
-      <PopoverContent className="w-96 p-0" align="end">
-        <div className="flex items-center justify-between border-b border-rule-strong/40 px-4 py-2.5">
-          <span className="dept-label">Notices &amp; Nudges</span>
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          aria-label={`Notices${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
+          className="press relative grid h-9 w-9 place-items-center border border-rule-strong/50 bg-card text-foreground shadow-plate transition-all hover:bg-wash"
+        >
+          <Bell size={17} />
           {unreadCount > 0 && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full border border-background bg-debit px-1 font-mono text-[10px] font-semibold text-destructive-foreground">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </PopoverTrigger>
+        <PopoverContent className="w-96 p-0" align="end">
+          <div className="flex items-center justify-between border-b border-rule-strong/40 px-4 py-2.5">
+            <span className="dept-label">Notices &amp; Nudges</span>
+            {unreadCount > 0 && (
+              <button
+                onClick={() => markAllNotificationsRead()}
+                className="inline-flex items-center gap-1 font-sans text-[10px] uppercase tracking-[0.14em] text-gold transition-colors hover:text-foreground"
+              >
+                <CheckCheck size={12} /> Mark all read
+              </button>
+            )}
+          </div>
+          <ScrollArea className="max-h-[26rem]">
+            {sorted.length === 0 ? (
+              <EmptyNotices />
+            ) : (
+              <Reveal gap={0.045} delay={0.02} className="pb-2">
+                {unread.length > 0 && <GroupLabel>Unread</GroupLabel>}
+                {unread.map((n) => (
+                  <Row key={n.id} n={n} />
+                ))}
+                {earlier.length > 0 && (
+                  <GroupLabel>
+                    {unread.length > 0 ? "Earlier" : "All read"}
+                  </GroupLabel>
+                )}
+                {earlier.map((n) => (
+                  <Row key={n.id} n={n} />
+                ))}
+              </Reveal>
+            )}
+          </ScrollArea>
+          {sorted.length > 0 && (
             <button
-              onClick={() => markAllNotificationsRead()}
-              className="inline-flex items-center gap-1 font-sans text-[10px] uppercase tracking-[0.14em] text-gold transition-colors hover:text-foreground"
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setReportOpen(true);
+              }}
+              className="flex w-full items-center justify-center gap-1.5 border-t border-rule-strong/40 px-4 py-2.5 font-sans text-[11px] uppercase tracking-[0.14em] text-gold transition-colors hover:bg-wash hover:text-foreground"
             >
-              <CheckCheck size={12} /> Mark all read
+              <ScrollText size={13} /> Open full report
             </button>
           )}
-        </div>
-        <ScrollArea className="max-h-[26rem]">
-          {sorted.length === 0 ? (
-            <EmptyNotices />
-          ) : (
-            <Reveal gap={0.045} delay={0.02} className="pb-2">
-              {unread.length > 0 && <GroupLabel>Unread</GroupLabel>}
-              {unread.map((n) => (
-                <Row key={n.id} n={n} />
-              ))}
-              {earlier.length > 0 && (
-                <GroupLabel>{unread.length > 0 ? "Earlier" : "All read"}</GroupLabel>
-              )}
-              {earlier.map((n) => (
-                <Row key={n.id} n={n} />
-              ))}
-            </Reveal>
-          )}
-        </ScrollArea>
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+
+      <AuditorsReport open={reportOpen} onOpenChange={setReportOpen} />
+    </>
   );
 };
 
@@ -212,7 +224,9 @@ function EmptyNotices() {
         </div>
         <Bell size={20} className="text-muted-foreground" />
       </div>
-      <p className="font-display text-base text-foreground">You're all caught up.</p>
+      <p className="font-display text-base text-foreground">
+        You're all caught up.
+      </p>
       <p className="max-w-[15rem] font-sans text-xs text-muted-foreground">
         Budget overruns and unusual charges will surface here.
       </p>

@@ -42,6 +42,34 @@ def _canonical_params_hash(params: Optional[dict[str, Any]]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
+def persist(
+    *,
+    user_id: Optional[int],
+    key_id: Optional[int],
+    resource: str,
+    decision: str,
+    latency_ms: float = 0.0,
+    params_hash: str = "",
+) -> None:
+    """Delegate the audit row-write to the non-mcp ``mcp_audit_store`` service.
+
+    The Agent Vault reads these back. The write itself lives OUTSIDE ``mcp/``
+    because the MCP import guard forbids a DB session in any mcp/ module but
+    ``vault.py`` — keeping the agent's read boundary enforceable. This module
+    therefore holds NO db import; it just forwards.
+    """
+    from server.src.services.mcp_audit_store import persist as _store_persist
+
+    _store_persist(
+        user_id=user_id,
+        key_id=key_id,
+        resource=resource,
+        decision=decision,
+        latency_ms=latency_ms,
+        params_hash=params_hash,
+    )
+
+
 def record(
     *,
     user_id: int,
@@ -68,15 +96,24 @@ def record(
     latency_ms : float
         How long the request took, in milliseconds.
     """
+    params_hash = _canonical_params_hash(params)
     entry = {
         "user_id": user_id,
         "key_id": key_id,
         "resource": resource,
-        "params_hash": _canonical_params_hash(params),
+        "params_hash": params_hash,
         "decision": decision,
         "latency_ms": round(latency_ms, 2),
     }
     _audit_log.info(json.dumps(entry, separators=(",", ":")))
+    persist(
+        user_id=user_id,
+        key_id=key_id,
+        resource=resource,
+        decision=decision,
+        latency_ms=latency_ms,
+        params_hash=params_hash,
+    )
 
 
 def record_failure(
@@ -121,3 +158,11 @@ def record_failure(
     if client is not None:
         entry["client"] = client
     _audit_log.warning(json.dumps(entry, separators=(",", ":")))
+    # Persist only resolvable denials (per-key throttle, disabled owner). Unknown
+    # -key / IP-throttle floods have no user_id and are intentionally not stored.
+    persist(
+        user_id=user_id,
+        key_id=key_id,
+        resource="auth",
+        decision=f"deny:{reason}",
+    )

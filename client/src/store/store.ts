@@ -15,6 +15,10 @@ import {
   CommittedPlan,
   ImportSession,
   ImportRow,
+  Earmark,
+  AnalyticsSpending,
+  AnalyticsParams,
+  IncomeVolatility,
 } from "../types";
 import api from "../lib/api";
 import { currentWeekRange, toLocalISODate, parseLocalISODate } from "../lib/dates";
@@ -39,6 +43,9 @@ interface BackendGoal {
   progress: number;
   date: string;
   completed: boolean;
+  // W7 F4 — soft earmark sub-buckets. GET /goals/ already embeds these; the
+  // Reliquary renders them as liquid bands.
+  earmarks?: Earmark[];
 }
 
 export interface Goal {
@@ -50,6 +57,7 @@ export interface Goal {
   deadline: Date;
   completed?: boolean;
   date?: string;
+  earmarks?: Earmark[];
 }
 
 export interface Budget {
@@ -194,10 +202,21 @@ interface StoreState {
   /** Pillar 3: server-side feature flag for the tax layer (read-only; gates the
    * tax nav entry). False until settings load. */
   taxFeaturesEnabled: boolean;
+  /** The MCP surface ships dark; gates the Agent Vault surface. Read-only. */
+  mcpEnabled: boolean;
+  /** W5 freelancer wedge; gates the Income-Volatility nav entry. Read-only. */
+  freelancerModeEnabled: boolean;
   budgets: Budget[];
   budgetsLoaded: boolean;
   netWorth: NetWorthPoint[];
   netWorthLoaded: boolean;
+  // The Almanac analytics pivot (category × time). Abortable — bucket/tx_type
+  // toggles can race.
+  analytics: AnalyticsSpending | null;
+  analyticsLoaded: boolean;
+  analyticsParams: AnalyticsParams;
+  incomeVolatility: IncomeVolatility | null;
+  incomeVolatilityLoaded: boolean;
   projectedTransactions: ProjectedTransaction[];
   projectedLoaded: boolean;
   forecast: Forecast | null;
@@ -310,6 +329,8 @@ interface StoreState {
 
   // Net worth
   fetchNetWorth: () => Promise<void>;
+  fetchAnalytics: (params: AnalyticsParams) => Promise<void>;
+  fetchIncomeVolatility: () => Promise<void>;
 
   // Projected recurring transactions
   fetchProjectedTransactions: () => Promise<void>;
@@ -321,6 +342,11 @@ interface StoreState {
   fetchNotifications: () => Promise<void>;
   markNotificationRead: (notificationId: number) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
+  /** Re-mint the one-tap confirm token for a proposal notice (rule_proposal /
+   * rule_suggest). Returns the fresh token + human summary for a ConfirmCard. */
+  mintProposalToken: (
+    notificationId: number
+  ) => Promise<{ token: string; summary: string } | null>;
   fetchSubscriptions: () => Promise<void>;
 
   // Scenarios (v6 doc 07) — saved hypotheticals + live evaluate/compare/commit.
@@ -385,10 +411,21 @@ const initialState = {
   isLoggedIn: false,
   settingsLoaded: false,
   taxFeaturesEnabled: false,
+  mcpEnabled: false,
+  freelancerModeEnabled: false,
   budgets: [] as Budget[],
   budgetsLoaded: false,
   netWorth: [] as NetWorthPoint[],
   netWorthLoaded: false,
+  analytics: null as AnalyticsSpending | null,
+  analyticsLoaded: false,
+  analyticsParams: {
+    bucket: "month",
+    tx_type: "expense",
+    include_recurring: true,
+  } as AnalyticsParams,
+  incomeVolatility: null as IncomeVolatility | null,
+  incomeVolatilityLoaded: false,
   projectedTransactions: [] as ProjectedTransaction[],
   projectedLoaded: false,
   forecast: null as Forecast | null,
@@ -729,7 +766,11 @@ export const useStore = create<StoreState>((set, get) => ({
 
       const fixedResponse = await api.get("/expenses/fixed-per-month");
       const fixedData = await fixedResponse.data;
-      set({ fixedPerMonth: fixedData });
+      // Mark the budget/spend data loaded so consumers gated on `hasLoaded`
+      // (e.g. the Almanac Allotment readout) render on a direct page load —
+      // Almanac calls this, not fetchInitialData, so without it they'd hang on
+      // "Gathering…" forever.
+      set({ fixedPerMonth: fixedData, hasLoaded: true });
     } catch (error) {
       console.error("Error refreshing budget data:", error);
     } finally {
@@ -746,6 +787,7 @@ export const useStore = create<StoreState>((set, get) => ({
       const goalsWithDates = response.data.map((goal: BackendGoal) => ({
         ...goal,
         deadline: parseLocalISODate(goal.date),
+        earmarks: goal.earmarks ?? [],
       }));
       set({ goals: goalsWithDates, goalsLoaded: true });
     } catch (error) {
@@ -903,6 +945,9 @@ export const useStore = create<StoreState>((set, get) => ({
           s2s_buffer: prefs.s2s_buffer ?? 0,
         },
         taxFeaturesEnabled: response.data.features?.tax_features_enabled ?? false,
+        mcpEnabled: response.data.features?.mcp_enabled ?? false,
+        freelancerModeEnabled:
+          response.data.features?.freelancer_mode_enabled ?? false,
         settingsLoaded: true,
       });
     } catch (error) {
@@ -1004,6 +1049,52 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
+  fetchAnalytics: async (params) => {
+    // Bucket/tx_type toggles can land out of order; abort the previous so the
+    // grid always matches the last control change.
+    inflight.analytics?.abort();
+    const controller = new AbortController();
+    inflight.analytics = controller;
+    try {
+      const response = await api.get("/analytics/spending", {
+        params,
+        signal: controller.signal,
+      });
+      set({
+        analytics: response.data,
+        analyticsLoaded: true,
+        analyticsParams: params,
+      });
+    } catch (error) {
+      if (isAbort(error)) return; // superseded by a newer control change
+      console.error("Error fetching analytics:", error);
+      set({ analyticsLoaded: true });
+      toast({
+        variant: "destructive",
+        title: "Could not load the analytics",
+        description: "Please try again in a moment.",
+      });
+    } finally {
+      if (inflight.analytics === controller) inflight.analytics = undefined;
+    }
+  },
+
+  fetchIncomeVolatility: async () => {
+    try {
+      const response = await api.get("/spend/income-volatility");
+      set({ incomeVolatility: response.data, incomeVolatilityLoaded: true });
+    } catch (error) {
+      // 404 when freelancer mode is off is expected — leave it null, the page
+      // self-handles the disabled state. Only log unexpected failures.
+      const status = (error as { response?: { status?: number } })?.response
+        ?.status;
+      if (status !== 404) {
+        console.error("Error fetching income volatility:", error);
+      }
+      set({ incomeVolatilityLoaded: true });
+    }
+  },
+
   fetchProjectedTransactions: async () => {
     try {
       const response = await api.get("/recurring/projected");
@@ -1082,6 +1173,23 @@ export const useStore = create<StoreState>((set, get) => ({
       });
     } catch (error) {
       console.error("Error marking notification read:", error);
+    }
+  },
+
+  mintProposalToken: async (notificationId) => {
+    try {
+      const resp = await api.post(
+        `/notifications/${notificationId}/proposal-token/`
+      );
+      return { token: resp.data.token, summary: resp.data.summary };
+    } catch (error) {
+      console.error("Error minting proposal token:", error);
+      toast({
+        variant: "destructive",
+        title: "Could not prepare that action",
+        description: "Please try again in a moment.",
+      });
+      return null;
     }
   },
 

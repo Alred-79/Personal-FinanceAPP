@@ -28,13 +28,18 @@ export default function Sidebar({
 }: SidebarProps) {
   const user = useStore((s) => s.user);
   const taxEnabled = useStore((s) => s.taxFeaturesEnabled);
+  const freelancerEnabled = useStore((s) => s.freelancerModeEnabled);
   const { gameLayer } = useFlags();
 
   // gameOnly nav entries (e.g. the Keeper) appear only when the game layer is
-  // on (ambient/full); taxOnly entries only when the server tax flag is on. The
-  // route always exists; this gates its nav PRESENCE.
+  // on (ambient/full); taxOnly entries only when the server tax flag is on;
+  // freelancerOnly only when the server freelancer flag is on. The route always
+  // exists; this gates its nav PRESENCE.
   const navItems = NAV_ITEMS.filter(
-    (i) => (!i.gameOnly || gameLayer) && (!i.taxOnly || taxEnabled)
+    (i) =>
+      (!i.gameOnly || gameLayer) &&
+      (!i.taxOnly || taxEnabled) &&
+      (!i.freelancerOnly || freelancerEnabled)
   );
 
   return (

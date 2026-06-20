@@ -62,6 +62,7 @@ TENANT_TABLES: tuple[str, ...] = (
     "import_sessions",
     "liabilities",
     "llm_usage",
+    "mcp_audit_log",
     "merchant_categories",
     "merchant_lifecycle",
     "merchant_tax_buckets",
