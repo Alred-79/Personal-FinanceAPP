@@ -1,0 +1,23 @@
+# Keep the Railway build context small — only what the Dockerfile needs.
+# (Dockerfile builds the client from package*.json + client/ + configs, and
+#  the runtime from Pipfile* + server/ + alembic.ini.)
+.venv
+.git
+node_modules
+docs
+design-prototypes
+v6 execution
+research
+.hypothesis
+.pytest_cache
+.ruff_cache
+.shots
+.github
+
+# Local data / secrets (also gitignored, belt-and-suspenders)
+*.db
+*.db-shm
+*.db-wal
+*.db.bak
+finance_tracker.db*
+.env
