@@ -236,6 +236,71 @@ class TestProjectCashflows:
         assert svc.next_paycheck_date(user.id + 999, date(2026, 3, 2)) is None
 
 
+class TestRecurringSeriesDedup:
+    """Bug D: many historical rows of ONE recurring series must project once.
+
+    The demo seed (and any store that keeps a row per past occurrence) writes
+    several monthly rows for the same merchant; each used to spawn its own
+    forward series, 4x-inflating the Cadence timeline and the forecast.
+    """
+
+    def test_duplicate_monthly_rows_project_single_series(
+        self, db_session, seeded_user
+    ):
+        user, account = seeded_user
+        # Four past monthly Spotify rows, exactly as seed_demo writes them.
+        for month in (1, 2, 3, 4):
+            db_session.add(
+                Expense(
+                    title="Spotify",
+                    amount=1199,  # $11.99 in cents
+                    date=f"2026-0{month}-15",
+                    category="Entertainment",
+                    recurrence="monthly",
+                    account_id=account.id,
+                )
+            )
+        db_session.flush()
+
+        out = RecurringService(db_session).project_expenses(
+            user.id, date(2026, 5, 1), date(2026, 7, 31)
+        )
+        # One charge per future month (anchored on the latest occurrence), not 4x.
+        assert [r["date"] for r in out] == ["2026-05-15", "2026-06-15", "2026-07-15"]
+        assert all(r["title"] == "Spotify" and r["amount"] == 11.99 for r in out)
+
+    def test_distinct_series_on_same_account_not_collapsed(
+        self, db_session, seeded_user
+    ):
+        user, account = seeded_user
+        db_session.add_all(
+            [
+                Expense(
+                    title="Spotify",
+                    amount=1199,
+                    date="2026-04-15",
+                    category="Entertainment",
+                    recurrence="monthly",
+                    account_id=account.id,
+                ),
+                Expense(
+                    title="Netflix",
+                    amount=2499,
+                    date="2026-04-20",
+                    category="Entertainment",
+                    recurrence="monthly",
+                    account_id=account.id,
+                ),
+            ]
+        )
+        db_session.flush()
+
+        out = RecurringService(db_session).project_expenses(
+            user.id, date(2026, 5, 1), date(2026, 5, 31)
+        )
+        assert sorted(r["title"] for r in out) == ["Netflix", "Spotify"]
+
+
 class TestProjectWithOverlay:
     """The scenario overlay threaded through ``_project_rows`` (doc 01)."""
 

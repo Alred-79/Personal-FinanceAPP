@@ -25,8 +25,15 @@ export function QuarterlyCalendar({
   today.setHours(0, 0, 0, 0);
 
   // Quarters fully covered by payments_made, in order (cumulative).
+  // `perQ` is the *remaining* per-quarter — it already nets out payments_made —
+  // so `floor(paid / perQ)` over-counts: a partial payment would seal every
+  // quarter "Paid". Measure against the GROSS per-quarter obligation instead.
+  // Since remaining = gross_annual − withholding − paid, the gross per-quarter
+  // is remaining/4 + paid/4 = perQ + paid/4, for whichever method (safe-harbor
+  // or regular) `perQ` was drawn from.
+  const grossPerQuarter = perQ + paid / 4;
   const coveredCount =
-    perQ > 0 ? Math.floor(paid / perQ) : 0;
+    grossPerQuarter > 0 ? Math.floor(paid / grossPerQuarter) : 0;
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

@@ -1,7 +1,13 @@
 import { FC } from "react";
 import { useNavigate } from "react-router-dom";
 import { CheckCheck } from "lucide-react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SectionRule } from "@/components/engraving/SectionRule";
 import { EmptyState } from "@/components/engraving/EmptyState";
@@ -125,6 +131,10 @@ const AuditorsReport: FC<{
           <SheetTitle className="font-display text-2xl">
             Auditor's Report
           </SheetTitle>
+          <SheetDescription className="sr-only">
+            A digest of the nightly auditor's findings — flags, drifts, budget
+            notices, and proposed actions — grouped by kind.
+          </SheetDescription>
         </SheetHeader>
 
         <div className="flex items-center justify-between px-6 py-2.5">

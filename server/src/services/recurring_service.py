@@ -156,6 +156,27 @@ class RecurringService:
             .all()
         )
 
+        # Collapse multiple historical rows of the SAME recurring series — same
+        # merchant/amount/cadence/account — to a single anchor. Stores that keep
+        # one row per past occurrence (e.g. the demo seed: 4 monthly Spotify
+        # rows) would otherwise have each occurrence spawn its own forward
+        # series, so one monthly charge projects 4x on every future date —
+        # inflating the Cadence timeline and over-counting the forecast. Anchor
+        # on the most recent occurrence (tie-break: highest id) so the forward
+        # walk steps from the latest real charge.
+        deduped: dict[tuple, Any] = {}
+        for row in rows:
+            key = (row.title, row.amount, row.recurrence, row.account_id)
+            incumbent = deduped.get(key)
+            if incumbent is None:
+                deduped[key] = row
+                continue
+            row_date = parse_iso_date(row.date) or date.min  # type: ignore[arg-type]
+            inc_date = parse_iso_date(incumbent.date) or date.min  # type: ignore[arg-type]
+            if (row_date, row.id) > (inc_date, incumbent.id):
+                deduped[key] = row
+        rows = list(deduped.values())
+
         projected: list[dict[str, Any]] = []
         for row in rows:
             anchor = parse_iso_date(row.date)  # type: ignore[arg-type]
