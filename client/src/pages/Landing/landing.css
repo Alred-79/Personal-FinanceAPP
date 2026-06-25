@@ -1,0 +1,150 @@
+/* ======================================================================
+   THE POLYMER VAULT — landing-only styles
+   Landing-specific heavy effects live here (foil, security windows, the
+   CSS-3D coin fallback, the vault curtain), kept out of the global
+   index.css so the rest of the app is untouched. The light→dark journey
+   is driven by toggling `.dark` on .landing-root (reuses the app's full
+   Midnight theme); these styles only add what the journey itself needs.
+   ====================================================================== */
+
+/* The vault curtain — a Midnight veil with a centre vignette, scrolled in to
+   mask the instant theme flip at the VaultDoor midpoint. Opacity is driven by
+   motion (useThemeJourney); the gradient gives it depth so it reads as a door
+   closing over the viewport rather than a flat black wipe. */
+.vault-curtain {
+  background:
+    radial-gradient(
+      circle at 50% 42%,
+      hsl(222 30% 12% / 0.5),
+      hsl(222 38% 6% / 0.98) 66%
+    );
+}
+
+/* Soften the very edges of the flip: the few painted surfaces that aren't fully
+   under the curtain ease their colour over a short window instead of snapping.
+   Kept off the figures (the colour/number law forbids effects on money). */
+@media (prefers-reduced-motion: no-preference) {
+  .landing-root,
+  .landing-root .plate,
+  .landing-root section,
+  .landing-root nav {
+    transition: background-color 0.45s var(--ease-out), border-color 0.45s var(--ease-out),
+      color 0.45s var(--ease-out);
+  }
+}
+
+/* ---- CSS-3D coin fallback (no-WebGL / touch / reduced motion) ------------- */
+.coin-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  perspective: 900px;
+}
+.coin-fallback__spin {
+  position: relative;
+  width: clamp(140px, 22vh, 220px);
+  height: clamp(140px, 22vh, 220px);
+  transform-style: preserve-3d;
+  animation: coin-turn 11s linear infinite;
+}
+.coin-fallback__spin[data-reduce] {
+  animation: none;
+  transform: rotateY(-18deg);
+}
+.coin-fallback__face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  backface-visibility: hidden;
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 700;
+  font-size: clamp(3rem, 9vh, 5rem);
+  color: hsl(46 52% 96%);
+  background: radial-gradient(circle at 38% 32%, hsl(var(--gold)), hsl(42 56% 26%));
+  box-shadow:
+    inset 0 0 0 6px hsl(46 52% 96% / 0.22),
+    inset 0 0 22px hsl(42 56% 20% / 0.5),
+    0 18px 40px hsl(167 30% 12% / 0.4);
+}
+.coin-fallback__face--back {
+  transform: rotateY(180deg);
+}
+@keyframes coin-turn {
+  to {
+    transform: rotateY(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .coin-fallback__spin {
+    animation: none;
+    transform: rotateY(-18deg);
+  }
+}
+
+/* Full-bleed breakout — spans the viewport width from inside the centered
+   container (used by the horizontal instruments filmstrip). Safe because the
+   landing root clips overflow-x. */
+.full-bleed {
+  width: 100vw;
+  position: relative;
+  left: 50%;
+  margin-left: -50vw;
+}
+
+/* ---- Holographic foil (iridescent security thread / optically-variable ink) - */
+.foil {
+  position: relative;
+  --fx: 0.5;
+  --fy: 0.5;
+}
+.foil__sheen {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    hsl(282 90% 68% / 0) 22%,
+    hsl(192 95% 68% / 0.5) 40%,
+    hsl(140 85% 70% / 0.42) 50%,
+    hsl(48 98% 74% / 0.55) 60%,
+    hsl(330 92% 70% / 0) 80%
+  );
+  background-size: 240% 240%;
+  background-position: calc(var(--fx) * 100%) calc(var(--fy) * 100%);
+  mix-blend-mode: color-dodge;
+  filter: saturate(1.25);
+  transition: background-position 0.12s linear;
+}
+.foil__sheen--static {
+  background-position: 62% 40%;
+  opacity: 0.7;
+}
+
+/* ---- Polymer security window (frosted glass, sharp engraved frame) ---------- */
+.security-window {
+  position: relative;
+  background: hsl(var(--card) / 0.72);
+  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  border: 1px solid hsl(var(--rule-strong) / 0.55);
+  box-shadow:
+    0 1px 0 hsl(var(--paper-high) / 0.6) inset,
+    0 10px 34px hsl(167 30% 12% / 0.12);
+}
+.security-window::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid hsl(var(--rule-strong) / 0.26);
+  pointer-events: none;
+}
+.dark .security-window {
+  background: hsl(var(--card) / 0.55);
+  box-shadow:
+    0 1px 0 hsl(44 36% 87% / 0.05) inset,
+    0 12px 38px hsl(168 40% 2% / 0.5);
+}

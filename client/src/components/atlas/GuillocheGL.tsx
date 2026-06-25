@@ -39,7 +39,7 @@ void main() {
   vec2 m = (uMouse - 0.5);
   m.x *= uRes.x / uRes.y;
   float d = length(p - m);
-  float warp = 0.18 * exp(-d * 3.0);
+  float warp = 0.26 * exp(-d * 2.6);
   p += normalize(p - m + 1e-4) * warp;
 
   float t = uTime * 0.15;
@@ -71,9 +71,9 @@ void main() {
 }
 `;
 
-function readInk(): [number, number, number] {
+function readInk(el: Element): [number, number, number] {
   // Use --gold as the line ink; parse the resolved HSL → RGB 0..1.
-  const hsl = getComputedStyle(document.documentElement).getPropertyValue("--gold").trim();
+  const hsl = getComputedStyle(el).getPropertyValue("--gold").trim();
   const m = hsl.match(/([\d.]+)\s+([\d.]+)%\s+([\d.]+)%/);
   if (!m) return [0.69, 0.54, 0.19];
   const h = +m[1] / 360, s = +m[2] / 100, l = +m[3] / 100;
@@ -83,7 +83,15 @@ function readInk(): [number, number, number] {
   return [f(0), f(8), f(4)];
 }
 
-export function GuillocheGL({ opacity = 0.5 }: { opacity?: number }) {
+export function GuillocheGL({
+  opacity = 0.5,
+  colorSource,
+}: {
+  opacity?: number;
+  /** Element to read the live `--gold` ink from. Defaults to <html>; the landing
+   *  passes its theme-journey root so the field follows the light→dark flip. */
+  colorSource?: () => Element | null;
+}) {
   const reduce = useReducedMotion();
   const ref = useRef<HTMLCanvasElement | null>(null);
 
@@ -108,8 +116,9 @@ export function GuillocheGL({ opacity = 0.5 }: { opacity?: number }) {
         const gl = renderer.gl;
         gl.clearColor(0, 0, 0, 0);
 
+        const inkEl = () => colorSource?.() ?? document.documentElement;
         const geometry = new Triangle(gl);
-        const ink = readInk();
+        const ink = readInk(inkEl());
         const program = new Program(gl, {
           vertex: VERT,
           fragment: FRAG,
@@ -145,10 +154,10 @@ export function GuillocheGL({ opacity = 0.5 }: { opacity?: number }) {
           program.uniforms.uTime.value = (now - start) / 1000;
           // ease the mouse uniform toward the target for momentum
           const mu = program.uniforms.uMouse.value as { x: number; y: number };
-          mu.x += (target.x - mu.x) * 0.05;
-          mu.y += (target.y - mu.y) * 0.05;
+          mu.x += (target.x - mu.x) * 0.09;
+          mu.y += (target.y - mu.y) * 0.09;
           // re-read ink in case the theme flipped
-          const c = readInk();
+          const c = readInk(inkEl());
           (program.uniforms.uInk.value as number[])[0] = c[0];
           (program.uniforms.uInk.value as number[])[1] = c[1];
           (program.uniforms.uInk.value as number[])[2] = c[2];
