@@ -653,3 +653,79 @@
   .ftk-card { transform: none !important; }
   .ftk-tilt:hover .ftk-stage { transform: none; }
 }
+
+/* ============================================================
+   The Cabinet — reward emblems (cabinetVisuals.tsx). Tactile
+   medallions that perform a strong flourish on card hover.
+   ============================================================ */
+.cab-stage {
+  height: 100px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 1rem;
+  perspective: 600px;
+}
+.cab-stage .cab { width: 100%; height: 100%; overflow: visible; }
+
+.cab-card {
+  transition: transform 0.45s var(--ease-out), border-color 0.45s var(--ease-out),
+    box-shadow 0.45s var(--ease-out);
+}
+.cab-card:hover {
+  transform: translateY(-3px);
+  border-color: hsl(var(--gold) / 0.6);
+  box-shadow: 0 0 0 1px hsl(var(--gold) / 0.18), 0 14px 30px hsl(0 0% 0% / 0.18);
+}
+
+/* centre-pivoting parts */
+.cab-coin, .cab-mint, .cab-beast, .cab-felled, .cab-medal {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.cab-bar-fill { transform-box: fill-box; transform-origin: left center; }
+.cab-mint, .cab-felled { opacity: 0; }
+
+/* goals cabinet — coins flip; an empty slot mints a fresh specimen */
+@keyframes cab-flip { from { transform: rotateY(0); } to { transform: rotateY(360deg); } }
+@keyframes cab-mint-in {
+  0% { opacity: 0; transform: scale(0.2) rotate(-40deg); }
+  60% { opacity: 1; transform: scale(1.12) rotate(0); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.cab-card:hover .cab-coin-1 { animation: cab-flip 0.8s var(--ease-out); }
+.cab-card:hover .cab-coin-2 { animation: cab-flip 0.8s 0.1s var(--ease-out); }
+.cab-card:hover .cab-coin-3 { animation: cab-flip 0.8s 0.2s var(--ease-out); }
+.cab-card:hover .cab-mint { animation: cab-mint-in 0.7s 0.3s var(--ease-stamp) forwards; }
+
+/* bestiary — the balance drains, the beast slumps, a FELLED stamp slams */
+@keyframes cab-drain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@keyframes cab-slump {
+  0% { transform: translateY(0) rotate(0); opacity: 1; }
+  100% { transform: translateY(6px) rotate(-3deg); opacity: 0.25; }
+}
+@keyframes cab-slam {
+  0% { opacity: 0; transform: scale(1.9) rotate(-12deg); }
+  55% { opacity: 1; transform: scale(0.92) rotate(2deg); }
+  100% { opacity: 1; transform: scale(1) rotate(-3deg); }
+}
+.cab-card:hover .cab-bar-fill { animation: cab-drain 0.9s var(--ease-out) forwards; }
+.cab-card:hover .cab-beast { animation: cab-slump 0.8s 0.45s var(--ease-out) forwards; }
+.cab-card:hover .cab-felled { animation: cab-slam 0.5s 0.55s var(--ease-stamp) forwards; }
+
+/* campaigns — the quarter's arc closes and the medal seals it */
+@keyframes cab-arc-draw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes cab-press {
+  0% { transform: scale(1); }
+  45% { transform: scale(0.82); }
+  75% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+.cab-card:hover .cab-arc { animation: cab-arc-draw 1s var(--ease-out) forwards; }
+.cab-card:hover .cab-medal { animation: cab-press 0.6s 0.5s var(--ease-stamp); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cab-card { transition: none !important; }
+  .cab-card:hover .cab-coin-1, .cab-card:hover .cab-coin-2, .cab-card:hover .cab-coin-3,
+  .cab-card:hover .cab-mint, .cab-card:hover .cab-bar-fill, .cab-card:hover .cab-beast,
+  .cab-card:hover .cab-felled, .cab-card:hover .cab-arc, .cab-card:hover .cab-medal { animation: none !important; }
+}

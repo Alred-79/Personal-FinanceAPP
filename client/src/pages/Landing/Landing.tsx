@@ -7,8 +7,7 @@ import { Forecast } from "./sections/Forecast";
 import { Instruments } from "./sections/Instruments";
 import { VaultDoor } from "./sections/VaultDoor";
 import { Security } from "./sections/Security";
-import { HowItWorks } from "./sections/HowItWorks";
-import { Mint } from "./sections/Mint";
+import { Cabinet } from "./sections/Cabinet";
 import { FinalCTA } from "./sections/FinalCTA";
 import { Footer } from "./sections/Footer";
 import "./landing.css";
@@ -40,8 +39,7 @@ export default function Landing() {
         <Instruments />
         <VaultDoor />
         <Security />
-        <HowItWorks />
-        <Mint />
+        <Cabinet />
         <FinalCTA />
       </div>
 

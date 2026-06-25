@@ -25,9 +25,6 @@ export function Nav() {
         <AnchorLink to="#features" className="hidden text-[0.82rem] text-muted-foreground transition-colors hover:text-foreground sm:inline">
           Instruments
         </AnchorLink>
-        <AnchorLink to="#how" className="hidden text-[0.82rem] text-muted-foreground transition-colors hover:text-foreground sm:inline">
-          How it works
-        </AnchorLink>
         <AnchorLink to="#vault" className="hidden text-[0.82rem] text-muted-foreground transition-colors hover:text-foreground sm:inline">
           Security
         </AnchorLink>
