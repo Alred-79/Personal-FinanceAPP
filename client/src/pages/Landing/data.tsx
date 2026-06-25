@@ -6,14 +6,8 @@ export type Feature = { no: string; title: string; body: string; icon: ReactNode
 export const FEATURES: Feature[] = [
   {
     no: "No. 01",
-    title: "The Sea-Chart",
-    body: "Your cash-flow forecast as a coastline. Drag the line to model a what-if and watch your overdraft probability re-sound in real time. Probabilistic, not a flat guess.",
-    icon: <path d="M3 17c3-6 6-6 9 0s6 6 9 0M3 21h18" />,
-  },
-  {
-    no: "No. 02",
     title: "The Clerk",
-    body: "An assistant that drafts the move — re-budget, schedule, reconcile — then hands you a diff plate to authorize. It proposes; you stamp. Nothing happens behind your back.",
+    body: "A chatbot that drafts the move — re-budget, schedule, reconcile — then hands you a diff plate to authorize. You ask; it proposes; you stamp. Nothing happens behind your back.",
     icon: (
       <>
         <circle cx="12" cy="12" r="9" />
@@ -22,30 +16,42 @@ export const FEATURES: Feature[] = [
     ),
   },
   {
+    no: "No. 02",
+    title: "Import Anything",
+    body: "Snap a photo of a receipt, tax form, or check — or drop a messy statement or mystery CSV. The Detangler reads them, reconciles the duplicates, and hands back a clean register — no manual category roulette.",
+    icon: <path d="M4 5h16M4 12h16M4 19h10" />,
+  },
+  {
     no: "No. 03",
-    title: "Minted Goals",
-    body: "Fund a goal and strike a coin for the cabinet. Saving becomes a collection of specimens you actually want to complete — the only game your money should play.",
+    title: "Subscriptions Watch",
+    body: "The recurring charges you forgot about, surfaced and dated. It catches silent price creep and the trials about to bill — so the small leaks stop draining the account.",
     icon: (
       <>
-        <circle cx="12" cy="12" r="8" />
-        <path d="M12 4v3M12 17v3M4 12h3M17 12h3" />
+        <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 12a9 9 0 0 1-15 6.7L3 16" />
+        <path d="M21 4v4h-4M3 20v-4h4" />
       </>
     ),
   },
   {
     no: "No. 04",
-    title: "Import Anything",
-    body: "Messy statements, mystery CSVs, duplicate rows. The Detangler reads them, reconciles them, and hands back a clean register — no manual category roulette.",
-    icon: <path d="M4 5h16M4 12h16M4 19h10" />,
-  },
-  {
-    no: "No. 05",
     title: "Nightly Auditor",
     body: "While you sleep, it reconciles the day, flags the odd charge, and leaves a short note in the margin. You wake up to an account already balanced.",
     icon: (
       <>
         <path d="M12 2 4 6v6c0 5 8 8 8 8s8-3 8-8V6Z" />
         <path d="M9 12l2 2 4-4" />
+      </>
+    ),
+  },
+  {
+    no: "No. 05",
+    title: "The Expedition",
+    body: "Paying down debt and chasing goals, charted as a voyage with bosses to fell and ground to claim. Progress you can see — the dull parts of finance, finally worth playing.",
+    icon: (
+      <>
+        <path d="M12 2 4 6v6c0 5 8 8 8 8s8-3 8-8V6Z" />
+        <path d="M12 7v4l2.5 1.5" />
+        <path d="M9.5 9.5h5" />
       </>
     ),
   },
@@ -93,9 +99,9 @@ export const STEPS: Step[] = [
     title: "Grant secure write",
     body: (
       <>
-        When you're ready, authorize{" "}
-        <span className="font-semibold text-gold">secure, revocable write access</span>. The
-        Clerk executes only the moves you stamp — every action audited, nothing silent.
+        When you're ready — and only then — authorize{" "}
+        <span className="font-semibold text-gold">revocable write access</span>, scoped to the
+        moves you want help with. Turn it off again any time.
       </>
     ),
     icon: (
@@ -108,8 +114,8 @@ export const STEPS: Step[] = [
   },
   {
     idx: "iv",
-    title: "Keep good standing",
-    body: "The Auditor watches the nights and balances the day. Propose, stamp, reconcile — your money stays legible, forever.",
+    title: "Settle into the rhythm",
+    body: "Glance at the forecast, stamp the moves you like, mint a goal now and then. A few minutes a week and the books stay legible — no spreadsheet night-shift.",
     icon: (
       <>
         <circle cx="12" cy="9" r="5" />

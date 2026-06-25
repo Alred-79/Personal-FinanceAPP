@@ -14,7 +14,7 @@ import { Coin } from "./Coin";
 export default function CoinScene() {
   return (
     <Canvas
-      camera={{ position: [0, 0, 4.2], fov: 34 }}
+      camera={{ position: [0, 0, 5.3], fov: 34 }}
       dpr={[1, 2]}
       gl={{ alpha: true, antialias: true, toneMappingExposure: 1.15 }}
     >

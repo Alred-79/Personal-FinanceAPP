@@ -29,7 +29,7 @@ export function Nav() {
           How it works
         </AnchorLink>
         <AnchorLink to="#vault" className="hidden text-[0.82rem] text-muted-foreground transition-colors hover:text-foreground sm:inline">
-          The Vault
+          Security
         </AnchorLink>
         <Link
           to="/login"

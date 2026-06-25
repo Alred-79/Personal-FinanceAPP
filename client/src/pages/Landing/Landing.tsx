@@ -3,11 +3,11 @@ import { useLandingTheme } from "./hooks/useLandingTheme";
 import { Backdrop } from "./effects/Backdrop";
 import { Nav } from "./sections/Nav";
 import { Hero } from "./sections/Hero";
-import { Proof } from "./sections/Proof";
-import { VaultDoor } from "./sections/VaultDoor";
+import { Forecast } from "./sections/Forecast";
 import { Instruments } from "./sections/Instruments";
+import { VaultDoor } from "./sections/VaultDoor";
+import { Security } from "./sections/Security";
 import { HowItWorks } from "./sections/HowItWorks";
-import { SeaChartLive } from "./sections/SeaChartLive";
 import { Mint } from "./sections/Mint";
 import { FinalCTA } from "./sections/FinalCTA";
 import { Footer } from "./sections/Footer";
@@ -36,11 +36,11 @@ export default function Landing() {
 
       <div className="relative z-[1] mx-auto max-w-[1080px] px-4 sm:px-8">
         <Hero />
-        <Proof />
-        <VaultDoor />
+        <Forecast />
         <Instruments />
+        <VaultDoor />
+        <Security />
         <HowItWorks />
-        <SeaChartLive />
         <Mint />
         <FinalCTA />
       </div>

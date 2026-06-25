@@ -18,7 +18,7 @@ export function VaultDoor() {
   const labelOpacity = useTransform(progress, [0, 0.3, 0.5, 0.7, 1], [0, 1, 1, 1, 0]);
 
   return (
-    <section ref={ref} className="relative my-8 h-[150vh]">
+    <section ref={ref} className="relative my-8 h-[110vh]">
       <motion.div
         className="sticky top-0 grid h-screen content-center justify-items-center gap-5 px-4 text-center"
         style={reduce ? undefined : { opacity: labelOpacity }}

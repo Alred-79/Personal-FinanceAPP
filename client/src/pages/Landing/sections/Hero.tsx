@@ -10,10 +10,10 @@ import { SecurityWindow } from "../effects/SecurityWindow";
 import { Magnetic } from "../effects/Magnetic";
 
 const METRICS = [
-  { l: "Lowest point", v: "$240.10", c: "ink-credit" },
-  { l: "Reached on", v: "06-22", c: "" },
+  { l: "Inflows", v: "+$2,940.18", c: "ink-credit" },
   { l: "Outflows", v: "$1,910.00", c: "ink-debit" },
   { l: "Net change", v: "+$1,030.18", c: "" },
+  { l: "Bills cleared", v: "11 / 11", c: "" },
 ];
 
 /** The hero — department label, headline, lede, CTAs, assurances, specimen note. */
@@ -86,7 +86,7 @@ export function Hero() {
         animate={{ opacity: 1 }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.32 }}
       >
-        {["No card required", "Your data stays yours", "Read-only by default"].map((t) => (
+        {["No card required", "We never sell your data", "Read-only by default"].map((t) => (
           <span key={t} className="flex items-center gap-1.5">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" className="text-gold">
               <path d="M20 6 9 17l-5-5" />

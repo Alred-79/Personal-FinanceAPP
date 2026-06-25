@@ -6,6 +6,7 @@ import { useStore } from "@/store/store";
 import AlmanacHeatGrid from "./AlmanacHeatGrid";
 import NetWorthTrend from "./NetWorthTrend";
 import AllotmentReadout from "./AllotmentReadout";
+import MoneyFlow from "@/components/custom/MoneyFlow/MoneyFlow";
 
 /**
  * The Almanac — an analytical abstract of the ledger: where money flows by
@@ -33,9 +34,18 @@ export default function Almanac() {
       <Tabs value={tab} onValueChange={setTab} className="space-y-6">
         <TabsList>
           <TabsTrigger value="atlas">Spending Atlas</TabsTrigger>
+          <TabsTrigger value="flow">Flow</TabsTrigger>
           <TabsTrigger value="networth">Net Worth</TabsTrigger>
           <TabsTrigger value="allotment">Allotment</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="flow">
+          <Reveal>
+            <RevealItem>
+              <MoneyFlow />
+            </RevealItem>
+          </Reveal>
+        </TabsContent>
 
         <TabsContent value="atlas">
           <Reveal>

@@ -1,7 +1,7 @@
 /**
  * Bespoke engraved "specimen" scenes for each instrument plate. Each is a small
- * SVG (or, for the coin, a CSS-3D element) that idles gently and comes alive on
- * plate hover — the animations live in landing.css, keyed off `.iv-tilt:hover`.
+ * SVG that idles gently and comes alive on plate hover — the animations live in
+ * landing.css, keyed off `.iv-tilt:hover` (and reused across scenes).
  * Stroke = currentColor (the stage is tinted gold); credit/debit inks are set
  * directly so the colour law still reads.
  */
@@ -9,19 +9,25 @@
 const CREDIT = "hsl(var(--credit))";
 const DEBIT = "hsl(var(--debit))";
 
-/** No.01 — The Sea-Chart: a coastline that re-sounds, an overdraft line, a tide node. */
-function SeaChart() {
+/** No.03 — Subscriptions Watch: recurring rows on the left, a price-creep tick on the right. */
+function Subscriptions() {
   return (
     <svg viewBox="0 0 300 116" className="iv" fill="none" stroke="currentColor">
-      <line className="iv-rule" x1="14" y1="92" x2="286" y2="92" strokeWidth="1" />
-      <line className="iv-sea-od" x1="14" y1="74" x2="286" y2="74" strokeWidth="1" stroke={DEBIT} strokeDasharray="4 5" />
-      <path className="iv-sea-area" d="M14 58 C 70 26 110 80 150 64 S 240 32 286 50 L286 92 L14 92 Z" fill={CREDIT} stroke="none" />
-      <path className="iv-sea-line" d="M14 58 C 70 26 110 80 150 64 S 240 32 286 50" stroke={CREDIT} strokeWidth="2.4" strokeLinecap="round" />
-      <g className="iv-sun" stroke="currentColor" strokeWidth="1.4">
-        <circle cx="252" cy="26" r="7" />
-        <path d="M252 13v-5M252 44v-5M239 26h-5M270 26h-5M243 17l-3-3M264 35l-3-3M261 17l3-3M240 35l3-3" />
+      {/* a slowly turning "recurring" glyph */}
+      <g className="iv-sun" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <path d="M40 34a13 13 0 1 0 4-9" />
+        <path d="M40 18v8h8" />
       </g>
-      <circle className="iv-sea-node" cx="150" cy="64" r="4.6" fill="hsl(var(--gold))" stroke="hsl(var(--background))" strokeWidth="1.6" />
+      {/* the recurring charges, drawing in on hover */}
+      <g className="iv-rows" strokeWidth="2" strokeLinecap="round" stroke={CREDIT}>
+        <line x1="20" y1="66" x2="120" y2="66" />
+        <line x1="20" y1="82" x2="120" y2="82" />
+        <line x1="20" y1="98" x2="96" y2="98" />
+      </g>
+      {/* price creep — a stepped line rising to a flagged peak */}
+      <line className="iv-sea-od" x1="158" y1="78" x2="286" y2="78" strokeWidth="1" stroke={DEBIT} strokeDasharray="4 5" />
+      <path className="iv-sea-line" d="M160 90 H196 V72 H232 V54 H286" stroke={DEBIT} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      <circle className="iv-sea-node" cx="286" cy="54" r="4.6" fill="hsl(var(--gold))" stroke="hsl(var(--background))" strokeWidth="1.6" />
     </svg>
   );
 }
@@ -48,15 +54,27 @@ function Clerk() {
   );
 }
 
-/** No.03 — Minted Goals: a flat coin that mints into 3D on hover. */
-function MintedCoinVisual() {
+/** No.05 — The Expedition: a charted voyage to a flagged landfall, drawn on hover. */
+function Expedition() {
   return (
-    <div className="iv-coin-wrap">
-      <div className="iv-coin">
-        <span className="iv-coin-face iv-coin-front">£</span>
-        <span className="iv-coin-face iv-coin-back">✦</span>
-      </div>
-    </div>
+    <svg viewBox="0 0 300 116" className="iv" fill="none" stroke="currentColor">
+      {/* night sky over the route */}
+      <g className="iv-stars" strokeWidth="1.3" strokeLinecap="round">
+        <path d="M96 22v6M93 25h6" />
+        <path d="M168 16v5M165.5 18.5h5" />
+        <path d="M212 30v5M209.5 32.5h5" />
+      </g>
+      {/* the planned route, then the inked voyage */}
+      <path className="iv-sea-od" d="M30 86 C 90 96 110 50 160 58 S 236 40 268 34" strokeWidth="1.4" stroke="currentColor" strokeDasharray="4 6" />
+      <path className="iv-sea-line" d="M30 86 C 90 96 110 50 160 58 S 236 40 268 34" stroke={CREDIT} strokeWidth="2.4" strokeLinecap="round" />
+      {/* the start, a waypoint, and the flagged landfall */}
+      <circle cx="30" cy="86" r="3.4" fill="currentColor" stroke="none" />
+      <circle className="iv-sea-node" cx="160" cy="58" r="4" fill="hsl(var(--gold))" stroke="hsl(var(--background))" strokeWidth="1.6" />
+      <g stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M268 34v-22" />
+        <path d="M268 12l16 5-16 6Z" fill={DEBIT} stroke={DEBIT} />
+      </g>
+    </svg>
   );
 }
 
@@ -121,7 +139,7 @@ function TaxFiled() {
   );
 }
 
-const SCENES = [SeaChart, Clerk, MintedCoinVisual, ImportAnything, Auditor, TaxFiled];
+const SCENES = [Clerk, ImportAnything, Subscriptions, Auditor, Expedition, TaxFiled];
 
 export function PlateVisual({ index }: { index: number }) {
   const Scene = SCENES[index % SCENES.length];
