@@ -20,6 +20,7 @@ from server.src.db.session import get_db
 from server.src.models import NewUser, Token
 from server.src.limiter import limiter
 from server.src.services.auth_service import (
+    DEMO_USERNAME,
     REFRESH_COOKIE,
     AuthService,
 )
@@ -27,6 +28,19 @@ from server.src.settings import settings
 
 router = APIRouter()
 auth_service = AuthService()
+
+
+def _require_demo_enabled() -> None:
+    """404 the demo routes when the flag is off, so the feature does not exist.
+
+    Evaluated as a ``Depends`` guard BEFORE either handler body runs. Read fresh
+    from the settings singleton each request so monkeypatching ``demo_mode_enabled``
+    in tests reaches it (mirrors the ``_require_enabled`` pattern in tax.py).
+    """
+    if not settings.demo_mode_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Not found"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -160,3 +174,66 @@ async def logout(
 
     auth_service.clear_auth_cookies(response)
     return {"detail": "Logged out"}
+
+
+# ---------------------------------------------------------------------------
+# Demo mode (gated by settings.demo_mode_enabled; see docs/DEMO-MODE.md)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/demo-status/")
+async def demo_status():
+    """Public. Tells the logged-out UI whether to show the "Enter the demo" button.
+
+    Leaks nothing beyond the boolean flag value (which is observable anyway from
+    whether demo-login 404s). NOT gated — it must answer ``false`` when off.
+    """
+    return {"enabled": settings.demo_mode_enabled}
+
+
+@router.post("/demo-login/", dependencies=[Depends(_require_demo_enabled)])
+@limiter.limit(settings.login_rate_limit)
+async def demo_login(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> Token:
+    """Parameterless login into the single hardcoded ``demo`` user.
+
+    This is NOT a password backdoor: it takes NO username/password input (nothing
+    to enumerate or stuff), 404s when the flag is off, and only ever loads the
+    fixed ``demo`` account via the same hardened machinery as ``/token/``. The demo
+    user is an ordinary ``disabled=0`` user, so every downstream request still flows
+    auth → get_current_active_user → RLS and can only ever see the demo user's rows.
+
+    Per-IP rate-limited (inherits ``login_rate_limit``); the demo user's refresh
+    tokens are pruned/capped so repeated taps can't bloat the table; cookies use
+    ``SameSite=Strict`` to tighten the shared session's cross-site exposure.
+    """
+    user = auth_service.get_user(db, DEMO_USERNAME)
+    if user is None:
+        # Flag is on but the seed hasn't been run on this instance.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Demo account not provisioned. Run the demo seed.",
+        )
+    if user.disabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo account is disabled.",
+        )
+
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+    access_token = auth_service.create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    refresh_token = auth_service.create_refresh_token(db, user.id)
+    # Bound the shared account's refresh-token rows (prune oldest beyond the cap).
+    auth_service.prune_demo_refresh_tokens(db, user.id)
+
+    auth_service.set_auth_cookies(
+        response, access_token, refresh_token, samesite="strict"
+    )
+
+    # Refresh token stays in the httpOnly cookie only — never echoed in the body.
+    return Token(access_token=access_token, token_type="bearer")

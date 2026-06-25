@@ -12,7 +12,7 @@ from uuid import uuid4
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
 
 import jwt
 from fastapi import Depends, HTTPException, Request, Response, status
@@ -35,6 +35,25 @@ from server.src.settings import settings
 # ---------------------------------------------------------------------------
 ACCESS_COOKIE = "access_token"
 REFRESH_COOKIE = "refresh_token"
+
+# The single, hardcoded demo account. The demo-login route is parameterless and
+# only ever authenticates this username; the demo guards (plaid/users) key off it.
+DEMO_USERNAME = "demo"
+
+# Cap on how many active (un-revoked) refresh tokens the shared demo user may keep.
+# Repeated "Enter the demo" taps would otherwise bloat the table indefinitely; we
+# prune the oldest beyond this many so the demo user can't be used to farm rows.
+DEMO_REFRESH_TOKEN_CAP = 20
+
+
+def is_demo_user(user: Any) -> bool:
+    """True when *user* is the shared demo account.
+
+    Accepts anything carrying a ``username`` (a ``UserInDB`` or an ORM row). Used
+    by the demo guards to block dangerous mutations (real-bank linking, password
+    change) on the shared account so one visitor can't lock out or poison others.
+    """
+    return getattr(user, "username", None) == DEMO_USERNAME
 
 # Keep the OAuth2 scheme so Swagger /docs can still inject a Bearer token.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/token/", auto_error=False)
@@ -324,12 +343,40 @@ class AuthService:
     # -- Cookie helpers -----------------------------------------------------
 
     @staticmethod
+    def prune_demo_refresh_tokens(
+        db: Session, user_id: int, keep: int = DEMO_REFRESH_TOKEN_CAP
+    ) -> None:
+        """Revoke all but the newest *keep* active refresh tokens for *user_id*.
+
+        The shared demo account is hit by every visitor, so repeated "Enter the
+        demo" taps would otherwise grow its ``refresh_tokens`` rows without bound.
+        Keeping only the newest N (by id, which is monotonic) bounds the table and
+        leaves recent sessions intact. Called from the demo-login path only.
+        """
+        rows = db.execute(
+            select(RefreshTokenORM)
+            .where(
+                RefreshTokenORM.user_id == user_id,
+                RefreshTokenORM.revoked == 0,
+            )
+            .order_by(RefreshTokenORM.id.desc())
+        ).scalars().all()
+        for row in rows[keep:]:
+            row.revoked = 1
+        db.flush()
+
+    @staticmethod
     def set_auth_cookies(
         response: Response,
         access_token: str,
         refresh_token: str,
+        samesite: Literal["lax", "none", "strict"] = "lax",
     ) -> None:
-        """Set httpOnly access + refresh cookies on *response*."""
+        """Set httpOnly access + refresh cookies on *response*.
+
+        *samesite* defaults to ``"lax"`` (the normal login path). The demo-login
+        path passes ``"strict"`` to tighten the demo session's cross-site exposure.
+        """
         secure = settings.cookie_secure
         domain = settings.cookie_domain
 
@@ -338,7 +385,7 @@ class AuthService:
             value=access_token,
             httponly=True,
             secure=secure,
-            samesite="lax",
+            samesite=samesite,
             path="/api",
             max_age=settings.access_token_expire_minutes * 60,
             domain=domain,
@@ -348,7 +395,7 @@ class AuthService:
             value=refresh_token,
             httponly=True,
             secure=secure,
-            samesite="lax",
+            samesite=samesite,
             path="/api",  # scoped to /api so it reaches /api/refresh & /api/logout
             max_age=settings.refresh_token_expire_days * 86_400,
             domain=domain,

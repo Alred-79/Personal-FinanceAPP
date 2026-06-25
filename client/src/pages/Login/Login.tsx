@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,48 @@ export default function Login() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [demoEnabled, setDemoEnabled] = useState(false);
+
+  // Ask the backend whether demo mode is on. The button only appears when the
+  // gated /demo-login/ route actually exists (false in any normal deployment).
+  useEffect(() => {
+    let active = true;
+    api
+      .get("/demo-status")
+      .then((res) => {
+        if (active) setDemoEnabled(Boolean(res.data?.enabled));
+      })
+      .catch(() => {
+        /* no demo button if the probe fails — fail closed */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleDemo = async () => {
+    setIsLoading(true);
+    try {
+      await api.post("/demo-login");
+      toast({
+        title: "Welcome to the demo",
+        description: "You're exploring a pre-filled showcase account.",
+      });
+      useStore.setState({ isLoggedIn: true });
+      navigate("/");
+    } catch (error) {
+      const axiosError = error as AxiosError<{ detail: string }>;
+      toast({
+        variant: "destructive",
+        title: "Couldn't enter the demo",
+        description:
+          axiosError.response?.data?.detail ||
+          "The demo is unavailable right now.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const [loginData, setLoginData] = useState({
     username: "",
@@ -217,6 +259,38 @@ export default function Login() {
                   {isLoading ? "Logging in..." : "Login"}
                 </Button>
               </form>
+
+              {demoEnabled && (
+                <div className="mt-5 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <span className="h-px flex-1 bg-rule/60" aria-hidden />
+                    <span className="font-sans text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                      or
+                    </span>
+                    <span className="h-px flex-1 bg-rule/60" aria-hidden />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full border-gold/40 text-foreground hover:bg-gold/10"
+                    onClick={handleDemo}
+                    disabled={isLoading}
+                  >
+                    {isLoading ? "Entering…" : "Enter the demo"}
+                  </Button>
+                  <p className="text-center font-sans text-[11px] text-muted-foreground">
+                    No sign-up needed. Or type{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-foreground">
+                      demo
+                    </code>{" "}
+                    /{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-foreground">
+                      Demo123!
+                    </code>{" "}
+                    above.
+                  </p>
+                </div>
+              )}
             </TabsContent>
 
             <TabsContent value="signup">

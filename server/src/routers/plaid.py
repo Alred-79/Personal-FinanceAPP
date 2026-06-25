@@ -18,7 +18,7 @@ from typing import Annotated
 from server.src.databridge.plaid_client import PlaidClient
 from server.src.services.plaid_service import PlaidService
 from server.src.services import plaid_crypto
-from server.src.services.auth_service import AuthService
+from server.src.services.auth_service import AuthService, is_demo_user
 from server.src.db.session import get_db, SessionLocal
 from server.src.db.rls import set_tenant
 from server.src.settings import settings
@@ -35,6 +35,20 @@ from server.src.models import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/plaid", tags=["plaid"])
+
+
+def _block_demo(current_user: UserInDB) -> None:
+    """Forbid real-bank linking on the shared demo account.
+
+    Without this, a visitor in the public demo session could attach a REAL Plaid
+    item to the demo user and exfiltrate real bank data through the shared
+    account. 403 before any Plaid call. No-op for every normal user.
+    """
+    if is_demo_user(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Bank linking is disabled on the demo account.",
+        )
 
 
 # ── Link & token exchange ────────────────────────────────────────────────────
@@ -56,6 +70,7 @@ async def get_link_token(
     is gone, and FastAPI rejects an unauthenticated request with 401 before any
     Plaid call is made.
     """
+    _block_demo(current_user)
     databridge = PlaidClient()
     link_token = databridge.create_link_token(str(current_user.id))
     return {"link_token": link_token}
@@ -70,6 +85,7 @@ async def exchange_public_token(
     ],
     db: Session = Depends(get_db),
 ):
+    _block_demo(current_user)
     databridge = PlaidClient()
     exchange = databridge.exchange_public_token(token.public_token)
     access_token = exchange.access_token

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from typing import Annotated
 
 from server.src.models import User, UserInDB
-from server.src.services.auth_service import AuthService
+from server.src.services.auth_service import AuthService, is_demo_user
 from server.src.db.session import get_db
 from server.src.db.models import User as UserORM
 from server.src.settings import settings
@@ -47,6 +47,15 @@ async def change_password(
     ],
     db: Session = Depends(get_db),
 ):
+    # 0) Make the shared demo account self-immutable. A visitor must not be able
+    #    to change the demo password (which calls revoke_all_user_tokens below) —
+    #    that would lock out and kick every other visitor sharing the account.
+    if is_demo_user(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="The demo account password cannot be changed.",
+        )
+
     # 1) Prove the caller knows the current password (wrong -> 400, no change).
     if not _auth_service.verify_password(req.current_password, current_user.hashed_password):
         raise HTTPException(status_code=400, detail="Incorrect current password")

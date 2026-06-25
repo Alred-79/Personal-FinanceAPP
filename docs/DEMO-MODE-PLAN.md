@@ -1,10 +1,16 @@
 # Demo Mode — Design, Security Assessment & Implementation Plan
 
-> **Status: PLAN ONLY — not yet implemented.** This document specifies a gated
-> "demo mode" (a fake username/password that logs into a pre-seeded, data-rich
-> account) and the security hardening required before it can be exposed publicly.
-> It is the output of a multi-pass adversarial security review; build it as
-> specified, with every guard in §5, before any public deploy.
+> **Status: IMPLEMENTED (2026-06-25).** All of §7 (gated demo-login, full
+> showcase seed, event-sourced game layer) and the §5 hardening are built and
+> tested (backend suite 1462 green incl. `server/tests/test_demo_mode.py`; seed
+> verified end-to-end on a fresh SQLite DB). The operator runbook is
+> [`DEMO-MODE.md`](./DEMO-MODE.md). Still off by default (`DEMO_MODE_ENABLED`);
+> deploy as a separate instance per §6 before any public exposure.
+>
+> This document specifies a gated "demo mode" (a fake username/password that logs
+> into a pre-seeded, data-rich account) and the security hardening required before
+> it can be exposed publicly. It is the output of a multi-pass adversarial security
+> review; build it as specified, with every guard in §5, before any public deploy.
 
 ---
 

@@ -175,6 +175,18 @@ class Settings(BaseSettings):
     # output advice firewall is unaffected (it always runs).
     tax_features_enabled: bool = False
 
+    # Demo mode (env ``DEMO_MODE_ENABLED``). OFF by default ⇒ the feature does not
+    # exist in any environment that hasn't opted in. When ON, the public
+    # ``/api/demo-login/`` route logs straight into the single hardcoded ``demo``
+    # user (no username input — nothing to enumerate or stuff) and ``/api/demo-status/``
+    # tells the logged-out UI to show the "Enter the demo" button. When OFF, both
+    # routes 404. This is NOT a password backdoor: it reuses the normal hardened
+    # auth machinery (cookies/refresh-rotation/rate-limit/RLS) and only ever
+    # authenticates the ordinary, RLS-scoped ``demo`` user. Intended for a SEPARATE
+    # ``persfin-demo`` Railway service with its own Postgres (see docs/DEMO-MODE.md),
+    # never the instance that serves a real account.
+    demo_mode_enabled: bool = False
+
     # W4 — Reconciliation→planning feedback loop (reflection + automation offers).
     # A nightly job aggregates each user's AssistedAction follow-through, writes
     # ONE non-directive ``action_followthrough`` memory fact (firewall-screened),
