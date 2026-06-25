@@ -148,3 +148,175 @@
     0 1px 0 hsl(44 36% 87% / 0.05) inset,
     0 12px 38px hsl(168 40% 2% / 0.5);
 }
+
+/* ---- Instrument plates: 3D tilt + Z-layer pop + bespoke scene animation ----- */
+.iv-tilt {
+  perspective: 1100px;
+  --rx: 0deg;
+  --ry: 0deg;
+}
+.iv-tilt__inner {
+  position: relative;
+  transform-style: preserve-3d;
+  transform: rotateX(var(--rx)) rotateY(var(--ry));
+  transition: transform 0.45s var(--ease-out), box-shadow 0.4s var(--ease-out);
+}
+.iv-tilt:hover .iv-tilt__inner {
+  transition: transform 0.12s linear, box-shadow 0.3s var(--ease-out);
+  box-shadow: 0 26px 64px hsl(167 30% 12% / 0.22);
+}
+.dark .iv-tilt:hover .iv-tilt__inner {
+  box-shadow: 0 28px 66px hsl(168 40% 2% / 0.6);
+}
+.iv-sheen {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(440px circle at var(--mx, 50%) var(--my, 50%), hsl(var(--gold) / 0.16), transparent 46%);
+  transition: opacity 0.3s var(--ease-out);
+}
+.iv-tilt:hover .iv-sheen {
+  opacity: 1;
+}
+
+.iv-z1 {
+  transform: translateZ(16px);
+}
+.iv-stage {
+  position: relative;
+  height: 116px;
+  margin: 2px 0 14px;
+  transform-style: preserve-3d;
+  transition: transform 0.4s var(--ease-out);
+}
+.iv-tilt:hover .iv-stage {
+  transform: translateZ(58px) scale(1.04);
+}
+.iv {
+  width: 100%;
+  height: 100%;
+  color: hsl(var(--gold));
+  overflow: visible;
+}
+.iv-rule {
+  stroke: hsl(var(--rule-strong) / 0.7);
+}
+.iv-sea-area {
+  opacity: 0.14;
+}
+
+@keyframes iv-draw {
+  from { stroke-dashoffset: 360; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes iv-draw-row {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes iv-draw-check {
+  from { stroke-dashoffset: 44; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes iv-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+@keyframes iv-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes iv-twinkle {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+@keyframes iv-press {
+  0% { transform: scale(1.2) rotate(-6deg); }
+  55% { transform: scale(0.95) rotate(2deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+@keyframes iv-slam {
+  0% { opacity: 0; transform: scale(2) rotate(-20deg); }
+  55% { opacity: 1; transform: scale(0.9) rotate(-6deg); }
+  100% { opacity: 0.95; transform: scale(1) rotate(-8deg); }
+}
+@keyframes iv-coin-idle {
+  0%, 100% { transform: rotateY(-14deg); }
+  50% { transform: rotateY(14deg); }
+}
+@keyframes iv-coin-flip {
+  from { transform: rotateY(0); }
+  to { transform: rotateY(360deg); }
+}
+@keyframes iv-scramble {
+  to { opacity: 0; transform: translateX(-10px) scale(0.85); }
+}
+
+/* sea-chart */
+.iv-sea-line { stroke-dasharray: 360; stroke-dashoffset: 0; }
+.iv-sea-od { opacity: 0; transition: opacity 0.4s var(--ease-out); }
+.iv-sea-node { transform-box: fill-box; transform-origin: center; animation: iv-bob 3.4s ease-in-out infinite; }
+.iv-sun { transform-box: fill-box; transform-origin: center; animation: iv-spin 22s linear infinite; }
+.iv-tilt:hover .iv-sea-line { animation: iv-draw 0.95s var(--ease-out); }
+.iv-tilt:hover .iv-sea-od { opacity: 0.65; }
+
+/* clerk */
+.iv-stamp { transform-box: fill-box; transform-origin: center; }
+.iv-stamp-check { stroke-dasharray: 44; stroke-dashoffset: 44; }
+.iv-tilt:hover .iv-stamp { animation: iv-press 0.5s var(--ease-stamp); }
+.iv-tilt:hover .iv-stamp-check { animation: iv-draw-check 0.45s 0.18s var(--ease-out) forwards; }
+
+/* minted coin */
+.iv-coin-wrap { position: absolute; inset: 0; display: grid; place-items: center; perspective: 600px; }
+.iv-coin {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  transform-style: preserve-3d;
+  animation: iv-coin-idle 7s ease-in-out infinite;
+}
+.iv-tilt:hover .iv-coin { animation: iv-coin-flip 1s var(--ease-out); }
+.iv-coin-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  backface-visibility: hidden;
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 700;
+  font-size: 2.1rem;
+  color: hsl(46 52% 96%);
+  background: radial-gradient(circle at 38% 30%, hsl(var(--gold)), hsl(42 56% 24%));
+  box-shadow:
+    inset 0 0 0 4px hsl(46 52% 96% / 0.24),
+    inset 0 0 16px hsl(42 56% 16% / 0.5),
+    0 8px 18px hsl(167 30% 12% / 0.4);
+}
+.iv-coin-back { transform: rotateY(180deg); }
+
+/* import */
+.iv-tangle { opacity: 0.95; }
+.iv-rows line { stroke-dasharray: 100; stroke-dashoffset: 0; }
+.iv-tilt:hover .iv-tangle { animation: iv-scramble 0.55s var(--ease-out) forwards; }
+.iv-tilt:hover .iv-rows line { animation: iv-draw-row 0.5s var(--ease-out); }
+.iv-tilt:hover .iv-rows line:nth-child(2) { animation-delay: 0.08s; }
+.iv-tilt:hover .iv-rows line:nth-child(3) { animation-delay: 0.16s; }
+
+/* auditor */
+.iv-stars path { transform-box: fill-box; transform-origin: center; animation: iv-twinkle 3s ease-in-out infinite; }
+.iv-stars path:nth-child(2) { animation-delay: 0.7s; }
+.iv-stars path:nth-child(3) { animation-delay: 1.3s; }
+.iv-shield { transform-box: fill-box; transform-origin: center; }
+.iv-audit-check { stroke-dasharray: 44; stroke-dashoffset: 44; }
+.iv-tilt:hover .iv-audit-check { animation: iv-draw-check 0.55s 0.1s var(--ease-out) forwards; }
+.iv-tilt:hover .iv-shield { animation: iv-press 0.5s var(--ease-out); }
+
+/* tax filed */
+.iv-filed { transform-box: fill-box; transform-origin: center; opacity: 0.16; transform: scale(1.05) rotate(-8deg); }
+.iv-tilt:hover .iv-filed { animation: iv-slam 0.55s var(--ease-stamp) forwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  .iv-sea-node, .iv-sun, .iv-coin, .iv-stars path { animation: none !important; }
+  .iv-tilt__inner, .iv-stage { transition: none !important; }
+}

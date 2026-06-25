@@ -1,76 +1,40 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useScroll, useTransform } from "motion/react";
 import { useReducedMotion } from "@/hooks/useEnvironment";
+import { useTilt } from "../hooks/useTilt";
 import { FEATURES, type Feature } from "../data";
-import { FeatureIcon, Rise } from "../shared";
+import { Rise } from "../shared";
+import { PlateVisual } from "./instrumentVisuals";
 
-/** A small engraved motif unique to each instrument, drawn under the copy. */
-function PlateMotif({ index }: { index: number }) {
-  const s = {
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.4,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-  };
-  const motifs = [
-    <path key="0" d="M1 12c8-11 15 9 23 0s15-9 23 0" {...s} />, // sea-chart wave
-    <g key="1" {...s}>
-      <path d="M2 7h40" />
-      <path d="M2 13h28" strokeDasharray="3 3" />
-      <path d="M2 19h34" />
-    </g>, // clerk diff
-    <g key="2" {...s}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 6v12M14.4 9.2A2 2 0 0 0 10 10.6c0 2 4 2 4 4a2 2 0 0 1-4 .6" />
-    </g>, // minted coin
-    <g key="3" {...s}>
-      <path d="M2 6h44M2 12h44M2 18h26" />
-    </g>, // import rows
-    <g key="4" {...s}>
-      <path d="M12 2 4 5v6c0 5 8 8 8 8s8-3 8-8V5Z" />
-      <path d="m9 11 2 2 4-4" />
-    </g>, // auditor shield
-    <g key="5" {...s}>
-      <rect x="3" y="3" width="18" height="18" rx="1" />
-      <path d="m7 12 3 3 6-6" />
-    </g>, // tax stamp
-  ];
-  return (
-    <svg width="100%" height="26" viewBox="0 0 48 24" preserveAspectRatio="xMinYMid meet" className="text-gold/55">
-      {motifs[index % motifs.length]}
-    </svg>
-  );
-}
-
-/** Shared plate content — big number watermark, glyph, title, body, motif. */
-function PlateBody({ f, index }: { f: Feature; index: number }) {
+/** Shared plate content: serial, the bespoke specimen scene, title, body. */
+function PlateContent({ f, index }: { f: Feature; index: number }) {
   return (
     <>
-      <span
-        aria-hidden
-        className="pointer-events-none absolute -right-1 -top-7 select-none font-display text-[7rem] font-semibold leading-none text-rule-strong/[0.07]"
-      >
-        {f.no.replace(/\D/g, "")}
+      <span className="serial absolute right-4 top-3 z-[6] font-mono text-[0.66rem] tracking-[0.16em] text-muted-foreground">
+        {f.no}
       </span>
-      <FeatureIcon>{f.icon}</FeatureIcon>
-      <h3 className="font-display text-[1.28rem] font-semibold">{f.title}</h3>
-      <p className="mt-2 text-[0.92rem] leading-relaxed text-muted-foreground">{f.body}</p>
-      <div className="mt-5 border-t border-rule-strong/25 pt-3">
-        <PlateMotif index={index} />
+      <div className="iv-stage">
+        <PlateVisual index={index} />
       </div>
+      <h3 className="iv-z1 font-display text-[1.24rem] font-semibold">{f.title}</h3>
+      <p className="mt-2 text-[0.9rem] leading-relaxed text-muted-foreground">{f.body}</p>
     </>
   );
 }
 
-/** One filmstrip plate — staggered up/down, lifts on hover. */
+/** One filmstrip plate — a cursor-tracking 3D tilt card whose specimen scene
+ *  lifts off the page and comes alive on hover. Staggered up/down. */
 function FilmPlate({ f, index }: { f: Feature; index: number }) {
-  const lift = index % 2 === 0 ? -24 : 24; // alternating vertical stagger
+  const lift = index % 2 === 0 ? -24 : 24;
+  const { ref, enabled, handlers } = useTilt(9);
   return (
     <div className="shrink-0" style={{ transform: `translateY(${lift}px)` }}>
-      <article className="plate relative w-[clamp(290px,25vw,360px)] overflow-hidden bg-card p-6 transition-[transform,box-shadow] duration-300 hover:-translate-y-1.5 hover:shadow-plate-lg">
-        <PlateBody f={f} index={index} />
-      </article>
+      <div ref={ref} className="iv-tilt w-[clamp(300px,26vw,372px)]" {...handlers}>
+        <article className="iv-tilt__inner plate relative bg-card p-5">
+          {enabled && <span aria-hidden className="iv-sheen" />}
+          <PlateContent f={f} index={index} />
+        </article>
+      </div>
     </div>
   );
 }
@@ -113,8 +77,8 @@ function Grid() {
     <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
       {FEATURES.map((f, i) => (
         <Rise key={f.no} delay={(i % 2) * 0.07}>
-          <article className="plate relative h-full overflow-hidden bg-card p-6">
-            <PlateBody f={f} index={i} />
+          <article className="plate relative h-full bg-card p-5">
+            <PlateContent f={f} index={i} />
           </article>
         </Rise>
       ))}
