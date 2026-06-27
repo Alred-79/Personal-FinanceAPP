@@ -4,8 +4,9 @@ import { useReducedMotion } from "@/hooks/useEnvironment";
 import { cn } from "@/lib/utils";
 import { useTilt } from "../hooks/useTilt";
 import { FEATURES, type Feature } from "../data";
-import { Rise } from "../shared";
+import { Rise, EASE } from "../shared";
 import { PlateVisual } from "./instrumentVisuals";
+import { AvailableWhenEnabled } from "@/components/custom/Trust/AvailableWhenEnabled";
 
 /**
  * Scrub a plate's scene animation to its travel across the viewport: writes a
@@ -61,28 +62,130 @@ function PlateContent({ f, index }: { f: Feature; index: number }) {
       </div>
       <h3 className="iv-z1 font-display text-[1.24rem] font-semibold">{f.title}</h3>
       <p className="mt-2 text-[0.9rem] leading-relaxed text-muted-foreground">{f.body}</p>
+      {f.gated && (
+        <div className="iv-z1 mt-3">
+          <AvailableWhenEnabled detail={f.gatedNote} />
+        </div>
+      )}
     </>
   );
 }
 
-/** One filmstrip plate — a cursor-tracking 3D tilt card whose specimen scene
- *  lifts off the page and comes alive on hover, and also plays its flourish once
- *  as it scrolls through the centre of the strip. Staggered up/down. */
+/** Per-plate resting depth (translateZ) inside the case — a varied near/far
+ *  wave so the camera push parallaxes them against each other. */
+const PLATE_DEPTH = [44, -34, 28, -44, 36, -22];
+
+/** One plate of the case — a cursor-tracking 3D tilt card whose specimen scene
+ *  lifts off the page and comes alive on hover. Each plate rests at its own depth
+ *  (translateZ) and casts a real reflection on the case floor (-webkit-box-reflect),
+ *  so the row reads as engraved plates seated in a recessed case, not flat cards. */
 function FilmPlate({ f, index }: { f: Feature; index: number }) {
-  const lift = index % 2 === 0 ? -24 : 24;
+  const depth = PLATE_DEPTH[index % PLATE_DEPTH.length];
   const { ref, enabled, handlers } = useTilt(9);
   // The filmstrip only mounts for non-reduced-motion. Scrub the scene to the
   // plate's leftward travel across the strip — it unfolds at the scroll's pace.
   const wrapRef = useRef<HTMLDivElement>(null);
   useScrubVar(wrapRef, "x");
   return (
-    <div ref={wrapRef} className="iv-scrub shrink-0" style={{ transform: `translateY(${lift}px)` }}>
+    <div
+      ref={wrapRef}
+      className="iv-plate3d iv-scrub shrink-0"
+      style={{ transform: `translateZ(${depth}px)` }}
+    >
       <div ref={ref} className="iv-tilt w-[clamp(300px,26vw,372px)]" {...handlers}>
         <article className="iv-tilt__inner plate relative bg-card p-5">
           {enabled && <span aria-hidden className="iv-sheen" />}
           <PlateContent f={f} index={index} />
         </article>
       </div>
+    </div>
+  );
+}
+
+/** A faint engraved guilloché bloom that forms behind the heading as the section
+ *  arrives — the backdrop "tightening" into a struck seal. Pure chrome. */
+function GuillocheBloom() {
+  const reduce = useReducedMotion();
+  return (
+    <motion.svg
+      className="iv-bloom"
+      viewBox="0 0 400 400"
+      aria-hidden
+      initial={reduce ? false : { opacity: 0, scale: 0.86 }}
+      whileInView={reduce ? undefined : { opacity: 0.42, scale: 1 }}
+      viewport={{ once: true, margin: "-12%" }}
+      transition={{ duration: 1.3, ease: EASE }}
+    >
+      {Array.from({ length: 8 }).map((_, i) => (
+        <circle
+          key={i}
+          cx="200"
+          cy="200"
+          r={26 + i * 22}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="0.7"
+          opacity={0.5 - i * 0.045}
+        />
+      ))}
+      {Array.from({ length: 24 }).map((_, i) => {
+        const a = (i / 24) * Math.PI * 2;
+        return (
+          <line
+            key={`r${i}`}
+            x1={200 + Math.cos(a) * 40}
+            y1={200 + Math.sin(a) * 40}
+            x2={200 + Math.cos(a) * 196}
+            y2={200 + Math.sin(a) * 196}
+            stroke="currentColor"
+            strokeWidth="0.4"
+            opacity="0.16"
+          />
+        );
+      })}
+    </motion.svg>
+  );
+}
+
+/** The section heading for the 3D case — the title is struck/inked in with an
+ *  intaglio clip reveal while a guilloché bloom forms behind it, so the section
+ *  ARRIVES as an engraving event rather than fading in. */
+function EngravedHeading() {
+  const reduce = useReducedMotion();
+  const vp = { once: true, margin: "-12%" } as const;
+  return (
+    <div className="iv-head relative mx-auto max-w-[42rem] px-[7vw] text-center">
+      <GuillocheBloom />
+      <motion.p
+        className="dept-label relative"
+        initial={reduce ? false : { opacity: 0, y: 10 }}
+        whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
+        viewport={vp}
+        transition={{ duration: 0.6, ease: EASE }}
+      >
+        The Instruments
+      </motion.p>
+      <motion.h2
+        className="iv-head__title relative mt-2 text-balance font-display font-semibold"
+        style={{ fontSize: "clamp(1.8rem,4.5vw,2.8rem)" }}
+        initial={reduce ? false : { clipPath: "inset(0 100% 0 0)" }}
+        whileInView={reduce ? undefined : { clipPath: "inset(0 0% 0 0)" }}
+        viewport={vp}
+        transition={{ duration: 1.05, ease: EASE, delay: 0.12 }}
+      >
+        Every figure, engraved and accountable.
+      </motion.h2>
+      <motion.p
+        className="relative mt-3 text-pretty text-[1.02rem] text-muted-foreground"
+        initial={reduce ? false : { opacity: 0 }}
+        whileInView={reduce ? undefined : { opacity: 1 }}
+        viewport={vp}
+        transition={{ duration: 0.7, ease: EASE, delay: 0.55 }}
+      >
+        Not another dashboard of charts you ignore. Each tool is a working
+        instrument — it does one thing, shows its reasoning, and never moves
+        real money without your stamp.
+      </motion.p>
     </div>
   );
 }
@@ -131,13 +234,21 @@ function Filmstrip() {
 
   return (
     <div ref={ref} className="full-bleed" style={{ height: `calc(100vh + ${dist}px)` }}>
-      <div className="sticky top-0 flex h-screen flex-col justify-center gap-10 overflow-hidden">
-        <Heading />
-        <motion.div ref={rowRef} className="flex items-center gap-7 px-[7vw]" style={{ x }}>
-          {FEATURES.map((f, i) => (
-            <FilmPlate key={f.no} f={f} index={i} />
-          ))}
-        </motion.div>
+      <div className="sticky top-0 flex h-screen flex-col justify-center gap-[4vh] overflow-hidden">
+        <EngravedHeading />
+        {/* the case — a perspective stage the plates are seated in at depth.
+            Static depth (per-plate translateZ + reflections); no camera motion. */}
+        <div className="iv-stage3d">
+          <motion.div
+            ref={rowRef}
+            className="iv-deck flex items-end gap-7 px-[7vw]"
+            style={{ x }}
+          >
+            {FEATURES.map((f, i) => (
+              <FilmPlate key={f.no} f={f} index={i} />
+            ))}
+          </motion.div>
+        </div>
       </div>
     </div>
   );
@@ -191,14 +302,14 @@ export function Instruments() {
   // the heading sits above the plates as usual.
   if (horizontal) {
     return (
-      <section id="features" className="mt-28">
+      <section id="features" className="mt-2">
         <Filmstrip />
       </section>
     );
   }
 
   return (
-    <section id="features" className="mt-28">
+    <section id="features" className="mt-12">
       <Heading />
       <Grid />
     </section>

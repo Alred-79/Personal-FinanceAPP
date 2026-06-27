@@ -13,14 +13,15 @@ export function Forecast() {
   return (
     <section id="forecast" className="mt-28">
       <Rise className="mx-auto max-w-[44rem] text-center">
-        <p className="dept-label">The Sea-Chart · live</p>
+        <p className="dept-label">The Sea-Chart · table-stakes, done honestly</p>
         <h2 className="mt-2 font-display font-semibold" style={{ fontSize: "clamp(1.8rem,4.5vw,2.8rem)" }}>
-          A forecast that knows what it doesn't know.
+          Know the odds you&rsquo;ll dip below zero before payday.
         </h2>
         <p className="mt-3 text-[1.02rem] text-muted-foreground">
-          Not a flat line — a calibrated probability. Drag to model heavier or lighter
+          Every app forecasts. Most draw one confident line and hope. We don&rsquo;t —
+          we give you a calibrated <em>probability</em>. Drag to model heavier or lighter
           spending and watch hundreds of simulated futures, the ~90% trough band, and your
-          overdraft odds re-sound. Then stress-test any decision before you make it.
+          overdraft odds re-sound. A forecast that admits what it doesn&rsquo;t know.
         </p>
       </Rise>
 

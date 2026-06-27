@@ -206,6 +206,10 @@ interface StoreState {
   mcpEnabled: boolean;
   /** W5 freelancer wedge; gates the Income-Volatility nav entry. Read-only. */
   freelancerModeEnabled: boolean;
+  /** Self-employed / 1099 fork (§3). null = not asked yet; drives the first-run
+   *  question and foregrounds the freelancer surfaces. Frontend-only preference. */
+  selfEmployed: boolean | null;
+  setSelfEmployed: (value: boolean) => void;
   budgets: Budget[];
   budgetsLoaded: boolean;
   netWorth: NetWorthPoint[];
@@ -379,7 +383,25 @@ interface StoreState {
  * forgotten on logout (which is how financial state — Safe-to-Spend, the
  * budget, the selected account — used to leak across a re-login).
  */
+/**
+ * The self-employed / 1099 fork (docs/FRONTEND-REPOSITIONING §3). Frontend-only,
+ * localStorage-backed — it foregrounds the freelancer surfaces (tax reserve,
+ * income smoothing, quarterly estimate) for the user who'd actually adopt this,
+ * without any backend change. `null` means "not asked yet" (drives the first-run
+ * question); true/false is the user's answer.
+ */
+const SELF_EMPLOYED_KEY = "self_employed";
+function getStoredSelfEmployed(): boolean | null {
+  try {
+    const v = localStorage.getItem(SELF_EMPLOYED_KEY);
+    return v === null ? null : v === "true";
+  } catch {
+    return null;
+  }
+}
+
 const initialState = {
+  selfEmployed: getStoredSelfEmployed() as boolean | null,
   transactions: [] as Transaction[],
   recentTransactions: [] as Transaction[],
   expenses: [] as Expense[],
@@ -455,6 +477,16 @@ export const useStore = create<StoreState>((set, get) => ({
   // Command Deck → Transactions hand-off (consume-once; see addTxnRequested).
   requestAddTransaction: () => set({ addTxnRequested: true }),
   consumeAddTransaction: () => set({ addTxnRequested: false }),
+
+  // Self-employed / 1099 fork (§3) — persisted client-side, no backend round-trip.
+  setSelfEmployed: (value: boolean) => {
+    try {
+      localStorage.setItem(SELF_EMPLOYED_KEY, String(value));
+    } catch {
+      /* storage unavailable — keep it in memory for this session */
+    }
+    set({ selfEmployed: value });
+  },
 
   setSelectedAccountId: (accountId: string) => {
     set({ selectedAccountId: accountId });

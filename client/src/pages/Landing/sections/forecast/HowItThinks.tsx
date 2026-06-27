@@ -79,25 +79,25 @@ const STEPS: Step[] = [
   {
     n: "i",
     title: "Walk your ledger",
-    caption: "Your recurring bills and paychecks, stepped day by day from today's balance.",
+    caption: "Your recurring bills and paychecks form a deterministic baseline, summed forward one day at a time from today's balance.",
     art: <WalkLedger />,
   },
   {
     n: "ii",
     title: "Simulate the futures",
-    caption: "Daily spending is resampled in 7-day blocks, so real streaks survive instead of averaging away.",
+    caption: "A block bootstrap draws thousands of Monte Carlo futures, resampling your daily spending in weekly windows so real streaks survive instead of averaging away.",
     art: <FanFutures />,
   },
   {
     n: "iii",
     title: "Calibrate the band",
-    caption: "A conformal step widens the corridor toward ~90% coverage — and widens it further when you're volatile.",
+    caption: "Conformal calibration widens the corridor until its empirical coverage reaches about 90 percent, then widens it further as your variance rises.",
     art: <CalibrateBand />,
   },
   {
     n: "iv",
     title: "Catch the shift",
-    caption: "A change-point detector spots when your spending pace changes and re-weights to the new normal.",
+    caption: "A CUSUM change point test flags when your spending rate breaks from its running mean and reweights the estimate toward the new regime.",
     art: <CatchShift />,
   },
 ];

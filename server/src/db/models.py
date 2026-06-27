@@ -577,12 +577,32 @@ class AssistedAction(Base):
     # RESERVED (real-money appendix): authorized|submitted|pending|settled|
     # returned|failed. NULL until origination exists — do not populate in 2C.
     settlement_status: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Phase 2a–2b (SANDBOX ONLY, see docs/PHASE2A-SANDBOX-IMPLEMENTATION.md): when
+    # ``execute()`` originates a real transfer at a rail, these record which rail and
+    # its provider id; NULL = manual (the only path until rail_origination_enabled).
+    # ``settlement_detail_json`` holds return R-codes / failure reason / timestamps.
+    # A UNIQUE index on (rail, rail_ref) lets a settlement webhook look the Bridge up.
+    rail: Mapped[Optional[str]] = mapped_column(String, nullable=True)          # "increase" | "method"
+    rail_ref: Mapped[Optional[str]] = mapped_column(String, nullable=True)      # provider transfer/payment id
+    settlement_detail_json: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     # dedup/match key used to reconcile against synced transactions
     verify_ref: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     resolved_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     user = relationship("User", back_populates="assisted_actions")
+
+    __table_args__ = (
+        # Phase 2a–2b: a settlement webhook looks a Bridge up by its rail id. Unique
+        # so two Bridges can't claim the same provider transfer; NULLs are distinct
+        # (every manual row leaves both columns NULL, so they never collide).
+        Index(
+            "uq_assisted_actions_rail_ref",
+            "rail",
+            "rail_ref",
+            unique=True,
+        ),
+    )
 
 
 class Rule(Base):

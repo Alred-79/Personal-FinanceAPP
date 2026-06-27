@@ -108,6 +108,23 @@ export default function Keeper() {
           </p>
         ) : null}
 
+        {/* How the game is scored (§5): XP rewards real money wins, never spending —
+            and a missed day won't break you. The honest rebuttal to "gimmick". */}
+        <RevealItem>
+          <div className="border border-rule-strong/35 bg-card p-4">
+            <p className="dept-label text-gold">How you earn it</p>
+            <p className="mt-1.5 text-sm leading-relaxed text-foreground">
+              XP comes from real money wins — paying a bill on time, funding a goal,
+              closing a day under budget. <strong>Never from spending.</strong> There&rsquo;s
+              no store and no way to buy your way up; the only currency is real progress.
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              And a missed day won&rsquo;t break you — grace keeps the game forgiving on
+              purpose. It&rsquo;s here to keep you going, not to punish a slip.
+            </p>
+          </div>
+        </RevealItem>
+
         {/* The four stats — bucket/ratio plates with plain-term reveals. */}
         <RevealItem>
           <SectionRule className="mb-4">Standing</SectionRule>

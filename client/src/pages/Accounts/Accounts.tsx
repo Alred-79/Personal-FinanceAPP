@@ -20,6 +20,7 @@ import { formatCurrency } from "@/lib/format";
 import { AnimatedNumber } from "@/components/engraving/AnimatedNumber";
 import { EmptyState } from "@/components/engraving/EmptyState";
 import CustomTooltip from "@/components/custom/Tooltip/Tooltip";
+import { ReadOnlyBadge } from "@/components/custom/Trust/ReadOnlyBadge";
 
 export default function Accounts() {
   const { accounts, isLoading, fetchAccounts, addAccount, deleteAccount } =
@@ -70,7 +71,10 @@ export default function Accounts() {
 
       {accounts.length > 0 && (
         <div className="mb-6 flex flex-wrap items-baseline justify-between gap-2 border-b border-rule-strong/30 pb-4">
-          <p className="dept-label">Aggregate holdings</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="dept-label">Aggregate holdings</p>
+            <ReadOnlyBadge />
+          </div>
           <p className="intaglio text-3xl text-foreground">
             <AnimatedNumber value={total} />
           </p>

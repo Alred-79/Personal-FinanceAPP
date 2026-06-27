@@ -209,6 +209,56 @@
   opacity: 1;
 }
 
+/* ── The Plate Case — the instruments seated at depth in a recessed case the
+      camera pushes into on arrival. Perspective stage + per-plate translateZ +
+      a real reflection on the case floor. ──── */
+.iv-stage3d {
+  perspective: 1700px;
+  perspective-origin: 50% 50%;
+}
+.iv-deck {
+  transform-style: preserve-3d;
+  transform-origin: 50% 60%;
+  will-change: transform;
+}
+.iv-plate3d {
+  position: relative;
+  transform-style: preserve-3d;
+  /* a real reflection of the plate on the polished case floor */
+  -webkit-box-reflect: below 7px linear-gradient(transparent 56%, hsl(167 26% 12% / 0.16));
+}
+.iv-plate3d .iv-tilt__inner {
+  box-shadow: 0 26px 44px -20px hsl(167 30% 12% / 0.3);
+}
+.dark .iv-plate3d .iv-tilt__inner {
+  box-shadow: 0 30px 56px -18px hsl(168 40% 2% / 0.62);
+}
+
+/* the engraved heading bloom — a guilloché seal forming behind the title */
+.iv-head {
+  z-index: 2;
+}
+.iv-bloom {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(540px, 82vw);
+  height: min(540px, 82vw);
+  transform: translate(-50%, -52%);
+  pointer-events: none;
+  z-index: -1;
+  color: hsl(var(--gold));
+}
+.iv-head__title {
+  /* clip-path reveal animates inline; keep the struck title crisp */
+  will-change: clip-path;
+}
+@media (prefers-reduced-motion: reduce) {
+  .iv-deck { transform: none !important; }
+  .iv-plate3d { -webkit-box-reflect: unset; }
+}
+
+
 .iv-z1 {
   transform: translateZ(16px);
 }
@@ -526,7 +576,13 @@
   box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.05), inset 0 -10px 26px hsl(0 0% 0% / 0.26);
   transition: transform 0.5s var(--ease-out), box-shadow 0.5s var(--ease-out),
     border-color 0.5s var(--ease-out);
+  /* The box is always dark metal, so its contents stay light-on-dark in EITHER
+     page theme — the vault light-switch ("lights on") flips the page to parchment,
+     and without this the headings would inherit the light theme's dark ink and
+     drop below AA on the dark box. */
+  color: hsl(220 22% 93%);
 }
+.vault-box .text-muted-foreground { color: hsl(220 14% 64%); }
 /* keep content above the grain + glow layers */
 .vault-box > * { position: relative; z-index: 1; }
 /* brushed-metal grain */
@@ -654,78 +710,306 @@
   .ftk-tilt:hover .ftk-stage { transform: none; }
 }
 
-/* ============================================================
-   The Cabinet — reward emblems (cabinetVisuals.tsx). Tactile
-   medallions that perform a strong flourish on card hover.
-   ============================================================ */
-.cab-stage {
-  height: 100px;
+/* ======================================================================
+   === Vault Light Switch === — a physical brass switch on the vault wall.
+   Exists only in the dark zone; flips the vault back to parchment. Brass is
+   hardcoded warm gold (theme-independent — it's an object, and --gold is
+   indigo in the dark theme). The bulb's warm glow matches the terminal amber.
+   ====================================================================== */
+.vls-plate {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  width: 58px;
+  padding: 12px 0 14px;
+  border-radius: 12px 0 0 12px;
+  background: linear-gradient(155deg, hsl(44 58% 60%), hsl(40 52% 36%));
+  border: 1px solid hsl(40 60% 28%);
+  border-right: none;
+  box-shadow:
+    -6px 0 22px hsl(168 40% 3% / 0.45),
+    inset 0 1px 0 hsl(46 70% 82% / 0.55),
+    inset 0 -2px 6px hsl(40 60% 22% / 0.5);
+  cursor: pointer;
+  transition: transform 0.18s var(--ease-out), box-shadow 0.25s var(--ease-out);
+}
+.vls-plate:hover { transform: translateX(-3px); }
+.vls-plate:active { transform: translateX(-1px) scale(0.985); }
+.vls-plate:focus-visible {
+  outline: 2px solid hsl(44 80% 66%);
+  outline-offset: 3px;
+}
+/* two engraved screws, top & bottom */
+.vls-screw {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 30%, hsl(46 50% 78%), hsl(40 55% 30%));
+  box-shadow: inset 0 0 0 1px hsl(40 60% 24% / 0.6);
+}
+
+/* the bulb */
+.vls-bulb {
+  position: relative;
   display: grid;
   place-items: center;
-  margin-bottom: 1rem;
-  perspective: 600px;
+  color: hsl(220 12% 38%);
 }
-.cab-stage .cab { width: 100%; height: 100%; overflow: visible; }
+.vls-bulb::before {
+  content: "";
+  position: absolute;
+  inset: -14px;
+  border-radius: 999px;
+  background: radial-gradient(circle, oklch(0.86 0.16 78 / 0.85), transparent 68%);
+  opacity: 0;
+  transition: opacity 0.4s var(--ease-out);
+  pointer-events: none;
+}
+.vls-glass { stroke: hsl(220 14% 58%); transition: stroke 0.35s var(--ease-out); }
+.vls-bulb svg path:not(.vls-glass):not(.vls-filament) { stroke: hsl(40 30% 30%); }
+.vls-filament { stroke: hsl(40 22% 42%); transition: stroke 0.35s var(--ease-out); }
+.vls-plate[data-on="true"] .vls-bulb { color: hsl(44 90% 60%); }
+.vls-plate[data-on="true"] .vls-bulb::before { opacity: 1; }
+.vls-plate[data-on="true"] .vls-glass { stroke: hsl(44 85% 72%); }
+.vls-plate[data-on="true"] .vls-filament {
+  stroke: oklch(0.92 0.15 82);
+  filter: drop-shadow(0 0 3px oklch(0.86 0.18 80));
+}
 
-.cab-card {
-  transition: transform 0.45s var(--ease-out), border-color 0.45s var(--ease-out),
-    box-shadow 0.45s var(--ease-out);
+/* the sliding switch */
+.vls-track {
+  position: relative;
+  width: 22px;
+  height: 42px;
+  border-radius: 999px;
+  background: linear-gradient(hsl(40 45% 24%), hsl(40 50% 32%));
+  box-shadow: inset 0 2px 5px hsl(40 60% 14% / 0.7), inset 0 -1px 0 hsl(46 60% 60% / 0.3);
 }
-.cab-card:hover {
-  transform: translateY(-3px);
-  border-color: hsl(var(--gold) / 0.6);
-  box-shadow: 0 0 0 1px hsl(var(--gold) / 0.18), 0 14px 30px hsl(0 0% 0% / 0.18);
+.vls-knob {
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 30%, hsl(46 60% 86%), hsl(40 52% 46%));
+  box-shadow: 0 2px 4px hsl(40 60% 12% / 0.6), inset 0 1px 0 hsl(46 70% 92% / 0.7);
 }
+.vls-state {
+  font-family: "Spline Sans Mono", ui-monospace, monospace;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: hsl(40 55% 22%);
+}
+.vls-plate[data-on="true"] .vls-state { color: hsl(40 60% 18%); }
 
-/* centre-pivoting parts */
-.cab-coin, .cab-mint, .cab-beast, .cab-felled, .cab-medal {
-  transform-box: fill-box;
-  transform-origin: center;
+/* ======================================================================
+   === The Penny Arcade === — actual playable mini-games on the landing.
+   An engraved brass cabinet (theme-independent warm gold, since --gold is
+   indigo in the dark vault) with a lit, always-dark game "screen". On-brand
+   engraving, but unmistakably a game: marquee, HP bar, score, timer, START.
+   Money .figure inks are forced bright on the dark screen so they stay AA.
+   ====================================================================== */
+.arc-cabinet {
+  --brass1: hsl(44 58% 60%);
+  --brass2: hsl(40 52% 36%);
+  --brass-edge: hsl(40 60% 26%);
+  --arc-gold: hsl(44 72% 62%);
+  margin-top: 2.5rem;
+  border-radius: 20px;
+  padding: 14px;
+  background: linear-gradient(160deg, hsl(225 22% 14%), hsl(225 26% 10%));
+  border: 1px solid var(--brass-edge);
+  box-shadow:
+    0 30px 80px hsl(168 40% 3% / 0.55),
+    inset 0 0 0 2px hsl(44 55% 50% / 0.18),
+    inset 0 1px 0 hsl(46 70% 80% / 0.12);
 }
-.cab-bar-fill { transform-box: fill-box; transform-origin: left center; }
-.cab-mint, .cab-felled { opacity: 0; }
+.arc-marquee {
+  display: flex; align-items: center; justify-content: center; gap: 0.7rem;
+  padding: 0.5rem 1rem; border-radius: 12px;
+  background: linear-gradient(160deg, var(--brass1), var(--brass2));
+  border: 1px solid var(--brass-edge);
+  box-shadow: inset 0 1px 0 hsl(46 70% 84% / 0.5), inset 0 -3px 8px hsl(40 60% 22% / 0.5);
+}
+.arc-marquee__title {
+  font-family: "Fraunces", Georgia, serif; font-weight: 700; letter-spacing: 0.14em;
+  font-size: clamp(1.05rem, 3vw, 1.7rem); color: hsl(40 55% 16%);
+  text-shadow: 0 1px 0 hsl(46 70% 80% / 0.5);
+}
+.arc-marquee__lamp {
+  width: 11px; height: 11px; border-radius: 999px;
+  background: radial-gradient(circle at 35% 30%, hsl(46 100% 88%), hsl(40 90% 56%));
+  box-shadow: 0 0 10px hsl(44 95% 62%); animation: arc-lamp 1.4s steps(1) infinite;
+}
+@keyframes arc-lamp { 0%,60%{opacity:1} 61%,100%{opacity:0.35} }
+.arc-marquee__coin {
+  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 999px;
+  font-weight: 700; font-size: 0.8rem; color: hsl(40 55% 18%);
+  background: radial-gradient(circle at 38% 32%, hsl(46 60% 84%), hsl(40 52% 46%));
+  box-shadow: inset 0 0 0 1.5px hsl(46 60% 90% / 0.5);
+}
+.arc-screen {
+  position: relative; margin: 12px 0; min-height: 420px; border-radius: 14px;
+  padding: clamp(1rem, 3vw, 1.6rem);
+  background: radial-gradient(120% 90% at 50% 0%, hsl(225 28% 12%), hsl(228 30% 7%) 70%);
+  border: 1px solid hsl(44 50% 50% / 0.18);
+  box-shadow: inset 0 0 60px hsl(228 40% 3% / 0.8), inset 0 0 0 1px hsl(0 0% 100% / 0.03);
+  color: hsl(220 22% 92%); overflow: hidden;
+}
+.arc-screen .ink-credit { color: hsl(150 62% 62%); }
+.arc-screen .ink-debit  { color: hsl(6 82% 67%); }
+.arc-screen .figure, .arc-screen .ledger-figures { filter: none !important; text-shadow: none !important; }
+.arc-deck { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.arc-select {
+  display: flex; align-items: center; gap: 0.7rem; min-height: 56px; padding: 0.5rem 0.85rem; text-align: left;
+  border-radius: 12px; background: linear-gradient(160deg, hsl(225 20% 16%), hsl(225 24% 12%));
+  border: 1px solid hsl(44 45% 50% / 0.25); color: hsl(220 20% 88%);
+  transition: transform 0.14s var(--ease-out), border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
+}
+.arc-select:hover { transform: translateY(-2px); border-color: hsl(44 60% 55% / 0.6); }
+.arc-select[aria-selected="true"] {
+  border-color: var(--arc-gold); box-shadow: 0 0 0 1px var(--arc-gold), 0 8px 22px hsl(168 40% 3% / 0.5);
+  background: linear-gradient(160deg, hsl(225 22% 18%), hsl(225 26% 13%));
+}
+.arc-select__no {
+  display: grid; place-items: center; flex-shrink: 0; width: 30px; height: 30px; border-radius: 999px;
+  font-family: "Fraunces", Georgia, serif; font-weight: 700; color: hsl(40 55% 16%);
+  background: radial-gradient(circle at 38% 32%, var(--brass1), var(--brass2));
+}
+.arc-select__title { font-family: "Spline Sans Mono", ui-monospace, monospace; font-weight: 600; font-size: 0.9rem; }
+.arc-select__blurb { display: block; font-size: 0.72rem; color: hsl(220 14% 62%); }
+.arc-game { position: relative; display: flex; flex-direction: column; align-items: center; gap: 0.7rem; min-height: 388px; }
+.arc-foot { margin-top: auto; font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.66rem; letter-spacing: 0.1em; color: hsl(220 14% 55%); text-transform: lowercase; }
+.arc-btn, .arc-strike {
+  font-family: "Spline Sans Mono", ui-monospace, monospace; font-weight: 600; min-height: 44px; padding: 0 1.4rem;
+  border-radius: 10px; letter-spacing: 0.06em; color: hsl(40 55% 14%);
+  background: linear-gradient(160deg, var(--brass1, hsl(44 58% 60%)), var(--brass2, hsl(40 52% 36%)));
+  border: 1px solid hsl(40 60% 26%); box-shadow: inset 0 1px 0 hsl(46 70% 84% / 0.5), 0 6px 16px hsl(168 40% 3% / 0.4);
+  transition: transform 0.1s var(--ease-out), box-shadow 0.2s var(--ease-out);
+}
+.arc-btn:hover, .arc-strike:hover { box-shadow: inset 0 1px 0 hsl(46 70% 84% / 0.5), 0 0 20px hsl(44 80% 55% / 0.4); }
+.arc-btn:active, .arc-strike:active { transform: translateY(1px) scale(0.98); }
+.arc-screen :focus-visible { outline: 2px solid var(--arc-gold, hsl(44 72% 62%)); outline-offset: 2px; }
+.arc-overlay {
+  position: absolute; inset: 0; z-index: 5; display: grid; place-content: center; gap: 0.5rem; text-align: center;
+  background: radial-gradient(circle at 50% 45%, hsl(228 30% 8% / 0.86), hsl(228 34% 5% / 0.96)); backdrop-filter: blur(2px);
+}
+.arc-overlay__title { font-family: "Fraunces", Georgia, serif; font-weight: 700; font-size: 1.5rem; color: hsl(220 22% 94%); }
+.arc-overlay__sub { font-size: 0.9rem; color: hsl(220 16% 70%); line-height: 1.6; }
+.arc-overlay .arc-btn { justify-self: center; margin-top: 0.4rem; }
+/* ── Demo I — The Debt Boss (payoff / compounding visualizer) ──────────── */
+.arc-boss, .arc-watch { width: min(460px, 100%); align-items: stretch; gap: 0.7rem; }
+.arc-boss__intro, .arc-watch__intro { text-align: left; }
+.arc-boss__lead { font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.62rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--arc-gold); }
+.arc-boss__caption { margin-top: 0.25rem; font-size: 0.82rem; line-height: 1.5; color: hsl(220 16% 72%); }
+.arc-boss__beast { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.arc-boss__name { font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: hsl(220 18% 80%); }
+.arc-boss__heal { font-size: 0.74rem; font-weight: 700; }
+.arc-boss__chart { width: 100%; height: 84px; overflow: visible; }
+.arc-boss__axis { stroke: hsl(220 18% 42% / 0.5); stroke-width: 1; }
+.arc-boss__curve { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: d 0.4s var(--ease-out); }
+.arc-boss__curve--min { stroke: hsl(6 60% 54% / 0.5); stroke-dasharray: 3 3; }
+.arc-boss__curve--you { stroke: var(--arc-gold); filter: drop-shadow(0 0 6px hsl(44 80% 55% / 0.4)); }
+.arc-boss__dial { display: grid; gap: 0.45rem; }
+.arc-boss__dialhead { display: flex; align-items: baseline; justify-content: space-between; font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.78rem; color: hsl(220 16% 72%); }
+.arc-boss__dialhead b { font-size: 0.98rem; color: hsl(46 60% 90%); }
+.arc-range { width: 100%; height: 22px; -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
+.arc-range::-webkit-slider-runnable-track { height: 6px; border-radius: 999px; background: linear-gradient(90deg, hsl(6 70% 50%), var(--arc-gold)); }
+.arc-range::-moz-range-track { height: 6px; border-radius: 999px; background: linear-gradient(90deg, hsl(6 70% 50%), hsl(44 72% 62%)); }
+.arc-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; margin-top: -7px; width: 20px; height: 20px; border-radius: 999px; background: radial-gradient(circle at 38% 32%, hsl(46 80% 88%), hsl(40 60% 50%)); border: 1px solid hsl(40 60% 26%); box-shadow: 0 2px 6px hsl(168 40% 3% / 0.5); }
+.arc-range::-moz-range-thumb { width: 20px; height: 20px; border-radius: 999px; background: radial-gradient(circle at 38% 32%, hsl(46 80% 88%), hsl(40 60% 50%)); border: 1px solid hsl(40 60% 26%); }
+.arc-boss__chips { display: flex; gap: 0.4rem; }
+.arc-chip { flex: 1; min-height: 34px; border-radius: 8px; font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.72rem; color: hsl(220 18% 78%); background: hsl(225 22% 15%); border: 1px solid hsl(44 40% 50% / 0.2); transition: border-color 0.18s var(--ease-out), color 0.18s var(--ease-out); }
+.arc-chip:hover { border-color: hsl(44 60% 55% / 0.5); }
+.arc-chip.is-on { color: hsl(40 55% 16%); background: linear-gradient(160deg, var(--brass1), var(--brass2)); border-color: var(--brass-edge); }
+.arc-boss__stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+.arc-stat { display: grid; gap: 2px; padding: 0.5rem 0.4rem; text-align: center; border-radius: 10px; background: hsl(228 26% 11%); border: 1px solid hsl(0 0% 100% / 0.04); }
+.arc-stat__num { font-size: 1.02rem; font-weight: 700; color: hsl(46 60% 90%); }
+.arc-stat__label { font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.56rem; letter-spacing: 0.08em; text-transform: uppercase; color: hsl(220 14% 56%); }
+.arc-boss__delta { text-align: center; font-size: 0.84rem; line-height: 1.5; color: hsl(220 16% 72%); }
+.arc-boss__delta b { font-weight: 700; }
 
-/* goals cabinet — coins flip; an empty slot mints a fresh specimen */
-@keyframes cab-flip { from { transform: rotateY(0); } to { transform: rotateY(360deg); } }
-@keyframes cab-mint-in {
-  0% { opacity: 0; transform: scale(0.2) rotate(-40deg); }
-  60% { opacity: 1; transform: scale(1.12) rotate(0); }
-  100% { opacity: 1; transform: scale(1); }
+/* ── The Debt Boss: a 3D minted beast you draw-and-loose strikes at, paid from a
+      finite savings reserve. HP = the real balance; interest heals it back. ──── */
+.arc-arena { position: relative; display: flex; gap: 0.9rem; width: min(440px, 98%); }
+.arc-beastwrap {
+  position: relative; flex: 1; height: 300px; border-radius: 12px;
+  cursor: grab; touch-action: none; user-select: none; outline: none;
 }
-.cab-card:hover .cab-coin-1 { animation: cab-flip 0.8s var(--ease-out); }
-.cab-card:hover .cab-coin-2 { animation: cab-flip 0.8s 0.1s var(--ease-out); }
-.cab-card:hover .cab-coin-3 { animation: cab-flip 0.8s 0.2s var(--ease-out); }
-.cab-card:hover .cab-mint { animation: cab-mint-in 0.7s 0.3s var(--ease-stamp) forwards; }
+.arc-beastwrap.is-drawing { cursor: grabbing; }
+.arc-beastwrap:focus-visible { box-shadow: 0 0 0 2px var(--arc-gold, hsl(44 72% 62%)); }
+.arc-beast3d { position: absolute; inset: 0; display: grid; place-items: center; transform-origin: 50% 72%; transition: transform 0.12s var(--ease-out); }
+.arc-beast3d canvas { display: block; }
 
-/* bestiary — the balance drains, the beast slumps, a FELLED stamp slams */
-@keyframes cab-drain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
-@keyframes cab-slump {
-  0% { transform: translateY(0) rotate(0); opacity: 1; }
-  100% { transform: translateY(6px) rotate(-3deg); opacity: 0.25; }
-}
-@keyframes cab-slam {
-  0% { opacity: 0; transform: scale(1.9) rotate(-12deg); }
-  55% { opacity: 1; transform: scale(0.92) rotate(2deg); }
-  100% { opacity: 1; transform: scale(1) rotate(-3deg); }
-}
-.cab-card:hover .cab-bar-fill { animation: cab-drain 0.9s var(--ease-out) forwards; }
-.cab-card:hover .cab-beast { animation: cab-slump 0.8s 0.45s var(--ease-out) forwards; }
-.cab-card:hover .cab-felled { animation: cab-slam 0.5s 0.55s var(--ease-stamp) forwards; }
+/* SVG fallback beast — shake on hit */
+.arc-beast2[data-shake] { animation: arc-shake 0.34s var(--ease-out); }
+@keyframes arc-shake { 0%,100%{transform:translate(0,0)} 20%{transform:translate(-4px,2px)} 45%{transform:translate(4px,-2px)} 70%{transform:translate(-3px,1px)} 85%{transform:translate(2px,-1px)} }
 
-/* campaigns — the quarter's arc closes and the medal seals it */
-@keyframes cab-arc-draw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
-@keyframes cab-press {
-  0% { transform: scale(1); }
-  45% { transform: scale(0.82); }
-  75% { transform: scale(1.08); }
-  100% { transform: scale(1); }
-}
-.cab-card:hover .cab-arc { animation: cab-arc-draw 1s var(--ease-out) forwards; }
-.cab-card:hover .cab-medal { animation: cab-press 0.6s 0.5s var(--ease-stamp); }
+/* floats over the beast */
+.arc-hits2 { position: absolute; inset: 0; pointer-events: none; }
+.arc-hit2-group { position: absolute; left: 50%; top: 12%; transform: translateX(-50%); display: grid; justify-items: center; gap: 2px; }
+.arc-hit2 { font-weight: 700; font-size: 0.96rem; white-space: nowrap; animation: arc-float 1.05s var(--ease-out) forwards; }
+.arc-hit2--spent { color: hsl(6 84% 70%); }
+.arc-hit2--heal { font-size: 0.74rem; color: hsl(40 80% 66%); }
+@keyframes arc-float { 0%{opacity:0;transform:translateY(12px)} 16%{opacity:1} 100%{opacity:0;transform:translateY(-36px)} }
 
+/* draw-back readout / hint */
+.arc-draw { position: absolute; left: 0; right: 0; bottom: 8px; display: grid; justify-items: center; gap: 1px; pointer-events: none; }
+.arc-draw__amt { font-size: 1.65rem; font-weight: 700; color: hsl(46 80% 90%); text-shadow: 0 2px 12px hsl(6 60% 10% / 0.85); transition: color 0.12s; }
+.arc-draw.is-hot .arc-draw__amt { color: hsl(40 92% 70%); }
+.arc-draw.is-over .arc-draw__amt { color: hsl(6 86% 66%); }
+.arc-draw__note { font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.58rem; letter-spacing: 0.12em; text-transform: uppercase; color: hsl(220 16% 66%); }
+.arc-draw.is-over .arc-draw__note { color: hsl(6 84% 68%); }
+.arc-draw__hint { position: absolute; left: 0; right: 0; bottom: 12px; text-align: center; font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.6rem; letter-spacing: 0.14em; text-transform: uppercase; color: hsl(220 14% 55%); pointer-events: none; }
+
+/* win / lose verdict overlay */
+.arc-verdict { position: absolute; inset: 0; z-index: 5; display: grid; place-content: center; gap: 0.4rem; text-align: center; padding: 1rem; border-radius: 12px; background: radial-gradient(circle at 50% 45%, hsl(228 30% 8% / 0.82), hsl(228 34% 5% / 0.94)); backdrop-filter: blur(2px); }
+.arc-verdict .arc-btn { justify-self: center; margin-top: 0.4rem; }
+.arc-verdict--lose .arc-win__title { color: hsl(6 80% 70%); }
+
+/* the savings reserve bar — drains with every strike */
+.arc-savings { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; width: 56px; }
+.arc-savings__cap { font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.52rem; letter-spacing: 0.16em; color: hsl(150 28% 60%); }
+.arc-savings__track { position: relative; flex: 1; width: 16px; border-radius: 999px; background: hsl(228 30% 13%); box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.06); overflow: hidden; }
+.arc-savings__fill { position: absolute; inset: 0; transform-origin: bottom center; background: linear-gradient(hsl(150 56% 52%), hsl(150 60% 38%)); transition: transform 0.5s var(--ease-out); }
+.arc-savings__val { font-size: 0.72rem; font-weight: 700; color: hsl(150 50% 70%); }
+
+/* HP = the real remaining balance */
+.arc-hp { position: relative; width: min(440px, 98%); height: 20px; border-radius: 5px; overflow: hidden; background: hsl(228 30% 14%); box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.06); }
+.arc-hp__fill { position: absolute; inset: 0; transform-origin: left center; border-radius: 5px; background: linear-gradient(90deg, hsl(6 68% 44%), hsl(6 82% 60%)); transition: transform 0.5s var(--ease-out); }
+.arc-hp__read { position: absolute; inset: 0; display: grid; place-items: center; font-size: 0.78rem; font-weight: 700; color: hsl(46 60% 92%); text-shadow: 0 1px 2px hsl(228 40% 4% / 0.9); }
+
+.arc-win__seal { font-size: 1.9rem; color: var(--arc-gold); }
+.arc-win__title { font-family: "Fraunces", Georgia, serif; font-weight: 700; font-size: 1.5rem; letter-spacing: 0.1em; color: hsl(46 70% 88%); }
+.arc-win__sub { font-size: 0.86rem; color: hsl(220 16% 72%); line-height: 1.5; }
+
+/* ── Demo II — Subscription Watch (recurring-charge detector) ──────────── */
+.arc-watch__hud { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.8rem; color: hsl(220 16% 72%); }
+.arc-watch__hud b { color: hsl(220 22% 92%); }
+.arc-watch__list { display: grid; gap: 0.4rem; list-style: none; padding: 0; margin: 0; }
+.arc-watch__row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.3rem 0.7rem; padding: 0.5rem 0.7rem; border-radius: 10px; background: hsl(228 26% 11%); border: 1px solid hsl(0 0% 100% / 0.04); transition: opacity 0.2s var(--ease-out); }
+.arc-watch__row.is-off { opacity: 0.42; }
+.arc-watch__id { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
+.arc-watch__name { font-weight: 600; font-size: 0.86rem; color: hsl(220 20% 88%); }
+.arc-watch__cat { font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; color: hsl(220 12% 50%); }
+.arc-watch__amt { font-size: 0.82rem; font-weight: 700; white-space: nowrap; }
+.arc-watch__act { min-height: 30px; padding: 0 0.7rem; border-radius: 7px; font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.68rem; color: hsl(220 18% 80%); background: hsl(225 22% 16%); border: 1px solid hsl(44 40% 50% / 0.25); transition: border-color 0.16s var(--ease-out), color 0.16s var(--ease-out); }
+.arc-watch__act:hover { border-color: hsl(44 60% 55% / 0.6); color: hsl(46 60% 88%); }
+.arc-watch__row.is-off .arc-watch__act { color: hsl(150 50% 64%); border-color: hsl(150 50% 50% / 0.4); }
+.arc-watch__flags { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.arc-badge { font-family: "Spline Sans Mono", ui-monospace, monospace; font-size: 0.6rem; letter-spacing: 0.04em; padding: 0.1rem 0.45rem; border-radius: 999px; border: 1px solid transparent; }
+.arc-badge--creep { color: hsl(6 80% 72%); border-color: hsl(6 70% 55% / 0.5); background: hsl(6 70% 40% / 0.14); }
+.arc-badge--silent { color: hsl(44 72% 72%); border-color: hsl(44 60% 50% / 0.45); background: hsl(44 60% 40% / 0.12); }
+.arc-watch__save { text-align: center; font-size: 0.86rem; line-height: 1.5; color: hsl(220 16% 72%); }
+@media (max-width: 640px) { .arc-deck { grid-template-columns: 1fr; } .arc-screen { min-height: 460px; } }
 @media (prefers-reduced-motion: reduce) {
-  .cab-card { transition: none !important; }
-  .cab-card:hover .cab-coin-1, .cab-card:hover .cab-coin-2, .cab-card:hover .cab-coin-3,
-  .cab-card:hover .cab-mint, .cab-card:hover .cab-bar-fill, .cab-card:hover .cab-beast,
-  .cab-card:hover .cab-felled, .cab-card:hover .cab-arc, .cab-card:hover .cab-medal { animation: none !important; }
+  .arc-marquee__lamp, .arc-beast2[data-shake], .arc-hit2 { animation: none !important; }
+  .arc-boss__curve, .arc-watch__row, .arc-hp__fill, .arc-savings__fill, .arc-beast3d { transition: none !important; }
+  .arc-select:hover, .arc-btn:active, .arc-chip { transform: none; }
+  .vls-plate, .vls-plate:hover, .vls-plate:active { transition: none !important; }
 }

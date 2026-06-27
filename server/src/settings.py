@@ -440,6 +440,24 @@ class Settings(BaseSettings):
         "openai/gpt-oss-120b",
     ]
 
+    # --- Rail origination (Phase 2a–2b, SANDBOX ONLY) ------------------------
+    # See docs/PHASE2A-SANDBOX-IMPLEMENTATION.md. Master switch for the
+    # ``execute()`` origination path that turns an eligible Bridge into a real ACH
+    # transfer at a rail. Default OFF: with it off the execute endpoint 404s and
+    # ``execute()`` raises before any rail call, so the app behaves exactly as
+    # today. The adapters here point ONLY at the rail's *sandbox* host (fake
+    # transfers, no real money). Production enablement is gated on the §9
+    # compliance track in PHASE2-ASSISTED-ACTION-EXECUTE-DESIGN.md and MUST NOT be
+    # flipped on without legal sign-off — there is no production credential path
+    # in this slice. ``execute()`` is NOT an assistant tool and NOT on the MCP
+    # surface (which stays the 8 read-only tools); the model proposes, never sends.
+    rail_origination_enabled: bool = False
+    increase_sandbox_base_url: str = "https://sandbox.increase.com"
+    increase_sandbox_api_key: str = ""          # sandbox key only; empty in CI
+    increase_webhook_secret: str = ""           # HMAC verification of sandbox webhooks
+    rail_per_txn_cap_cents: int = 50_000        # $500 hard ceiling in sandbox
+    rail_daily_cap_cents: int = 100_000         # $1000/day rolling cap
+
     # --- MCP network surface ---
     # Ships dark by default; set mcp_enabled=true in .env to expose /mcp.
     mcp_enabled: bool = False

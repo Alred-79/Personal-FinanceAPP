@@ -6,6 +6,8 @@ import { Seal } from "@/components/engraving/Seal";
 import { formatCurrency } from "@/lib/format";
 import { ArrowRight, Copy, ExternalLink } from "lucide-react";
 import type { AssistantBridge } from "@/types";
+import { BridgeProgress } from "./BridgeProgress";
+import { HumanInLoopBadge } from "@/components/custom/Trust/HumanInLoopBadge";
 
 /**
  * The Assisted Action Bridge card (Pillar 2C). The agent has deduced the EXACT
@@ -91,9 +93,13 @@ export default function BridgeCard({
     <div className="my-2" data-testid="bridge-card">
       <Card className="border-gold/40 animate-rise-in">
         <CardContent className="space-y-3 p-5">
-          <p className="dept-label text-gold uppercase tracking-[0.18em]">
-            {kindLabel}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="dept-label text-gold uppercase tracking-[0.18em]">
+              {kindLabel}
+            </p>
+            {/* the honest lifecycle, visible: Drafted → You do it → Verified */}
+            <BridgeProgress stage={stage} />
+          </div>
 
           {/* amount + source→dest */}
           <div className="flex items-center justify-between gap-3">
@@ -133,42 +139,51 @@ export default function BridgeCard({
               </span>
             </div>
           ) : stage === "recorded" ? (
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <Button size="sm" onClick={openBank} aria-label="Do it in my bank">
-                {b.how?.deep_link ? (
-                  <>
-                    <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                    Do it in my bank
-                  </>
-                ) : (
-                  "Do it in my bank"
-                )}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={markDone}
-                aria-label="I did it"
-              >
-                I did it ✓
-              </Button>
-              <Button size="sm" variant="ghost" onClick={onDismiss} aria-label="Dismiss">
-                Dismiss
-              </Button>
+            <div className="space-y-2 pt-1">
+              <p className="font-sans text-sm text-foreground">
+                Here&rsquo;s the exact move. Tap to do it in your bank — I&rsquo;ll
+                confirm it went through on your next sync.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" onClick={openBank} aria-label="Do it in my bank">
+                  {b.how?.deep_link ? (
+                    <>
+                      <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                      Do it in my bank
+                    </>
+                  ) : (
+                    "Do it in my bank"
+                  )}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={markDone}
+                  aria-label="I did it"
+                >
+                  I did it ✓
+                </Button>
+                <Button size="sm" variant="ghost" onClick={onDismiss} aria-label="Dismiss">
+                  Dismiss
+                </Button>
+              </div>
             </div>
           ) : (
-            <div className="flex items-center gap-2 pt-1">
-              <Button
-                size="sm"
-                onClick={record}
-                disabled={working}
-                aria-label="Set this up"
-              >
-                {working ? "Working…" : "Set this up"}
-              </Button>
-              <Button size="sm" variant="outline" onClick={onDismiss} aria-label="Decline">
-                Not now
-              </Button>
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={record}
+                  disabled={working}
+                  aria-label="Set this up"
+                >
+                  {working ? "Working…" : "Set this up"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={onDismiss} aria-label="Decline">
+                  Not now
+                </Button>
+              </div>
+              <HumanInLoopBadge />
             </div>
           )}
           {error && <p className="font-sans text-xs text-debit">{error}</p>}

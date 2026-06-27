@@ -10,6 +10,7 @@ import NetWorthCard from "@/components/custom/Overview/NetWorthCard";
 import ForecastCard from "@/components/custom/Overview/ForecastCard";
 import { DailySurface } from "@/components/custom/DailySurface/DailySurface";
 import { SagaChapter } from "@/components/custom/SagaChapter/SagaChapter";
+import { FreelancerLeadStrip } from "@/components/custom/Overview/FreelancerLeadStrip";
 
 const today = new Date().toLocaleDateString("en-US", {
   year: "numeric",
@@ -34,6 +35,11 @@ function Overview() {
         description="Your standing as of the close of business."
         reference={`Form 1040-A · ${today}`}
       />
+
+      {/* The freelancer wedge, led first for self-employed users: tax reserve,
+          typical month, quarterly estimate — above generic charts. The app
+          estimates/recommends/tracks; it never moves money (frontend re-eval). */}
+      <FreelancerLeadStrip />
 
       {/* The glanceable hero: Safe-to-Spend, drawn as the pressure-gauge plate
           (it also drives the browser tab title). First thing the eye lands on. */}

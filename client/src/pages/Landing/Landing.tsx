@@ -1,13 +1,15 @@
 import { useLenis } from "./hooks/useLenis";
 import { useLandingTheme } from "./hooks/useLandingTheme";
+import { VaultLightsProvider } from "./hooks/useVaultLights";
 import { Backdrop } from "./effects/Backdrop";
+import { VaultLightSwitch } from "./effects/VaultLightSwitch";
 import { Nav } from "./sections/Nav";
 import { Hero } from "./sections/Hero";
 import { Forecast } from "./sections/Forecast";
 import { Instruments } from "./sections/Instruments";
 import { VaultDoor } from "./sections/VaultDoor";
 import { Security } from "./sections/Security";
-import { Cabinet } from "./sections/Cabinet";
+import { GameMode } from "./sections/GameMode";
 import { FinalCTA } from "./sections/FinalCTA";
 import { Footer } from "./sections/Footer";
 import "./landing.css";
@@ -27,23 +29,31 @@ export default function Landing() {
   useLenis();
 
   return (
-    <div className="landing-root relative min-h-screen overflow-x-clip bg-background text-foreground">
-      {/* living backdrop: static guilloché base + cursor-reactive WebGL field */}
-      <Backdrop />
+    <VaultLightsProvider>
+      <div className="landing-root relative min-h-screen overflow-x-clip bg-background text-foreground">
+        {/* living backdrop: static guilloché base + cursor-reactive WebGL field */}
+        <Backdrop />
 
-      <Nav />
+        <Nav />
 
-      <div className="relative z-[1] mx-auto max-w-[1080px] px-4 sm:px-8">
-        <Hero />
-        <Forecast />
-        <Instruments />
-        <VaultDoor />
-        <Security />
-        <Cabinet />
-        <FinalCTA />
+        {/* the vault's own light-switch — appears only past the VaultDoor */}
+        <VaultLightSwitch />
+
+        <div className="relative z-[1] mx-auto max-w-[1080px] px-4 sm:px-8">
+          {/* Lead with the Hero, then the calibrated-overdraft Forecast right
+              below it (its original top-of-page placement), followed by the
+              working tools and the honest-AI vault / game trust features. */}
+          <Hero />
+          <Forecast />
+          <Instruments />
+          <VaultDoor />
+          <Security />
+          <GameMode />
+          <FinalCTA />
+        </div>
+
+        <Footer />
       </div>
-
-      <Footer />
-    </div>
+    </VaultLightsProvider>
   );
 }

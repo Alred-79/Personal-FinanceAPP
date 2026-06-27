@@ -54,7 +54,7 @@ function Clerk() {
   );
 }
 
-/** No.05 — The Expedition: a charted voyage to a flagged landfall, drawn on hover. */
+/** No.04 — The Expedition: a charted voyage to a flagged landfall, drawn on hover. */
 function Expedition() {
   return (
     <svg viewBox="0 0 300 116" className="iv" fill="none" stroke="currentColor">
@@ -78,7 +78,7 @@ function Expedition() {
   );
 }
 
-/** No.04 — Import Anything: a tangle that untangles into a clean register. */
+/** No.01 — Import Anything: a tangle that untangles into a clean register. */
 function ImportAnything() {
   return (
     <svg viewBox="0 0 300 116" className="iv" fill="none" stroke="currentColor">
@@ -99,7 +99,7 @@ function ImportAnything() {
   );
 }
 
-/** No.05 — Nightly Auditor: a moon, stars and a shield-check that draws. */
+/** No.06 — Nightly Auditor: a moon, stars and a shield-check that draws. */
 function Auditor() {
   return (
     <svg viewBox="0 0 300 116" className="iv" fill="none" stroke="currentColor">
@@ -118,7 +118,7 @@ function Auditor() {
   );
 }
 
-/** No.06 — Tax, Filed Quietly: a form a "FILED" stamp slams down onto. */
+/** No.05 — Tax, Filed Quietly: a form a "FILED" stamp slams down onto. */
 function TaxFiled() {
   return (
     <svg viewBox="0 0 300 116" className="iv" fill="none" stroke="currentColor">
@@ -139,7 +139,9 @@ function TaxFiled() {
   );
 }
 
-const SCENES = [Clerk, ImportAnything, Subscriptions, Auditor, Expedition, TaxFiled];
+// Order mirrors FEATURES in ../data.tsx exactly (paired by index).
+// Sequence: Import → Clerk → Subscriptions → Expedition → Tax → Auditor.
+const SCENES = [ImportAnything, Clerk, Subscriptions, Expedition, TaxFiled, Auditor];
 
 export function PlateVisual({ index }: { index: number }) {
   const Scene = SCENES[index % SCENES.length];

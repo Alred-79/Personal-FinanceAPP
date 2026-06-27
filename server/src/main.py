@@ -204,6 +204,12 @@ primary.include_router(auth_router)
 from server.src.routers.plaid_webhook import router as plaid_webhook_router
 
 primary.include_router(plaid_webhook_router)
+# Phase 2b: the rail settlement webhook is PUBLIC (the rail calls it with no user
+# session) and verifies an HMAC signature itself — register it WITHOUT the tenant
+# dependency, like plaid_webhook. It 404s entirely unless rail_origination_enabled.
+from server.src.routers.rail_webhook import router as rail_webhook_router
+
+primary.include_router(rail_webhook_router)
 _tenant_dep = [Depends(get_tenant_db)]
 for _router in (
     plaid_router,

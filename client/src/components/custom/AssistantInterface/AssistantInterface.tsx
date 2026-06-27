@@ -17,6 +17,7 @@ import {
   Mic,
   Square,
   Loader2,
+  Lock,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import styles from "./AssistantInterface.module.css";
@@ -96,6 +97,14 @@ export function AssistantInterface() {
           </SheetTitle>
           <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
             At your service
+          </p>
+          {/* persistent can/can't line — borrow the read-only credibility (§4) */}
+          <p className="mt-1.5 flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
+            <Lock className="mt-px h-3 w-3 shrink-0 text-gold" aria-hidden />
+            <span>
+              I can see your transactions and draft actions. I can&rsquo;t move money
+              or see full account numbers.
+            </span>
           </p>
         </SheetHeader>
 

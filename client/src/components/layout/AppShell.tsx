@@ -7,6 +7,7 @@ import { usePlaidReady, type PlaidHandler } from "@/lib/plaid";
 import { useReducedMotion } from "@/hooks/useEnvironment";
 import { AssistantInterface } from "@/components/custom/AssistantInterface/AssistantInterface";
 import { ChroniclerDrawer } from "@/components/custom/ChroniclerDrawer/ChroniclerDrawer";
+import { SelfEmployedFork } from "@/components/custom/Onboarding/SelfEmployedFork";
 import { AtlasLayers } from "@/components/atlas/AtlasLayers";
 import Header from "./Header";
 import SidebarRail from "./SidebarRail";
@@ -137,6 +138,8 @@ export default function AppShell() {
       <AssistantInterface />
       {/* The Chronicler drawer: `/`-summoned over any page, every mode. */}
       <ChroniclerDrawer />
+      {/* First-run self-employed fork (§3) — asks once, routes freelancers home. */}
+      <SelfEmployedFork />
     </div>
   );
 }

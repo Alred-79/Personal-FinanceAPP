@@ -34,17 +34,41 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.src.db.models import (
     AssistedAction as AssistedActionORM,
     Goal as GoalORM,
     Notification as NotificationORM,
+    UsedActionToken as UsedActionTokenORM,
 )
+from server.src.services import action_tokens
 from server.src.services.game.firewall import screen_output
 from server.src.services.matching import MatchRow, within_window
+from server.src.services.rails.base import (
+    FundingResolver,
+    ORIGINABLE_KINDS,
+    RailAdapter,
+    RailError,
+    rail_for_kind,
+)
+from server.src.settings import settings
 
 log = logging.getLogger(__name__)
+
+# Phase 2a–2b confirmation-token action label. A fresh, single-use, short-TTL
+# token bound to (action_id, amount_cents) is minted server-side when the user
+# taps "Send it" on a specific Bridge and consumed exactly once by ``execute()``.
+# It reuses the assistant-action token family (HKDF-derived key + aud + one-use
+# jti) so it can never be substituted for a session/MCP/confirm token.
+EXECUTE_TOKEN_ACTION = "execute_assisted_action"
+
+# Statuses from which an originable Bridge may be executed: the user has engaged
+# it (acknowledged / marked done) but it isn't resolved. Not ``proposed``.
+_EXECUTABLE_STATUSES = ("acknowledged", "confirmed_done")
+# settlement_status values that mean an origination already happened (idempotency).
+_ALREADY_ORIGINATED = ("submitted", "pending", "settled", "returned", "failed")
 
 # The exact-dollar-amount tolerance: integer cents, EXACT (a transfer posts for
 # the amount initiated; we never fuzzy-match money). The date window is wider
@@ -234,6 +258,311 @@ class AssistedActionService:
             bridge.status = "confirmed_done"
             self.db.flush()
         return bridge
+
+    # ── execute(): originate a real transfer at a rail (Phase 2a, SANDBOX) ──
+    def execute(
+        self,
+        user_id: int,
+        action_id: int,
+        *,
+        rail: RailAdapter,
+        confirmation_token: str,
+        funding: FundingResolver,
+        today: Optional[date] = None,
+    ) -> AssistedActionORM:
+        """Originate the real-world money movement for an eligible Bridge.
+
+        SANDBOX ONLY and dark behind ``rail_origination_enabled`` — see
+        docs/PHASE2A-SANDBOX-IMPLEMENTATION.md and the parent design §4. Idempotent
+        and guard-railed: every guard below must pass before any rail call. Sets
+        ``settlement_status='submitted'`` and records the rail reference; it NEVER
+        sets ``status='verified'`` and NEVER mirrors the earmark — mirroring stays
+        with settlement (``apply_settlement``) / ``reconcile``, reusing ``_verify``.
+
+        Replay-safe: a second ``execute()`` on an already-originated Bridge returns
+        it unchanged (no exception, no second rail call). On ``RailError`` from the
+        rail the Bridge is left exactly as it was (``settlement_status`` stays None)
+        with the error recorded, so the manual fallback remains available.
+        """
+        # Guard 1 — master flag (belt-and-suspenders; the endpoint also 404s off).
+        if not settings.rail_origination_enabled:
+            raise RailError("rail origination is disabled")
+        # Guard 2 — ownership.
+        bridge = self._own(user_id, action_id)
+        # Guard 3 — kind eligible (pure mapping; raises for a non-originable kind).
+        if bridge.kind not in ORIGINABLE_KINDS:
+            raise RailError(f"kind {bridge.kind!r} is not originable")
+        rail_name = rail_for_kind(bridge.kind)
+        # Guard 4 — status gate: the user must have engaged it, and it isn't resolved.
+        if bridge.status not in _EXECUTABLE_STATUSES:
+            raise RailError(
+                f"bridge status {bridge.status!r} is not executable"
+            )
+        # Guard 5 — idempotency: an origination already happened → return unchanged.
+        if bridge.settlement_status is not None:
+            if bridge.settlement_status in _ALREADY_ORIGINATED:
+                return bridge
+            raise RailError(
+                f"unexpected settlement_status {bridge.settlement_status!r}"
+            )
+        # Guard 6 — fresh, single-use human confirmation bound to this id+amount.
+        self._consume_confirmation_token(
+            user_id, action_id, bridge.amount_cents, confirmation_token
+        )
+        # Guard 7 — caps: per-transaction hard ceiling and rolling daily total.
+        # ``day`` is the injected (deterministic) origination day, reused below as
+        # the stamp so the rolling cap measures originations on the same calendar.
+        day = today or datetime.now(timezone.utc).date()
+        self._check_caps(user_id, bridge, day=day)
+        # Guard 8 — funding resolution. Until 2c the resolver raises for every
+        # account, so execute() correctly falls back to manual (RailError).
+        source = funding.resolve_source(rail_name, bridge.source_ref)
+        dest = funding.resolve_dest(rail_name, bridge.dest_ref)
+        # Guard 9 — originate. The Bridge's stable verify_ref is the rail
+        # idempotency key, so a retry can't double-send at the rail either.
+        idem = bridge.verify_ref or self._default_verify_ref(
+            user_id, bridge.kind, bridge.amount_cents,
+            bridge.source_ref, bridge.dest_ref, bridge.created_at,
+        )
+        memo = _loads(bridge.how_json).get("memo") or bridge.kind.replace("_", " ")
+        try:
+            result = rail.originate(
+                amount_cents=bridge.amount_cents,
+                source=source,
+                dest=dest,
+                idempotency_key=idem,
+                memo=memo,
+            )
+        except RailError as exc:
+            # Leave settlement_status=None (not advanced); record the failure.
+            bridge.settlement_detail_json = json.dumps(
+                {"error": str(exc), "at": _now_iso()}
+            )
+            self.db.flush()
+            log.warning(
+                "rail origination failed: user=%s action=%s rail=%s amount=%s err=%s",
+                user_id, action_id, rail_name, bridge.amount_cents, exc,
+            )
+            raise
+        # Guard 10 — persist the submitted origination. ``originated_on`` is the
+        # deterministic calendar day the rolling daily cap counts against (the
+        # injected ``today`` when given); ``originated_at`` is the audit timestamp.
+        bridge.settlement_status = result.settlement_status
+        bridge.rail = result.rail
+        bridge.rail_ref = result.rail_ref
+        bridge.settlement_detail_json = json.dumps(
+            {
+                "originated_at": _now_iso(),
+                "originated_on": day.isoformat(),
+                "outcome": result.settlement_status,
+            }
+        )
+        self.db.flush()
+        # Guard 11 — append-only audit line (who / when / amount / rail / ref).
+        log.info(
+            "rail origination submitted: user=%s action=%s rail=%s ref=%s amount=%s",
+            user_id, action_id, result.rail, result.rail_ref, bridge.amount_cents,
+        )
+        return bridge
+
+    def _consume_confirmation_token(
+        self, user_id: int, action_id: int, amount_cents: int, token: str
+    ) -> None:
+        """Validate + one-use-consume the execute confirmation token (guard 6).
+
+        Decodes via the assistant-action token family (HKDF key + aud + TTL), then
+        requires the token's action label and its bound ``(action_id, amount_cents)``
+        to match THIS Bridge, and claims its one-use ``jti`` so a replay is rejected.
+        """
+        try:
+            payload = action_tokens.decode_token(token)
+        except action_tokens.ActionTokenError as exc:
+            raise RailError(f"invalid confirmation token: {exc}")
+        if payload.get("action") != EXECUTE_TOKEN_ACTION:
+            raise RailError("not an execute-confirmation token")
+        if int(payload.get("uid", -1)) != int(user_id):
+            raise RailError("confirmation token belongs to another user")
+        params = payload.get("params") or {}
+        if int(params.get("action_id", -1)) != int(action_id):
+            raise RailError("confirmation token is for a different action")
+        if int(params.get("amount_cents", -1)) != int(amount_cents):
+            raise RailError("confirmation token amount does not match")
+        if not self._reserve_jti(user_id, payload.get("jti")):
+            raise RailError("confirmation token already used")
+
+    def _reserve_jti(self, user_id: int, jti: Optional[str]) -> bool:
+        """Claim *jti* once (replay guard). False if missing or already spent.
+
+        The DB UNIQUE constraint on ``jti`` is the authority across workers/hosts,
+        mirroring ``ActionService.reserve_jti`` (kept local to avoid an import
+        cycle with the assistant layer)."""
+        if not jti:
+            return False
+        self.db.add(UsedActionTokenORM(jti=jti, user_id=user_id))
+        try:
+            self.db.flush()
+        except IntegrityError:
+            self.db.rollback()
+            return False
+        return True
+
+    def _check_caps(
+        self, user_id: int, bridge: AssistedActionORM, *, day: date
+    ) -> None:
+        """Guard 7: per-transaction ceiling + rolling daily total (sandbox caps)."""
+        amount = bridge.amount_cents
+        if amount > settings.rail_per_txn_cap_cents:
+            raise RailError(
+                f"amount {amount} exceeds per-transaction cap "
+                f"{settings.rail_per_txn_cap_cents}"
+            )
+        already = self._originated_on_cents(user_id, day, exclude_id=bridge.id)
+        if already + amount > settings.rail_daily_cap_cents:
+            raise RailError(
+                f"daily origination cap exceeded: {already}+{amount} > "
+                f"{settings.rail_daily_cap_cents}"
+            )
+
+    def _originated_on_cents(
+        self, user_id: int, day: date, *, exclude_id: Optional[int] = None
+    ) -> int:
+        """Sum the cents this user has already originated on *day* (rolling cap).
+
+        Counts every Bridge with a rail set whose recorded ``originated_on`` falls
+        on *day* — a returned/failed origination still consumed the day's velocity,
+        so it counts (a conservative cap)."""
+        rows = self.db.execute(
+            select(AssistedActionORM).where(
+                AssistedActionORM.user_id == user_id,
+                AssistedActionORM.rail.is_not(None),
+            )
+        ).scalars().all()
+        day_iso = day.isoformat()[:10]
+        total = 0
+        for r in rows:
+            if exclude_id is not None and r.id == exclude_id:
+                continue
+            detail = _loads(r.settlement_detail_json)
+            on = (detail.get("originated_on") or "")[:10]
+            if on == day_iso:
+                total += r.amount_cents
+        return total
+
+    # ── apply_settlement(): drive settlement from a verified webhook (2b) ───
+    def apply_settlement(
+        self, rail: str, rail_ref: str, event: str, *, event_id: Optional[str] = None
+    ) -> Optional[AssistedActionORM]:
+        """Drive ``settlement_status`` from a verified rail webhook (parent §4.4).
+
+        ``event ∈ {settled, failed, returned}``. Looks the Bridge up by
+        ``(rail, rail_ref)``; idempotent per ``(rail_ref, event)`` (a repeat of the
+        same terminal event is a no-op); an unknown ref is ignored (returns None).
+
+          * ``settled``  → ``settlement_status='settled'`` + ``_verify`` (mirrors the
+            earmark exactly once via the existing ``_mirrored`` guard).
+          * ``failed``   → ``settlement_status='failed'``; nothing mirrored, nothing
+            to reverse; the Bridge is actionable again (manual fallback).
+          * ``returned`` → ``settlement_status='returned'``; if the earmark was
+            mirrored, subtract the amount back out of ``Goal.progress`` and clear the
+            flag; record the R-code.
+
+        Convergence with Plaid ``reconcile()``: whichever resolves the Bridge first
+        wins; the later one is a no-op (both reach ``verified`` exactly once).
+        """
+        bridge = self.db.execute(
+            select(AssistedActionORM).where(
+                AssistedActionORM.rail == rail,
+                AssistedActionORM.rail_ref == rail_ref,
+            )
+        ).scalar_one_or_none()
+        if bridge is None:
+            return None  # unknown ref — ignore
+
+        # Event-id dedup: a webhook may be redelivered. If we've already recorded
+        # this exact provider event id on the Bridge, it's a replay → no-op.
+        if event_id is not None and event_id in self._recorded_event_ids(bridge):
+            return bridge
+
+        if event == "settled":
+            if bridge.settlement_status == "settled":
+                return bridge  # idempotent replay
+            bridge.settlement_status = "settled"
+            self._record_settlement_event(bridge, event, event_id)
+            # _verify is idempotent (the _mirrored flag guards a double mirror), so
+            # if reconcile already verified+mirrored, this won't double-count.
+            if bridge.status != "verified":
+                self._verify(bridge)
+            else:
+                self.db.flush()
+            return bridge
+
+        if event == "failed":
+            if bridge.settlement_status == "failed":
+                return bridge
+            bridge.settlement_status = "failed"
+            self._record_settlement_event(bridge, event, event_id)
+            self.db.flush()
+            return bridge
+
+        if event == "returned":
+            if bridge.settlement_status == "returned":
+                return bridge
+            bridge.settlement_status = "returned"
+            self._reverse_mirror_if_needed(bridge)
+            self._record_settlement_event(bridge, event, event_id)
+            self.db.flush()
+            return bridge
+
+        raise RailError(f"unknown settlement event: {event!r}")
+
+    @staticmethod
+    def _recorded_event_ids(bridge: AssistedActionORM) -> set[str]:
+        detail = _loads(bridge.settlement_detail_json)
+        events = detail.get("events")
+        if not isinstance(events, list):
+            return set()
+        return {
+            str(e["event_id"])
+            for e in events
+            if isinstance(e, dict) and e.get("event_id") is not None
+        }
+
+    def _reverse_mirror_if_needed(self, bridge: AssistedActionORM) -> None:
+        """On a ``returned`` ACH, undo a mirrored earmark to the cent (parent §4.4).
+
+        Only reverses when ``how['_mirrored']`` is set (a settled webhook or
+        reconcile actually funded the goal); clears the flag so it can't reverse
+        twice. ``Goal.progress`` never goes negative."""
+        how = _loads(bridge.how_json)
+        if not how.get("_mirrored"):
+            return
+        goal_id = how.get("goal_id")
+        if goal_id is not None:
+            goal = self.db.execute(
+                select(GoalORM).where(
+                    GoalORM.id == goal_id, GoalORM.user_id == bridge.user_id
+                )
+            ).scalar_one_or_none()
+            if goal is not None:
+                goal.progress = max(0, (goal.progress or 0) - bridge.amount_cents)
+                if goal.progress < goal.amount:
+                    goal.completed = 0
+        how["_mirrored"] = False
+        bridge.how_json = json.dumps(how)
+
+    @staticmethod
+    def _record_settlement_event(
+        bridge: AssistedActionORM, event: str, event_id: Optional[str] = None
+    ) -> None:
+        """Append the settlement event (+ id / R-code) to ``settlement_detail_json``."""
+        detail = _loads(bridge.settlement_detail_json)
+        events = detail.get("events")
+        if not isinstance(events, list):
+            events = []
+        events.append({"event": event, "event_id": event_id, "at": _now_iso()})
+        detail["events"] = events
+        detail["last_event"] = event
+        bridge.settlement_detail_json = json.dumps(detail)
 
     def dismiss(self, user_id: int, action_id: int) -> AssistedActionORM:
         bridge = self._own(user_id, action_id)

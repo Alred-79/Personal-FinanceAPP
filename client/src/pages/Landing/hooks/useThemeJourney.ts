@@ -6,6 +6,7 @@ import {
   useTransform,
 } from "motion/react";
 import { useReducedMotion } from "@/hooks/useEnvironment";
+import { useVaultLights } from "./useVaultLights";
 
 /**
  * Drives the light→dark handoff across the VaultDoor transition section.
@@ -16,6 +17,12 @@ import { useReducedMotion } from "@/hooks/useEnvironment";
  * curtain" veil whose opacity is a bell curve peaking exactly at the midpoint, so
  * the visitor perceives a darkening descent, not a snap.
  *
+ * Manual override: the vault light-switch (useVaultLights) can force the dark zone
+ * back to light — when `lightsOn` is true the final theme stays light even past the
+ * midpoint. The hook also publishes `inDarkZone` (true once at/below the midpoint)
+ * so the switch knows when to appear; it's the vault's own control and exists only
+ * there.
+ *
  * Returns the curtain opacity and the raw scroll progress (for the door visual).
  * Under reduced motion: no curtain, no flip — the page stays in the light theme.
  */
@@ -25,6 +32,7 @@ export function useThemeJourney(sectionRef: RefObject<HTMLElement>): {
   reduce: boolean;
 } {
   const reduce = useReducedMotion();
+  const { lightsOn, setInDarkZone } = useVaultLights();
   const { scrollYProgress } = useScroll({
     target: sectionRef,
     offset: ["start end", "end start"],
@@ -38,8 +46,12 @@ export function useThemeJourney(sectionRef: RefObject<HTMLElement>): {
   );
 
   const isDark = useRef(false);
+  const lightsRef = useRef(lightsOn);
+  lightsRef.current = lightsOn;
 
-  const apply = (wantDark: boolean) => {
+  // Final theme = past-the-midpoint AND lights not manually switched on.
+  const apply = (pastMid: boolean) => {
+    const wantDark = pastMid && !lightsRef.current;
     isDark.current = wantDark;
     const root = sectionRef.current?.closest(".landing-root");
     root?.classList.toggle("dark", wantDark);
@@ -47,19 +59,24 @@ export function useThemeJourney(sectionRef: RefObject<HTMLElement>): {
 
   useMotionValueEvent(scrollYProgress, "change", (p) => {
     if (reduce) return;
-    const wantDark = p >= 0.5;
-    if (wantDark !== isDark.current) apply(wantDark);
+    const pastMid = p >= 0.5;
+    setInDarkZone(pastMid);
+    apply(pastMid);
   });
 
-  // Set the correct theme on mount (handles reduced motion + restored scroll pos).
+  // Re-apply on mount AND whenever the lights are switched (so flipping the switch
+  // recolors the vault live, without waiting for the next scroll event).
   useEffect(() => {
     if (reduce) {
       apply(false);
+      setInDarkZone(false);
       return;
     }
-    apply(scrollYProgress.get() >= 0.5);
+    const pastMid = scrollYProgress.get() >= 0.5;
+    setInDarkZone(pastMid);
+    apply(pastMid);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reduce]);
+  }, [reduce, lightsOn]);
 
   return { curtain, progress: scrollYProgress, reduce };
 }

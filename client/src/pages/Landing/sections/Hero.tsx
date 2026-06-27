@@ -3,12 +3,15 @@ import { motion } from "motion/react";
 import { GuillocheBand } from "@/components/engraving/Guilloche";
 import { useReducedMotion } from "@/hooks/useEnvironment";
 import { cn } from "@/lib/utils";
-import { AccrualTicker, AnchorLink, EASE, Rise } from "../shared";
+import { AnchorLink, EASE, Rise } from "../shared";
 import { CoinStage } from "../coin/CoinSceneLazy";
 import { Foil } from "../effects/Foil";
 import { SecurityWindow } from "../effects/SecurityWindow";
 import { Magnetic } from "../effects/Magnetic";
+import { ReadOnlyBadge } from "@/components/custom/Trust/ReadOnlyBadge";
 
+// Always-on ledger facts, read straight from your accounts — true for every user on
+// day one (no gated feature implied). Honest figures, never game-decorated (.figure guard).
 const METRICS = [
   { l: "Inflows", v: "+$2,940.18", c: "ink-credit" },
   { l: "Outflows", v: "$1,910.00", c: "ink-debit" },
@@ -44,9 +47,9 @@ export function Hero() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.08 }}
       >
-        Keep your money
+        Stop guessing what you owe
         <br />
-        in <span className="relative whitespace-nowrap text-gold">good standing</span>.
+        at <span className="relative whitespace-nowrap text-gold">tax time</span>.
       </motion.h1>
       <motion.p
         className="mx-auto max-w-[40rem] text-muted-foreground"
@@ -55,9 +58,9 @@ export function Hero() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.16 }}
       >
-        The Ledger turns your accounts into engraved instruments you can actually
-        read — a forecast you can drag, goals you can mint, and an assistant that
-        proposes before it acts. No spreadsheets. No surprises.
+        Built for 1099 contractors and the self-employed. We hold back your tax % as each
+        payment lands, smooth your lumpy income into a steady paycheck, and show your real
+        number — what&rsquo;s actually safe to spend. We never move a dollar without your tap.
       </motion.p>
       <motion.div
         className="mt-1 flex flex-wrap justify-center gap-3"
@@ -70,7 +73,7 @@ export function Hero() {
             to="/login"
             className="press inline-block bg-primary px-7 py-3.5 text-[0.9rem] font-semibold uppercase tracking-[0.04em] text-primary-foreground"
           >
-            Open your ledger — free
+            See my real number
           </Link>
         </Magnetic>
         <AnchorLink
@@ -80,13 +83,15 @@ export function Hero() {
           See the instruments
         </AnchorLink>
       </motion.div>
+      {/* persistent trust chip under the CTA — our most-distrusted surface, stated as a strength */}
       <motion.div
-        className="mt-3 flex flex-wrap justify-center gap-6 text-[0.72rem] tracking-[0.04em] text-muted-foreground"
+        className="mt-3 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[0.72rem] tracking-[0.04em] text-muted-foreground"
         initial={reduce ? false : { opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.32 }}
       >
-        {["No card required", "We never sell your data", "Read-only by default"].map((t) => (
+        <ReadOnlyBadge label="Read-only bank connection · nothing moves without you" />
+        {["No card required", "We never sell your data"].map((t) => (
           <span key={t} className="flex items-center gap-1.5">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" className="text-gold">
               <path d="M20 6 9 17l-5-5" />
@@ -105,12 +110,12 @@ export function Hero() {
           </Foil>
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="dept-label">Projected balance · Form 90</p>
+              <p className="dept-label">Safe to spend · read from your accounts</p>
               <div className="intaglio mt-1 text-foreground" style={{ fontSize: "clamp(2rem,6vw,3.4rem)" }}>
-                $4,210.18
+                $1,210.18
               </div>
               <p className="mt-1.5 text-[0.85rem] text-muted-foreground">
-                accruing today · <AccrualTicker />
+                before payday · <span className="figure ink-credit">nothing moves without you</span>
               </p>
             </div>
             <p className="serial font-mono text-[0.7rem] tracking-[0.18em] text-muted-foreground">

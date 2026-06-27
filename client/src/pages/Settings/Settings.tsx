@@ -11,6 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/useToast";
 import { useStore } from "@/store/store";
 import { IntensitySelector } from "@/components/custom/IntensitySelector/IntensitySelector";
@@ -19,6 +20,7 @@ import { StandingOrders } from "@/components/custom/StandingOrders/StandingOrder
 import { LearnedMemory } from "@/components/custom/LearnedMemory/LearnedMemory";
 import { Reveal, RevealItem } from "@/components/motion/Reveal";
 import { SectionRule } from "@/components/engraving/SectionRule";
+import { WhatWeDontDo } from "@/components/custom/Trust/WhatWeDontDo";
 import api from "@/lib/api";
 
 /**
@@ -195,6 +197,8 @@ export default function Settings() {
     updateSavingsPercent,
     deleteAccount,
     changePassword,
+    selfEmployed,
+    setSelfEmployed,
   } = useStore();
 
   // Read-only AI model info from the /settings endpoint.
@@ -299,6 +303,32 @@ export default function Settings() {
                   onSave={updateSavingsPercent}
                 />
               </div>
+            </RevealItem>
+
+            <RevealItem>
+              <SectionRule className="mb-4">Work &amp; taxes</SectionRule>
+              <Card raking>
+                <CardHeader>
+                  <CardTitle>I&rsquo;m self-employed</CardTitle>
+                  <CardDescription>
+                    1099, freelance, contractor, or a side gig. Turn this on to lead
+                    your home screen with your tax reserve, your typical month, and the
+                    next quarterly estimate. We estimate and track; you make the moves.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between gap-4">
+                    <Label htmlFor="self-employed-toggle" className="text-sm text-muted-foreground">
+                      Foreground the freelancer surfaces
+                    </Label>
+                    <Switch
+                      id="self-employed-toggle"
+                      checked={selfEmployed === true}
+                      onCheckedChange={(v) => setSelfEmployed(v)}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
             </RevealItem>
 
             <RevealItem>
@@ -412,7 +442,11 @@ export default function Settings() {
 
         {/* Security */}
         <TabsContent value="security">
-          <Reveal>
+          <Reveal className="space-y-8">
+           <RevealItem>
+            <SectionRule className="mb-4">Our promises</SectionRule>
+            <WhatWeDontDo />
+           </RevealItem>
            <RevealItem>
             <Card raking>
             <CardHeader>
