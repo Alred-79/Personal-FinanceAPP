@@ -21,9 +21,9 @@ export default function BeastScene({
 }) {
   return (
     <Canvas
-      camera={{ position: [0, 0.45, 4.4], fov: 32 }}
+      camera={{ position: [0, 0.55, 5.1], fov: 32 }}
       dpr={[1, 2]}
-      gl={{ alpha: true, antialias: true, toneMappingExposure: 1.1 }}
+      gl={{ alpha: true, antialias: true, toneMappingExposure: 0.98 }}
     >
       <BeastModel health={health} phase={phase} hitKey={hitKey} />
       <Environment files={lobby as string} resolution={256} />
@@ -31,7 +31,7 @@ export default function BeastScene({
       <directionalLight position={[-4, 1, 2]} intensity={0.55} color="#ff9b5a" />
       <ContactShadows position={[0, -1.16, 0]} opacity={0.5} scale={6} blur={2.6} far={3} color="#2a0d04" />
       <EffectComposer>
-        <Bloom intensity={0.85} luminanceThreshold={0.55} luminanceSmoothing={0.22} mipmapBlur />
+        <Bloom intensity={0.6} luminanceThreshold={0.62} luminanceSmoothing={0.22} mipmapBlur />
       </EffectComposer>
     </Canvas>
   );

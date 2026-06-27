@@ -63,7 +63,11 @@ export function BeastModel({ health, phase, hitKey }: { health: number; phase: B
   // shown health lags the target so changes ease in; mutated in useFrame (no state)
   const shown = useRef(1);
   const dissolves = useRef<{ value: number }[]>([]);
-  const baseY = useRef(0);
+  // The beast's resting y — MUST match the group's JSX position below (feet on the
+  // contact shadow at ~-1.16). useFrame drives position.y from this every frame, so
+  // if it were 0 the model would snap up ~1.15u on the first frame and only its feet
+  // would stay in frame (the "can't see the boss" bug).
+  const baseY = useRef(-1.15);
 
   // re-skin to gold metal + wire the dissolve once per clone
   useMemo(() => {
