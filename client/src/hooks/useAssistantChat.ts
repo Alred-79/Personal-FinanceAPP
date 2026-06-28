@@ -18,7 +18,10 @@ async function refreshAuth(): Promise<boolean> {
 
 export interface AssistantChat {
   messages: Message[];
+  /** True from send() until the first token lands — the "thinking" window. */
   isLoading: boolean;
+  /** True for the whole round-trip (thinking + token streaming) until `done`. */
+  isStreaming: boolean;
   /** Transient "the clerk is doing X" notes; self-expire after ~5s. */
   actionMessages: ActionMessage[];
   /** A pending what-if commit offer (propose→confirm via ConfirmCard). */
@@ -48,6 +51,7 @@ export function useAssistantChat(): AssistantChat {
   const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [actionMessages, setActionMessages] = useState<ActionMessage[]>([]);
   const [proposal, setProposal] = useState<AssistantProposal | null>(null);
   const [bridge, setBridge] = useState<AssistantBridge | null>(null);
@@ -81,6 +85,7 @@ export function useAssistantChat(): AssistantChat {
 
       setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
       setIsLoading(true);
+      setIsStreaming(true);
       setActionMessages([]);
       setProposal(null);
 
@@ -212,6 +217,7 @@ export function useAssistantChat(): AssistantChat {
         // (a later send replaced it, or unmount aborted us).
         if (abortRef.current === controller) abortRef.current = null;
         busyRef.current = false;
+        setIsStreaming(false);
       }
     },
     [navigate]
@@ -243,6 +249,7 @@ export function useAssistantChat(): AssistantChat {
   return {
     messages,
     isLoading,
+    isStreaming,
     actionMessages,
     proposal,
     bridge,
