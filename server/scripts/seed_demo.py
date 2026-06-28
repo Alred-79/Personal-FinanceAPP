@@ -45,6 +45,8 @@ from server.src.db.models import (
     GameEvent as GameEventORM,
     Goal as GoalORM,
     Income as IncomeORM,
+    ImportRow as ImportRowORM,
+    ImportSession as ImportSessionORM,
     Liability as LiabilityORM,
     LiabilityAdjustment as LiabilityAdjustmentORM,
     MerchantCategory as MerchantCategoryORM,
@@ -132,6 +134,8 @@ def _month_starts(start: date, end: date):
 # absent — they're append-only (see module docstring / --fresh guard).
 _OWNED_CHILD_FIRST = (
     EarmarkORM,
+    ImportRowORM,
+    ImportSessionORM,
     RuleExecutionORM,
     RuleORM,
     LiabilityAdjustmentORM,
@@ -442,15 +446,27 @@ def seed_liabilities(db, user: UserORM, accounts: dict) -> None:
     db.add_all([cc, car, student])
     db.flush()
 
-    # A couple of manual reconciliation adjustments.
-    db.add(LiabilityAdjustmentORM(
-        liability_id=car.id, user_id=user.id,
-        delta_cents=cents(-312.00), reason="Monthly payment",
-    ))
-    db.add(LiabilityAdjustmentORM(
-        liability_id=cc.id, user_id=user.id,
-        delta_cents=cents(120.00), reason="Interest accrual",
-    ))
+    # An auditable payoff ledger: each loan's monthly payment + the card's
+    # interest accrual / paydowns across the last 6 months (so the liability
+    # history reads as a real running reconciliation, not two lone rows).
+    for months_ago in range(6, 0, -1):
+        when = datetime.now() - timedelta(days=30 * months_ago)
+        db.add(LiabilityAdjustmentORM(
+            liability_id=car.id, user_id=user.id,
+            delta_cents=cents(-312.00), reason="Monthly payment", created_at=when,
+        ))
+        db.add(LiabilityAdjustmentORM(
+            liability_id=student.id, user_id=user.id,
+            delta_cents=cents(-210.00), reason="Monthly payment", created_at=when,
+        ))
+        db.add(LiabilityAdjustmentORM(
+            liability_id=cc.id, user_id=user.id,
+            delta_cents=cents(16.84), reason="Interest accrual", created_at=when,
+        ))
+        db.add(LiabilityAdjustmentORM(
+            liability_id=cc.id, user_id=user.id,
+            delta_cents=cents(-150.00), reason="Card payment", created_at=when,
+        ))
 
 
 def seed_merchant_lifecycle(db, user: UserORM, today: date) -> None:
@@ -526,14 +542,34 @@ def seed_tax(db, user: UserORM, tax_refs: dict, today: date) -> None:
         fields_json=json.dumps({"box1_mortgage_interest_cents": cents(8400.00)}),
         status="pending_review", source_kind="pdf",
     ))
+    db.add(TaxDocumentORM(
+        user_id=user.id, tax_year=year, form_type="1099-K",
+        issuer_name="Stripe Payments", issuer_tin_last4="2048",
+        fields_json=json.dumps({"box1a_gross_payments_cents": cents(14250.00)}),
+        status="pending_review", source_kind="pdf",
+    ))
+    db.add(TaxDocumentORM(
+        user_id=user.id, tax_year=year, form_type="1098-E",
+        issuer_name="Nelnet Servicing", issuer_tin_last4="7731",
+        fields_json=json.dumps({"box1_student_loan_interest_cents": cents(890.00)}),
+        status="confirmed", source_kind="image", confirmed_at=datetime.now(),
+    ))
 
-    # Mileage logs (miles × 1000 = miles_milli).
+    # Mileage logs (miles × 1000 = miles_milli) — a steady business-driving log.
     for days_ago, miles, purpose in [
+        (96, 51.8, "Client site — kickoff"),
+        (84, 22.3, "Supply run — Staples"),
         (70, 42.5, "Client site — onboarding"),
+        (61, 14.7, "Bank / post office"),
         (54, 18.0, "Supply run"),
+        (47, 88.4, "Client site — out of town"),
         (39, 63.2, "Conference"),
+        (31, 9.8, "Client coffee"),
         (22, 12.4, "Client lunch"),
+        (15, 36.1, "Vendor warehouse"),
         (8, 27.6, "Vendor meeting"),
+        (4, 19.2, "Client site — review"),
+        (1, 7.5, "Networking event"),
     ]:
         d = today - timedelta(days=days_ago)
         db.add(MileageLogORM(
@@ -635,15 +671,25 @@ def seed_rules(db, user: UserORM) -> None:
     db.add_all([notify_rule, roundup_rule, categorize_rule])
     db.flush()
 
-    # A couple of historical firings (dedup log).
-    db.add(RuleExecutionORM(
-        rule_id=notify_rule.id, user_id=user.id, tx_type="expense", tx_id=1,
-        action_type="notify", amount_cents=cents(342.00), result="ok",
-    ))
-    db.add(RuleExecutionORM(
-        rule_id=roundup_rule.id, user_id=user.id, tx_type="expense", tx_id=2,
-        action_type="roundup", amount_cents=cents(0.62), result="ok",
-    ))
+    # Historical firings (the idempotency/dedup log doubles as the automated-save
+    # game-event source). Round-ups fire often on small buys; the big-purchase
+    # notice fires rarely. Spread over the last ~6 weeks with distinct tx ids.
+    tx_id = 1
+    for days_ago in range(40, 0, -3):  # ~14 round-ups across 6 weeks
+        when = datetime.now() - timedelta(days=days_ago)
+        db.add(RuleExecutionORM(
+            rule_id=roundup_rule.id, user_id=user.id, tx_type="expense", tx_id=tx_id,
+            action_type="roundup", amount_cents=RNG.randint(8, 92), result="ok",
+            fired_at=when,
+        ))
+        tx_id += 1
+    for days_ago, amt in [(34, 342.00), (19, 219.40), (6, 458.10)]:  # rare big-purchase notices
+        db.add(RuleExecutionORM(
+            rule_id=notify_rule.id, user_id=user.id, tx_type="expense", tx_id=tx_id,
+            action_type="notify", amount_cents=cents(amt), result="ok",
+            fired_at=datetime.now() - timedelta(days=days_ago),
+        ))
+        tx_id += 1
 
 
 def seed_misc(db, user: UserORM) -> None:
@@ -705,6 +751,127 @@ def seed_misc(db, user: UserORM) -> None:
         db.add(NotificationORM(
             user_id=user.id, type=typ, title=title, message=msg, ref=ref, read=read,
         ))
+
+
+def seed_imports(db, user: UserORM, accounts: dict, today: date) -> None:
+    """Reconciliation Desk content: a clean statement that ties out, a messy one
+    with flagged rows + a discrepancy, and a single scanned receipt — all left in
+    ``pending_review`` so the desk isn't empty."""
+    checking = accounts["checking"]
+    credit = accounts["credit"]
+    period = f"{(today - timedelta(days=30)).isoformat()} to {today.isoformat()}"
+
+    def _add_rows(session_id: int, opening: int, specs: list) -> int:
+        """specs: (title, dollars_signed, category, status, reason, match_ref).
+        Adds ImportRows with a cumulative running balance; returns final running."""
+        running = opening
+        for i, (title, amt, cat, status, reason, mref) in enumerate(specs):
+            c = cents(amt)
+            running += c
+            db.add(ImportRowORM(
+                session_id=session_id, user_id=user.id, title=title, amount=c,
+                date=(today - timedelta(days=26 - i)).isoformat(), category=cat,
+                merchant_key=title.lower(), running_balance=running, status=status,
+                reason=reason, included=(0 if status == "exception" else 1),
+                match_ref=mref,
+            ))
+        return running
+
+    # 1) Clean statement — every row OK, balances reconcile.
+    clean = ImportSessionORM(
+        user_id=user.id, account_id=checking.id, source_kind="pdf",
+        status="pending_review", opening_balance=cents(5200.00),
+        statement_period=period, reconciled=1, discrepancy_cents=0,
+    )
+    db.add(clean)
+    db.flush()
+    end = _add_rows(clean.id, cents(5200.00), [
+        ("Whole Foods", -92.15, "Food", "ok", None, None),
+        ("Acme Corp Payroll", 2650.00, "Work", "ok", None, None),
+        ("Shell Gas", -51.30, "Transportation", "ok", None, None),
+        ("Amazon", -124.99, "Shops", "ok", None, None),
+        ("Trader Joe's", -63.40, "Food", "ok", None, None),
+        ("Comcast Internet", -79.99, "Utilities", "ok", None, None),
+        ("Chipotle", -14.09, "Food and Drink", "ok", None, None),
+        ("Uber", -18.50, "Transportation", "ok", None, None),
+    ])
+    clean.closing_balance = end  # ties out exactly
+
+    # 2) Messy statement — a duplicate, a transfer, a needs-category, an unreadable
+    #    exception, and a $23.45 discrepancy so the balance check fails.
+    messy = ImportSessionORM(
+        user_id=user.id, account_id=checking.id, source_kind="image",
+        status="pending_review", opening_balance=cents(3000.00),
+        statement_period=period, reconciled=0, discrepancy_cents=-cents(23.45),
+    )
+    db.add(messy)
+    db.flush()
+    end2 = _add_rows(messy.id, cents(3000.00), [
+        ("Costco", -210.45, "Shops", "ok", None, None),
+        ("Venmo — Jordan", -45.00, "Other", "needs_category", "missing_category", None),
+        ("Amazon", -49.99, "Shops", "duplicate", "possible_duplicate", 1),
+        ("Transfer to Savings", -1000.00, "Transfer", "transfer_candidate", "looks_like_transfer", None),
+        ("SQ *UNREADABLE", 0.00, "Other", "exception", "amount_unreadable", None),
+        ("Spotify", -11.99, "Entertainment", "ok", None, None),
+    ])
+    messy.closing_balance = end2 - cents(23.45)  # off by the missed charge
+
+    # 3) A single scanned receipt as a one-row import.
+    receipt = ImportSessionORM(
+        user_id=user.id, account_id=credit.id, source_kind="image",
+        status="pending_review", reconciled=0, discrepancy_cents=0,
+    )
+    db.add(receipt)
+    db.flush()
+    db.add(ImportRowORM(
+        session_id=receipt.id, user_id=user.id, title="Trader Joe's",
+        amount=-cents(62.43), date=(today - timedelta(days=2)).isoformat(),
+        category="Food", merchant_key="trader joe's", status="ok", included=1,
+    ))
+
+
+def seed_detangle(db, user: UserORM, accounts: dict, today: date) -> None:
+    """A real transfer pair and refund pair the Detangle pass can match, plus the
+    notifications that pass would raise (so the insight shows immediately)."""
+    checking, savings, credit = accounts["checking"], accounts["savings"], accounts["credit"]
+    db.add_all([
+        # transfer: leaves checking, lands in savings, same amount/day
+        ExpenseORM(user_id=user.id, title="Transfer to Savings", amount=cents(1200.00),
+                   date=(today - timedelta(days=9)).isoformat(), category="Transfer",
+                   account_id=checking.id),
+        IncomeORM(user_id=user.id, title="Transfer from Checking", amount=cents(1200.00),
+                  date=(today - timedelta(days=9)).isoformat(), category="Transfer",
+                  source_type="other", account_id=savings.id),
+        # refund: an Amazon charge then an equal credit a few days later
+        ExpenseORM(user_id=user.id, title="Amazon", amount=cents(79.99),
+                   date=(today - timedelta(days=16)).isoformat(), category="Shops",
+                   account_id=credit.id),
+        IncomeORM(user_id=user.id, title="Amazon refund", amount=cents(79.99),
+                  date=(today - timedelta(days=11)).isoformat(), category="Shops",
+                  source_type="other", account_id=credit.id),
+    ])
+    db.add(NotificationORM(
+        user_id=user.id, type="detangle", title="Possible transfer",
+        message="“Transfer to Savings” and “Transfer from Checking” look like a "
+                "transfer between your own accounts — not new spending.",
+        ref="detangle:transfer:checking-savings", read=0,
+    ))
+    db.add(NotificationORM(
+        user_id=user.id, type="detangle", title="Possible refund",
+        message="A $79.99 credit “Amazon refund” looks like a refund of an earlier "
+                "“Amazon” charge. Net it out so it doesn't read as income.",
+        ref="detangle:refund:amazon", read=0,
+    ))
+
+
+def seed_current_month_extras(db, user: UserORM, accounts: dict, today: date) -> None:
+    """Push ONE envelope over budget this month so Budget Status shows the red
+    over-budget state next to the on-pace ones (Shops limit is $360)."""
+    db.add(ExpenseORM(
+        user_id=user.id, title="Best Buy — monitor", amount=cents(420.00),
+        date=(today - timedelta(days=2)).isoformat(), category="Shops",
+        account_id=accounts["credit"].id,
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -839,6 +1006,9 @@ def main(fresh: bool = False) -> None:
         seed_scenarios(db, user, today)
         seed_rules(db, user)
         seed_misc(db, user)
+        seed_imports(db, user, accounts, today)
+        seed_detangle(db, user, accounts, today)
+        seed_current_month_extras(db, user, accounts, today)
         db.commit()
         logger.info(
             "seeded financials: 3 accounts, %d expenses, %d income, goals/budgets/"

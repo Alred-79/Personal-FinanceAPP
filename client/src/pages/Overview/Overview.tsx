@@ -19,14 +19,30 @@ const today = new Date().toLocaleDateString("en-US", {
 });
 
 function Overview() {
-  const { fetchInitialData, fetchTransactionsAndExpenses, fetchRecentTransactions } =
-    useStore();
+  const {
+    fetchInitialData,
+    fetchTransactionsAndExpenses,
+    fetchRecentTransactions,
+    fetchNetWorth,
+    fetchBudgets,
+  } = useStore();
 
   useEffect(() => {
     fetchInitialData();
     fetchTransactionsAndExpenses();
     fetchRecentTransactions();
-  }, [fetchInitialData, fetchTransactionsAndExpenses, fetchRecentTransactions]);
+    // The Net Worth plates (trend + certificate) and the Budget Status card read
+    // store.netWorth / store.budgets, which are otherwise only loaded on the
+    // Almanac / Budgets pages — fetch them here so the dashboard isn't empty.
+    fetchNetWorth();
+    fetchBudgets();
+  }, [
+    fetchInitialData,
+    fetchTransactionsAndExpenses,
+    fetchRecentTransactions,
+    fetchNetWorth,
+    fetchBudgets,
+  ]);
 
   return (
     <>

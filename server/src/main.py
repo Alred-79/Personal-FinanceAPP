@@ -166,9 +166,19 @@ async def _request_context(request: Request, call_next):
     response.headers["X-Request-ID"] = rid
     return response
 
-# Static assets (only when client is built)
+# Static assets (only when client is built). Vite emits content-hashed
+# filenames (index-<hash>.js), so the bytes behind a URL never change — they're
+# safe to cache forever. index.html itself is served no-cache below so a deploy
+# is picked up immediately (otherwise a stale index keeps pointing at old hashes).
+class _ImmutableStaticFiles(StaticFiles):
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return resp
+
+
 if os.path.isdir("./client/dist/assets"):
-    app.mount("/assets", StaticFiles(directory="./client/dist/assets"), name="assets")
+    app.mount("/assets", _ImmutableStaticFiles(directory="./client/dist/assets"), name="assets")
 
 # MCP mount (outside /api, flag-gated)
 if _mcp_starlette is not None:
@@ -259,4 +269,10 @@ async def serve_frontend(full_path: str):
     # otherwise return the index.html / a null body with a 200).
     if full_path.startswith("api/"):
         raise HTTPException(status_code=404, detail="Not Found")
-    return FileResponse("./client/dist/index.html")
+    # no-cache (not no-store): the browser may keep a copy but MUST revalidate via
+    # ETag before using it, so a new deploy's index.html (pointing at fresh asset
+    # hashes) is served immediately instead of a stale cached shell.
+    return FileResponse(
+        "./client/dist/index.html",
+        headers={"Cache-Control": "no-cache"},
+    )
