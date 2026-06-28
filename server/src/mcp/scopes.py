@@ -33,8 +33,13 @@ def normalize_scope(scope: str) -> str | None:
         return LEGACY_SCOPE_MAP[scope]
     if scope.startswith("read:"):
         return scope
+    # Modern propose scopes (Tier-2 write door) pass through unchanged — they map
+    # to the propose tool, not a read tool, so they are usable even though they
+    # are not read:* scopes.
+    if scope.startswith("propose:"):
+        return scope
     # Unknown legacy form (e.g. transactions:write, assistant:chat) → nothing usable.
-    if ":" in scope and not scope.startswith("read:"):
+    if ":" in scope:
         return None
     return scope
 

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..db.models import (
     Account as AccountORM,
+    BalanceSnapshot as BalanceSnapshotORM,
     Expense as ExpenseORM,
     Goal as GoalORM,
     Income as IncomeORM,
@@ -362,6 +363,26 @@ def query_goals(db: Session, user_id: int) -> list[dict]:
         }
         for g in goals
     ]
+
+
+def query_networth_series(db: Session, user_id: int) -> list[dict]:
+    """Return the recorded net-worth snapshot series for *user_id*, oldest first.
+
+    READ-ONLY by design: unlike ``NetWorthService.get_series`` (which records
+    today's snapshot before returning), this never writes — so it is safe to call
+    from the MCP vault, whose whole contract is that it never commits. Today's
+    point may therefore be absent until the app itself records it.
+    """
+    rows = (
+        db.execute(
+            select(BalanceSnapshotORM)
+            .where(BalanceSnapshotORM.user_id == user_id)
+            .order_by(BalanceSnapshotORM.date.asc())
+        )
+        .scalars()
+        .all()
+    )
+    return [{"date": r.date, "total": cents_to_dollars(r.total)} for r in rows]
 
 
 def query_user(db: Session, user_id: int) -> UserInDB | None:

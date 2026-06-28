@@ -461,12 +461,28 @@ class Settings(BaseSettings):
         "read:transactions",
         "read:goals",
         "read:budgets",
+        # analytical read tools (Tier-1 surface expansion)
+        "read:forecast",
+        "read:networth",
+        "read:subscriptions",
+        "read:scenarios",
         # context resource scope
         "read:context",
+        # propose-only write tool (Tier-2). Never moves money — it only drafts an
+        # Assisted-Action Bridge the human must execute in-app. Gated additionally
+        # by ``mcp_propose_enabled`` (default off).
+        "propose:actions",
     ]
     mcp_key_default_ttl_days: int = 90
     mcp_capability_ttl_seconds: int = 60
     mcp_context_forecast_days: int = 30
+    # Default horizon (days) for the get_forecast MCP tool when the caller does
+    # not specify one.
+    mcp_forecast_default_days: int = 30
+    # Tier-2 propose door: when False (default) the propose_action tool refuses
+    # even for a key that holds the propose:actions scope — the whole write door
+    # ships dark, exactly like mcp_enabled gates the read surface.
+    mcp_propose_enabled: bool = False
 
     @model_validator(mode="after")
     def _validate_jwt_secret(self) -> "Settings":

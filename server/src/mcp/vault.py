@@ -22,11 +22,19 @@ engine (the production shape), not an in-memory shared connection.
 """
 
 import time
+from datetime import date, timedelta
+
 from server.src.dates import parse_iso_date
 from server.src.db.rls import set_tenant
 from server.src.db.session import SessionLocal
+from server.src.money import cents_to_dollars
 from server.src.settings import settings
 from server.src.mcp.annotations import (
+    FORECAST_ASSUMPTIONS,
+    FORECAST_CAVEATS,
+    FORECAST_METHOD,
+    NETWORTH_ASSUMPTIONS,
+    NETWORTH_METHOD,
     SPENDABLE_ASSUMPTIONS,
     SPENDABLE_CAVEATS,
     SPENDABLE_METHOD,
@@ -36,11 +44,20 @@ from server.src.mcp.audit import record as audit_record
 from server.src.mcp.context import ContextBuilder
 from server.src.mcp.policy import verify_capability
 from server.src.services.budget_service import BudgetService
+from server.src.services.forecast_service import ForecastService
+from server.src.services.networth_service import NetWorthService
+from server.src.services.scenario_overlay import (
+    SCHEMA_VERSION as SCENARIO_SCHEMA_VERSION,
+    overlay_from_json,
+)
+from server.src.services.scenario_service import ScenarioService
+from server.src.services.subscription_service import SubscriptionService
 from server.src.services.read_queries import (
     DEFAULT_TX_LIMIT,
     query_accounts,
     query_categories,
     query_goals,
+    query_networth_series,
     query_spend_summary,
     query_transactions_by_category,
     query_transactions_by_date_range,
@@ -166,7 +183,82 @@ def _dispatch(db, uid: int, resource: str, params: dict, scopes: frozenset[str])
         summary["caveats"] = SPENDABLE_CAVEATS
         return summary
 
+    if resource == "forecast":
+        return _forecast(db, uid, params)
+
+    if resource == "net_worth":
+        current = cents_to_dollars(NetWorthService(db).current_total_cents(uid))
+        return {
+            "current": current,
+            "currency": "USD",
+            "series": query_networth_series(db, uid),
+            "method": NETWORTH_METHOD,
+            "assumptions": NETWORTH_ASSUMPTIONS,
+        }
+
+    if resource == "subscriptions":
+        return SubscriptionService(db).list_subscriptions(uid)
+
+    if resource == "what_if":
+        return _what_if(db, uid, params)
+
     raise VaultError(f"Unknown resource: '{resource}'.")
+
+
+def _forecast(db, uid: int, params: dict) -> dict:
+    """Annotated burn-aware cashflow projection for the get_forecast tool."""
+    days = params.get("days", settings.mcp_forecast_default_days)
+    if not isinstance(days, int) or isinstance(days, bool):
+        raise VaultError("'days' must be an integer number of days.")
+    if days <= 0:
+        raise VaultError("'days' must be a positive number of days.")
+    today = date.today()
+    raw = ForecastService(db).forecast(
+        uid, today, today + timedelta(days=days), include_burn=True
+    )
+    return {
+        "horizon": {
+            "start": raw["horizon_start"],
+            "end": raw["horizon_end"],
+            "days": days,
+        },
+        "starting_balance": raw["starting_balance"],
+        "ending_balance": raw["ending_balance"],
+        "lowest_balance": {
+            "value": raw["lowest_balance"],
+            "date": raw["lowest_date"],
+            "band": raw["trough_band"],
+        },
+        "will_go_negative": raw["will_go_negative"],
+        "overdraft_probability": raw["overdraft_probability"],
+        "daily_discretionary_burn": raw["daily_discretionary_burn"],
+        "method": FORECAST_METHOD,
+        "assumptions": FORECAST_ASSUMPTIONS,
+        "caveats": FORECAST_CAVEATS,
+    }
+
+
+def _what_if(db, uid: int, params: dict) -> dict:
+    """Baseline-vs-scenario diff from an agent-supplied overlay spec.
+
+    The agent passes only the meaningful overlay keys (added_recurring,
+    discrete_flows, goal_mutations, balance_override_cents, …); the internal
+    ``schema_version`` is injected here so the tool surface stays clean. ``{}``
+    means the EMPTY overlay, which diffs to exactly the live baseline. Any
+    malformed spec becomes a clean VaultError, never a 500.
+    """
+    overlay = params.get("overlay")
+    if not isinstance(overlay, dict):
+        raise VaultError("what_if requires an 'overlay' object.")
+    spec = dict(overlay)
+    spec.setdefault("schema_version", SCENARIO_SCHEMA_VERSION)
+    try:
+        parsed = overlay_from_json(spec)
+    except VaultError:
+        raise
+    except Exception as exc:  # malformed overlay → clean error
+        raise VaultError(f"Invalid overlay spec: {exc}") from exc
+    return ScenarioService(db).evaluate(uid, parsed)
 
 
 # ---------------------------------------------------------------------------

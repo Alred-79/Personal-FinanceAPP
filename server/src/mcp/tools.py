@@ -11,7 +11,7 @@ Tool errors are returned as MCP error results (``isError: true``) — never raw
 tracebacks.
 """
 
-from server.src.mcp import policy, vault
+from server.src.mcp import actions, policy, vault
 from server.src.mcp.server import get_principal, mcp
 
 
@@ -146,6 +146,71 @@ def get_spend_summary() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Analytical tools (Tier-1 surface expansion)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_forecast(days: int = 30) -> dict:
+    """Project the authenticated user's cash balance forward ``days`` days.
+
+    Burn-aware: drains an estimated daily discretionary spend on top of scheduled
+    income/expenses, so the trough answers "will I dip below zero?" honestly. The
+    result carries an ``overdraft_probability`` and a low/median/high
+    ``lowest_balance.band`` from a residual-bootstrap simulation, plus the
+    ``method`` / ``assumptions`` / ``caveats`` that describe how it was computed.
+    """
+    return _call("read:forecast", "forecast", days=days)
+
+
+@mcp.tool()
+def get_net_worth() -> dict:
+    """Return the authenticated user's net worth: live total plus snapshot trend.
+
+    ``current`` is the live sum of every account balance; ``series`` is the
+    previously-recorded daily snapshot history (oldest first). The read path never
+    records a new snapshot, so today's point may be absent until the app records it.
+    """
+    return _call("read:networth", "net_worth")
+
+
+@mcp.tool()
+def get_subscriptions() -> list[dict]:
+    """Return recurring charges detected across the authenticated user's transactions.
+
+    Each entry describes a likely subscription (merchant, amount, cadence, and the
+    most recent charge) inferred from repeated same-amount transactions.
+    """
+    return _call("read:subscriptions", "subscriptions")
+
+
+@mcp.tool()
+def run_what_if(overlay: dict) -> dict:
+    """Evaluate a hypothetical against the authenticated user's real finances.
+
+    ``overlay`` describes the change to model and may contain any of:
+      * ``added_recurring``: new recurring streams — list of
+        ``{title, amount_cents, recurrence, kind, category?, anchor_date?}``
+        (``kind`` is "income" or "expense"; ``recurrence`` e.g. "monthly").
+      * ``discrete_flows``: one-off events — list of
+        ``{date, amount_cents, kind, title?, category?}``.
+      * ``excluded_source_ids``: existing streams to remove — list of
+        ``[kind, source_id]`` pairs.
+      * ``overridden_recurring``: tweaks to existing streams — list of
+        ``{source_id, kind, amount_cents?, recurrence?}``.
+      * ``goal_mutations``: goal changes — list of
+        ``{goal_id, amount_cents?, target_date?, progress_cents?, name?}``.
+      * ``balance_override_cents``: replace the projection's starting balance.
+
+    Amounts are integer cents. Returns a baseline-vs-scenario diff over a 90-day
+    horizon with a ``scenario.delta`` (scenario − baseline) covering ending
+    balance, lowest balance, overdraft probability, and days-to-zero. An empty
+    overlay (``{}``) diffs to exactly the live baseline. This is read-only — it
+    computes a projection and changes nothing.
+    """
+    return _call("read:scenarios", "what_if", overlay=overlay)
+
+
+# ---------------------------------------------------------------------------
 # Context resource
 # ---------------------------------------------------------------------------
 
@@ -157,3 +222,51 @@ def context_resource() -> dict:
     others come back as ``{"available": False, "required_scope": ...}`` stubs.
     """
     return _call_context()
+
+
+# ---------------------------------------------------------------------------
+# Propose tool (Tier-2 write door) — drafts, never executes
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def propose_action(
+    kind: str,
+    amount: float,
+    rationale: str,
+    source_ref: str | None = None,
+    dest_ref: str | None = None,
+    how: dict | None = None,
+) -> dict:
+    """Draft a real-world money action for the user to review — never moves money.
+
+    This creates an *Assisted-Action Bridge*: the app computes the exact action
+    (e.g. "move $340 from Checking to Savings") and surfaces it for the human to
+    execute **in-app with one tap**. This tool only drafts the proposal — it does
+    NOT transfer, pay, or execute anything, and the user can dismiss it.
+
+    Requires the ``propose:actions`` scope and is disabled by default
+    (``mcp_propose_enabled``); when off it returns an error.
+
+    Args:
+      kind: one of ``transfer``, ``bill_payment``, ``goal_funding``,
+        ``tax_payment``, ``debt_payment``, ``subscription_cancel``.
+      amount: dollars (positive).
+      rationale: the factual "why" (e.g. "$340 short of this month's target").
+        It is screened so it stays factual, never advice or pressure.
+      source_ref / dest_ref: optional account/destination hints for the human.
+      how: optional structured steps/links (e.g. a provider cancel URL).
+
+    Returns the created Bridge (id, kind, amount, status="proposed", …).
+    """
+    principal = get_principal()
+    policy.require(principal, "propose:actions")
+    cap = policy.issue_capability(principal, ["propose:actions"])
+    return actions.propose(
+        cap,
+        kind=kind,
+        amount=amount,
+        rationale=rationale,
+        source_ref=source_ref,
+        dest_ref=dest_ref,
+        how=how,
+    )
