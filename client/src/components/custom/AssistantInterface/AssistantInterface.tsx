@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import {
   Sheet,
   SheetContent,
@@ -10,20 +11,81 @@ import styles from "./AssistantInterface.module.css";
 import { ClerkConversation } from "@/components/custom/Clerk/ClerkConversation";
 import { ClerkPresence } from "@/components/custom/Clerk/ClerkPresence";
 import { ClerkPortrait } from "@/components/custom/Clerk/ClerkPortrait";
+import {
+  useClerkSuggestion,
+  isSilenced,
+  silenceNudges,
+  hasNudged,
+  markNudged,
+  nudgeCount,
+  MAX_SESSION_NUDGES,
+} from "@/hooks/useClerkSuggestions";
+
+const NUDGE_DELAY_MS = 1400;
+const NUDGE_VISIBLE_MS = 7000;
 
 /**
  * The floating Clerk: the engraved-portrait launcher (bottom-right) and the
- * right-hand window it opens. The launcher is {@link ClerkPresence}; the
- * conversation is {@link ClerkConversation} (shared with the Command Deck). The
- * Sheet is controlled so the rich portrait button — not a Radix trigger — owns
- * opening, and the same portrait docks into the window header.
+ * right-hand window it opens. The Sheet is controlled so the portrait button —
+ * not a Radix trigger — owns opening, and the same portrait docks into the
+ * header. This component also orchestrates the contextual layer: it maps the
+ * current section to a suggestion, fires an at-most-once-per-section "tap-the-
+ * glass" nudge, and pre-fills the input when a ticket is activated.
  */
 export function AssistantInterface() {
+  const location = useLocation();
+  const suggestion = useClerkSuggestion(location.pathname);
   const [open, setOpen] = useState(false);
+  const [seed, setSeed] = useState("");
+  const [autoNudge, setAutoNudge] = useState(false);
+
+  // Auto "tap-the-glass": at most once per section per session, after a short
+  // settle delay, never when silenced or already open. Hover tickets are
+  // separate (ClerkPresence) and always available.
+  useEffect(() => {
+    setAutoNudge(false);
+    const path = location.pathname;
+    if (open || !suggestion || suggestion.auto === false) return;
+    if (isSilenced() || hasNudged(path) || nudgeCount() >= MAX_SESSION_NUDGES) return;
+
+    const show = setTimeout(() => {
+      setAutoNudge(true);
+      markNudged(path);
+    }, NUDGE_DELAY_MS);
+    const hide = setTimeout(
+      () => setAutoNudge(false),
+      NUDGE_DELAY_MS + NUDGE_VISIBLE_MS
+    );
+    return () => {
+      clearTimeout(show);
+      clearTimeout(hide);
+    };
+  }, [location.pathname, open, suggestion]);
+
+  const openBlank = () => {
+    setSeed("");
+    setOpen(true);
+  };
+  const activate = () => {
+    setSeed(suggestion?.prompt ?? "");
+    setAutoNudge(false);
+    setOpen(true);
+  };
+  const silence = () => {
+    silenceNudges();
+    setAutoNudge(false);
+  };
 
   return (
     <>
-      <ClerkPresence open={open} onOpen={() => setOpen(true)} />
+      <ClerkPresence
+        open={open}
+        onOpen={openBlank}
+        suggestionLabel={suggestion?.label}
+        autoNudge={autoNudge}
+        onActivate={activate}
+        onSilence={silence}
+      />
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent className={`${styles.sheetContent} !bg-background !text-foreground`}>
@@ -47,7 +109,7 @@ export function AssistantInterface() {
             </p>
           </SheetHeader>
 
-          <ClerkConversation />
+          <ClerkConversation seedPrompt={seed} />
         </SheetContent>
       </Sheet>
     </>

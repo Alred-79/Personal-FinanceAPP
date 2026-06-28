@@ -1,11 +1,17 @@
 /* The floating Clerk launcher — an engraved portrait medallion resting on a
-   soft cast shadow, bottom-right of every page. */
+   soft cast shadow, bottom-right of every page, with its margin-note ticket. */
 
-.root {
+/* Fixed positioning context: holds the launcher button + the absolutely-placed
+   ticket (a sibling, so it is not nested inside the button). */
+.anchor {
   position: fixed;
   bottom: 1.5rem;
   right: 1.5rem;
   z-index: var(--z-clerk);
+}
+
+.root {
+  position: relative;
   display: grid;
   place-items: center;
   width: 4.25rem;
@@ -31,6 +37,13 @@
   pointer-events: none;
 }
 
+/* Wrapper for the one-shot "tap-the-glass" hop (kept separate from the disc's
+   breathe and the button's open/close, so the three never fight). */
+.knock {
+  display: grid;
+  place-items: center;
+}
+
 /* The medallion: a paper disc in a thin gold bezel, the engraved Clerk inside. */
 .disc {
   position: relative;
@@ -48,6 +61,17 @@
     inset 0 1px 0 hsl(var(--paper-high) / 0.9),
     inset 0 0 0 3px hsl(var(--gold) / 0.07),
     0 3px 8px hsl(167 30% 12% / 0.18);
+}
+
+/* One-shot ring that radiates on the attention "tap". */
+.ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  border-radius: 9999px;
+  border: 1.5px solid hsl(var(--gold) / 0.6);
+  pointer-events: none;
 }
 
 .root:focus-visible {

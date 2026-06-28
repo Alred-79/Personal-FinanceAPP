@@ -28,12 +28,31 @@ const EXAMPLE_QUESTIONS = [
  * the markup, classes, and interactions are unchanged; only the home moved. The
  * surrounding chrome (Sheet header, the can/can't line) stays with each shell.
  */
-export function ClerkConversation() {
+interface ClerkConversationProps {
+  /** Pre-fill the input when the surface opens (from a contextual ticket).
+   * Never auto-sent — the user reviews and sends. */
+  seedPrompt?: string;
+}
+
+export function ClerkConversation({ seedPrompt = "" }: ClerkConversationProps = {}) {
   const navigate = useNavigate();
   const chat = useAssistantChat();
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(seedPrompt);
+  const inputRef = useRef<HTMLInputElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const voice = useVoiceInput();
+
+  // Opened from a contextual ticket: focus the box and drop the cursor at the
+  // end so the user can finish or edit the pre-filled prompt.
+  useEffect(() => {
+    if (!seedPrompt) return;
+    const el = inputRef.current;
+    if (el) {
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Resolve the message (typed or an example chip), clear the box, and send.
   const submit = (override?: string) => {
@@ -170,6 +189,7 @@ export function ClerkConversation() {
             </Button>
           )}
           <Input
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyPress}
