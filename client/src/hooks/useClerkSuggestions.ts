@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { apiBase } from "@/lib/apiBase";
 
 /**
  * A section-aware offer from the Clerk. `label` is the margin-note ticket the
@@ -68,6 +69,39 @@ export function suggestionForPath(pathname: string): ClerkSuggestion | null {
 
 export function useClerkSuggestion(pathname: string): ClerkSuggestion | null {
   return useMemo(() => suggestionForPath(pathname), [pathname]);
+}
+
+/* ── Data-aware enrichment (P6, server flag default-OFF) ────────────────────
+   The backend GET /assistant/suggestions/ returns heuristic, data-aware
+   starters for the section ("You're $40 from 'New roof' — want a plan?"). It's
+   purely an ENRICHMENT over the static map above. When the flag is off the
+   endpoint 404s; we remember that and stop asking for the rest of the session. */
+
+let suggestionsDisabled = false;
+
+export async function fetchClerkSuggestions(
+  context: string
+): Promise<ClerkSuggestion[] | null> {
+  if (suggestionsDisabled) return null;
+  try {
+    const res = await fetch(
+      `${apiBase}/assistant/suggestions/?context=${encodeURIComponent(context)}`,
+      { credentials: "include" }
+    );
+    if (res.status === 404) {
+      suggestionsDisabled = true; // flag off — never retry this session
+      return null;
+    }
+    if (!res.ok) return null;
+    const data: unknown = await res.json();
+    if (!Array.isArray(data)) return null;
+    return data.filter(
+      (s): s is ClerkSuggestion =>
+        !!s && typeof s.label === "string" && typeof s.prompt === "string"
+    );
+  } catch {
+    return null;
+  }
 }
 
 /* ── Frequency model (session-scoped) ──────────────────────────────────────

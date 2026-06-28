@@ -8,7 +8,9 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from typing import Dict, List, Annotated
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..services.assistant_service import (
@@ -34,6 +36,8 @@ from server.src.services.auth_service import AuthService
 from server.src.services import llm_budget, token_meter
 from server.src.limiter import limiter
 from server.src.settings import settings
+from server.src.db.models import Goal as GoalORM
+from server.src.money import cents_to_dollars
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 assistant_service = AssistantService()
@@ -281,3 +285,67 @@ def confirm_action(
         assistant_service.invalidate_agent(current_user.id)
 
     return {"status": "confirmed", "action": claims["action"], "result": result}
+
+
+# ---------------------------------------------------------------------------
+# Contextual suggestions (the Clerk's section-aware starters)
+# ---------------------------------------------------------------------------
+# Data-aware starter prompts for the Clerk's ticket on the section the user is
+# viewing. HEURISTIC ONLY — built from the user's own rows, no LLM call — so it
+# never touches the daily cost budget. OFF by default (ship-dark): a clean 404
+# when the flag is off lets the client keep its static, offline fallback. This
+# layer only ENRICHES; an empty list for a section means "use the static one".
+class AssistantSuggestion(BaseModel):
+    label: str
+    prompt: str
+
+
+def _data_aware_suggestions(
+    db: Session, user_id: int, context: str
+) -> List[AssistantSuggestion]:
+    path = context or "/"
+    out: List[AssistantSuggestion] = []
+
+    if path.startswith("/goals"):
+        goals = (
+            db.execute(select(GoalORM).where(GoalORM.user_id == user_id))
+            .scalars()
+            .all()
+        )
+        incomplete = [g for g in goals if not g.completed and (g.amount or 0) > 0]
+        if incomplete:
+            # The goal closest to done — most motivating to nudge on.
+            nearest = min(
+                incomplete,
+                key=lambda g: max(0, (g.amount or 0) - (g.progress or 0)),
+            )
+            remaining = cents_to_dollars(
+                max(0, (nearest.amount or 0) - (nearest.progress or 0))
+            )
+            out.append(
+                AssistantSuggestion(
+                    label=f"You're ${remaining:,.0f} from ‘{nearest.name}’ — want a plan to finish it?",
+                    prompt=f"Help me make a plan to finish my ‘{nearest.name}’ goal.",
+                )
+            )
+
+    return out
+
+
+@router.get("/suggestions/")
+def get_suggestions(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    context: str = "/",
+    db: Session = Depends(get_db),
+) -> List[AssistantSuggestion]:
+    """Data-aware contextual starters for the current section's Clerk ticket.
+
+    Heuristic only (no LLM, no cost-budget touch). OFF by default — a 404 when
+    the flag is off so the client cleanly keeps its static fallback. Returns an
+    empty list for sections without a data-aware angle (again: fall back).
+    """
+    if not settings.assistant_suggestions_enabled:
+        raise HTTPException(status_code=404, detail="Suggestions are not enabled.")
+    return _data_aware_suggestions(db, current_user.id, context)

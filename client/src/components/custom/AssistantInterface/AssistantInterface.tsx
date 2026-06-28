@@ -13,12 +13,14 @@ import { ClerkPresence } from "@/components/custom/Clerk/ClerkPresence";
 import { ClerkPortrait } from "@/components/custom/Clerk/ClerkPortrait";
 import {
   useClerkSuggestion,
+  fetchClerkSuggestions,
   isSilenced,
   silenceNudges,
   hasNudged,
   markNudged,
   nudgeCount,
   MAX_SESSION_NUDGES,
+  type ClerkSuggestion,
 } from "@/hooks/useClerkSuggestions";
 
 const NUDGE_DELAY_MS = 1400;
@@ -35,9 +37,26 @@ const NUDGE_VISIBLE_MS = 7000;
 export function AssistantInterface() {
   const location = useLocation();
   const suggestion = useClerkSuggestion(location.pathname);
+  const [enriched, setEnriched] = useState<ClerkSuggestion | null>(null);
   const [open, setOpen] = useState(false);
   const [seed, setSeed] = useState("");
   const [autoNudge, setAutoNudge] = useState(false);
+
+  // Data-aware enrichment (server flag default-OFF → 404 → stays null → static
+  // floor is used). Fetches on section change; the static `suggestion` still
+  // gates WHETHER to nudge, while `active` decides WHAT the ticket says.
+  useEffect(() => {
+    let alive = true;
+    setEnriched(null);
+    void fetchClerkSuggestions(location.pathname).then((list) => {
+      if (alive && list && list.length) setEnriched(list[0]);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [location.pathname]);
+
+  const active = enriched ?? suggestion;
 
   // Auto "tap-the-glass": at most once per section per session, after a short
   // settle delay, never when silenced or already open. Hover tickets are
@@ -67,7 +86,7 @@ export function AssistantInterface() {
     setOpen(true);
   };
   const activate = () => {
-    setSeed(suggestion?.prompt ?? "");
+    setSeed(active?.prompt ?? "");
     setAutoNudge(false);
     setOpen(true);
   };
@@ -81,7 +100,7 @@ export function AssistantInterface() {
       <ClerkPresence
         open={open}
         onOpen={openBlank}
-        suggestionLabel={suggestion?.label}
+        suggestionLabel={active?.label}
         autoNudge={autoNudge}
         onActivate={activate}
         onSilence={silence}
