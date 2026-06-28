@@ -1,20 +1,5 @@
-.assistantButton {
-  position: fixed;
-  bottom: 1.5rem;
-  right: 1.5rem;
-  height: 3.5rem;
-  width: 3.5rem;
-  border-radius: 9999px;
-  padding: 0;
-  background-color: hsl(var(--sidebar));
-  color: hsl(var(--gold));
-  border: 1px solid hsl(var(--gold) / 0.6);
-  box-shadow: 0 6px 20px hsl(167 30% 12% / 0.25);
-}
-
-.assistantButton:hover {
-  transform: translateY(-2px) rotate(-6deg);
-}
+/* The launcher button moved to ClerkPresence (P1); this file now styles only
+   the drawer shell that AssistantInterface still owns. */
 
 .sheetContent {
   z-index: var(--z-clerk);

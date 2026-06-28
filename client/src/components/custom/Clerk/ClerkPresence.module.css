@@ -1,0 +1,62 @@
+/* The floating Clerk launcher — an engraved portrait medallion resting on a
+   soft cast shadow, bottom-right of every page. */
+
+.root {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: var(--z-clerk);
+  display: grid;
+  place-items: center;
+  width: 4.25rem;
+  height: 4.25rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Grounded cast shadow: stays on the "desk" while the medallion bobs above it. */
+.shadow {
+  position: absolute;
+  left: 50%;
+  bottom: 0.35rem;
+  width: 2.75rem;
+  height: 0.7rem;
+  transform: translateX(-50%);
+  border-radius: 9999px;
+  background: radial-gradient(closest-side, hsl(167 30% 10% / 0.36), transparent 78%);
+  filter: blur(2.5px);
+  pointer-events: none;
+}
+
+/* The medallion: a paper disc in a thin gold bezel, the engraved Clerk inside. */
+.disc {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+  color: hsl(var(--foreground));
+  background: radial-gradient(
+    118% 118% at 32% 24%,
+    hsl(var(--paper-high)),
+    hsl(var(--card)) 72%
+  );
+  border: 1px solid hsl(var(--gold) / 0.55);
+  box-shadow:
+    inset 0 1px 0 hsl(var(--paper-high) / 0.9),
+    inset 0 0 0 3px hsl(var(--gold) / 0.07),
+    0 3px 8px hsl(167 30% 12% / 0.18);
+}
+
+.root:focus-visible {
+  outline: none;
+}
+.root:focus-visible .disc {
+  box-shadow:
+    inset 0 1px 0 hsl(var(--paper-high) / 0.9),
+    0 0 0 2px hsl(var(--background)),
+    0 0 0 4px hsl(var(--gold) / 0.85),
+    0 3px 8px hsl(167 30% 12% / 0.18);
+}
