@@ -5,12 +5,13 @@ import {
   Droplet,
   Drama,
   Briefcase,
-  Hammer,
+  Wrench,
   Store,
   ArrowLeftRight,
   Plane,
   Shapes,
   HeartPulse,
+  Dumbbell,
   type LucideIcon,
 } from "lucide-react";
 
@@ -26,12 +27,13 @@ const ICONS: Record<string, LucideIcon> = {
   Recreation: Drama,
   Work: Briefcase,
   Income: Briefcase,
-  Service: Hammer,
+  Service: Wrench,
   Shops: Store,
   Shopping: Store,
   Transfer: ArrowLeftRight,
   Travel: Plane,
   Health: HeartPulse,
+  Fitness: Dumbbell,
   Other: Shapes,
 };
 

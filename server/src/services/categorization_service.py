@@ -57,6 +57,17 @@ KEYWORD_RULES: dict[str, str] = {
     "walmart": "Shops",
     "target": "Shops",
     "costco": "Shops",
+    "walgreens": "Health",
+    "walgreen": "Health",
+    "cvs": "Health",
+    "rite aid": "Health",
+    "pharmacy": "Health",
+    "planet fitness": "Fitness",
+    "la fitness": "Fitness",
+    "24 hour fitness": "Fitness",
+    "equinox": "Fitness",
+    "gym": "Fitness",
+    "fitness": "Fitness",
     "comcast": "Utilities",
     "verizon": "Utilities",
     "at t": "Utilities",
@@ -82,6 +93,8 @@ CANONICAL_CATEGORIES: tuple[str, ...] = (
     "Shops",
     "Transfer",
     "Travel",
+    "Health",
+    "Fitness",
     "Other",
 )
 
@@ -99,7 +112,9 @@ PLAID_PFC_TO_CANONICAL: dict[str, str] = {
     "FOOD_AND_DRINK": "Food and Drink",
     "GENERAL_MERCHANDISE": "Shops",
     "HOME_IMPROVEMENT": "Housing",
-    "MEDICAL": "Service",
+    "MEDICAL": "Health",
+    # PERSONAL_CARE is a Plaid umbrella (gyms, salons, laundry, spa). Gyms are
+    # routed to "Fitness" via keyword rules; the rest stay under "Service".
     "PERSONAL_CARE": "Service",
     "GENERAL_SERVICES": "Service",
     "GOVERNMENT_AND_NON_PROFIT": "Service",

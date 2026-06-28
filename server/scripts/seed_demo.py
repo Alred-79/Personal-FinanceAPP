@@ -95,7 +95,7 @@ DISCRETIONARY = [
     ("Target", "Shops", 24, 110),
     ("AMC Theatres", "Entertainment", 16, 44),
     ("Steam", "Entertainment", 8, 60),
-    ("Walgreens", "Service", 7, 40),
+    ("Walgreens", "Health", 7, 40),
     ("Delta Air Lines", "Travel", 120, 380),
 ]
 
@@ -107,7 +107,7 @@ MONTHLY_BILLS = [
     ("Geico Auto Insurance", "Service", 142.00, 15),
     ("Netflix", "Entertainment", 15.49, 17),
     ("Spotify", "Entertainment", 11.99, 22),
-    ("Planet Fitness", "Service", 24.99, 25),
+    ("Planet Fitness", "Fitness", 24.99, 25),
 ]
 
 
@@ -654,6 +654,8 @@ def seed_misc(db, user: UserORM) -> None:
         ("shell gas", "Transportation"),
         ("steam", "Entertainment"),
         ("whole foods", "Food"),
+        ("walgreens", "Health"),
+        ("planet fitness", "Fitness"),
     ]:
         db.add(MerchantCategoryORM(
             user_id=user.id, merchant=merchant, category=cat, source="user",

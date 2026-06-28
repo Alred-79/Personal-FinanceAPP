@@ -13,7 +13,9 @@ from server.src.db.models import (
     User as UserORM,
 )
 from server.src.services.categorization_service import (
+    CANONICAL_CATEGORIES,
     CategorizationService,
+    canonicalize_category,
     normalize_merchant,
     rule_category,
 )
@@ -73,6 +75,28 @@ class TestRuleCategory:
 
     def test_unknown_returns_none(self):
         assert rule_category("Zzqq Unknown Merchant") is None
+
+    def test_pharmacy_is_health(self):
+        # Regression: pharmacies used to fall into the "Service" catch-all.
+        assert rule_category("WALGREENS #4821") == "Health"
+        assert rule_category("CVS Pharmacy") == "Health"
+
+    def test_gym_is_fitness(self):
+        # Regression: gyms used to fall into the "Service" catch-all.
+        assert rule_category("PLANET FITNESS 0420") == "Fitness"
+        assert rule_category("LA Fitness") == "Fitness"
+
+
+class TestCanonicalize:
+    def test_health_and_fitness_are_canonical(self):
+        assert "Health" in CANONICAL_CATEGORIES
+        assert "Fitness" in CANONICAL_CATEGORIES
+        assert canonicalize_category("Health") == "Health"
+        assert canonicalize_category("Fitness") == "Fitness"
+
+    def test_plaid_medical_maps_to_health(self):
+        # Plaid's MEDICAL primary code now lands in Health, not Service.
+        assert canonicalize_category("MEDICAL") == "Health"
 
 
 # ── Service: resolution tiers ───────────────────────────────────────────────

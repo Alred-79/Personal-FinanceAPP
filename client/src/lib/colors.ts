@@ -31,6 +31,8 @@ export const CATEGORIES = [
   "Shops",
   "Transfer",
   "Travel",
+  "Health",
+  "Fitness",
   "Other",
 ] as const;
 
