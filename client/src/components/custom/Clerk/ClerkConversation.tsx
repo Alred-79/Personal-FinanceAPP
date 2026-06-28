@@ -10,6 +10,7 @@ import { SourcesCitation } from "@/components/custom/AssistantInterface/SourcesC
 import BridgeCard from "@/components/custom/BridgeCard/BridgeCard";
 import { ClerkPortrait } from "./ClerkPortrait";
 import { ClerkComposer } from "./ClerkComposer";
+import { ClerkVoice } from "./ClerkVoice";
 
 const STARTERS = [
   "How much have I spent this week?",
@@ -73,16 +74,11 @@ export function ClerkConversation({ seedPrompt = "" }: ClerkConversationProps = 
     void chat.send(message);
   };
 
-  // Toggle the mic: first tap records, second tap stops + transcribes. The
-  // transcript is APPENDED into the editable box for the user to review — it is
-  // never auto-sent (a mis-hearing should be caught before it hits the LLM).
-  const handleMicToggle = async () => {
-    if (voice.isRecording) {
-      const text = await voice.stop();
-      if (text) setInput((prev) => (prev ? `${prev} ${text}` : text));
-    } else {
-      await voice.start();
-    }
+  // Finish recording → transcribe → APPEND the text into the editable box for
+  // the user to review. Never auto-sent (a mis-hearing is caught before the LLM).
+  const handleVoiceStop = async () => {
+    const text = await voice.stop();
+    if (text) setInput((prev) => (prev ? `${prev} ${text}` : text));
   };
 
   // Opened from a contextual ticket: focus the box and drop the cursor at the
@@ -181,19 +177,28 @@ export function ClerkConversation({ seedPrompt = "" }: ClerkConversationProps = 
             {voice.error}
           </div>
         )}
-        <ClerkComposer
-          ref={composerRef}
-          value={input}
-          onChange={setInput}
-          onSubmit={() => submit()}
-          onClear={() => void chat.clear()}
-          hasMessages={!isEmpty}
-          disabled={chat.isLoading}
-          voiceSupported={voice.supported}
-          isRecording={voice.isRecording}
-          isTranscribing={voice.isTranscribing}
-          onMicToggle={handleMicToggle}
-        />
+        {voice.isRecording || voice.isTranscribing ? (
+          <ClerkVoice
+            stream={voice.stream}
+            isTranscribing={voice.isTranscribing}
+            onStop={() => void handleVoiceStop()}
+            onCancel={voice.cancel}
+          />
+        ) : (
+          <ClerkComposer
+            ref={composerRef}
+            value={input}
+            onChange={setInput}
+            onSubmit={() => submit()}
+            onClear={() => void chat.clear()}
+            hasMessages={!isEmpty}
+            disabled={chat.isLoading}
+            voiceSupported={voice.supported}
+            isRecording={voice.isRecording}
+            isTranscribing={voice.isTranscribing}
+            onMicToggle={() => void voice.start()}
+          />
+        )}
       </div>
     </>
   );

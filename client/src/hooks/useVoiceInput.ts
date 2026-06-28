@@ -12,13 +12,16 @@ import {
  * `stop()` finishes the clip, uploads it, and resolves with the transcript (or
  * `null` on error / empty). The component drops that text into the chat box for
  * the user to review — nothing is auto-sent. Uses only native browser APIs
- * (getUserMedia + MediaRecorder); no extra dependency.
+ * (getUserMedia + MediaRecorder); no extra dependency. `stream` is exposed while
+ * recording so a live waveform can read its amplitude.
  */
 export interface VoiceInput {
   supported: boolean;
   isRecording: boolean;
   isTranscribing: boolean;
   error: string | null;
+  /** The live mic stream while recording (null otherwise) — for the waveform. */
+  stream: MediaStream | null;
   start: () => Promise<void>;
   stop: () => Promise<string | null>;
   cancel: () => void;
@@ -37,12 +40,15 @@ export function useVoiceInput(): VoiceInput {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
   // Release the mic (stops the browser's "recording" indicator) and clear refs.
+  // Track-stopping only — the `stream` STATE is cleared by the callers so we
+  // never setState from the unmount path below.
   const teardown = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
@@ -57,11 +63,11 @@ export function useVoiceInput(): VoiceInput {
     if (!supported || isRecording) return;
     setError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = mediaStream;
       const mimeType = pickMimeType();
       const recorder = new MediaRecorder(
-        stream,
+        mediaStream,
         mimeType ? { mimeType } : undefined
       );
       chunksRef.current = [];
@@ -71,10 +77,12 @@ export function useVoiceInput(): VoiceInput {
       recorderRef.current = recorder;
       recorder.start();
       setIsRecording(true);
+      setStream(mediaStream);
     } catch {
       // Most often a denied mic permission; the user can still type.
       setError("Microphone unavailable. Check permissions or type instead.");
       teardown();
+      setStream(null);
     }
   }, [supported, isRecording, teardown]);
 
@@ -93,6 +101,7 @@ export function useVoiceInput(): VoiceInput {
     const type = recorder.mimeType || chunksRef.current[0]?.type || "audio/webm";
     const blob = new Blob(chunksRef.current, { type });
     teardown();
+    setStream(null);
 
     if (blob.size === 0) return null;
 
@@ -120,6 +129,7 @@ export function useVoiceInput(): VoiceInput {
     }
     setIsRecording(false);
     teardown();
+    setStream(null);
   }, [isRecording, teardown]);
 
   return {
@@ -127,6 +137,7 @@ export function useVoiceInput(): VoiceInput {
     isRecording,
     isTranscribing,
     error,
+    stream,
     start,
     stop,
     cancel,
