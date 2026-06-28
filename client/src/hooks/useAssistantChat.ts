@@ -99,6 +99,11 @@ export function useAssistantChat(): AssistantChat {
           signal: controller.signal,
         });
 
+      // Hoisted so the catch can tell a mid-stream failure (a partial reply is
+      // already shown) from a clean pre-stream one (429/5xx → a friendly note).
+      let assistantMessage = "";
+      let assistantStarted = false;
+
       try {
         let response = await doFetch();
         if (response.status === 401) {
@@ -110,15 +115,26 @@ export function useAssistantChat(): AssistantChat {
           // Retry the stream AT MOST ONCE after a successful refresh.
           response = await doFetch();
         }
-        if (!response.ok) throw new Error("Failed to send message");
+        if (!response.ok) {
+          // A clean pre-stream failure — surface it in the Clerk's own voice
+          // rather than letting the user's message vanish without a reply.
+          const friendly =
+            response.status === 429
+              ? "I've done a great deal of reckoning today — give me a short while before we carry on."
+              : "Something went amiss reaching me just now. Please try again in a moment.";
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: friendly },
+          ]);
+          setIsLoading(false);
+          return;
+        }
 
         const reader = response.body?.getReader();
         if (!reader) return;
 
         const decoder = new TextDecoder();
         let buffer = "";
-        let assistantMessage = "";
-        let assistantStarted = false;
 
         const handleFrame = (frame: string) => {
           let eventType = "message";
@@ -211,6 +227,18 @@ export function useAssistantChat(): AssistantChat {
           return;
         }
         console.error("Error sending message:", error);
+        // If nothing was shown yet, leave the Clerk with a graceful word rather
+        // than a dead turn (a mid-stream failure keeps its partial reply).
+        if (!assistantStarted) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content:
+                "Something went amiss reaching me just now. Please try again in a moment.",
+            },
+          ]);
+        }
         setIsLoading(false);
       } finally {
         // Only clear loading/busy if this send still owns the active controller

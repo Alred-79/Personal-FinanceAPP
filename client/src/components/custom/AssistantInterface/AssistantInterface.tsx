@@ -15,6 +15,7 @@ import { ClerkPresence } from "@/components/custom/Clerk/ClerkPresence";
 import { ClerkPortrait } from "@/components/custom/Clerk/ClerkPortrait";
 import {
   useClerkSuggestion,
+  suggestionForPath,
   fetchClerkSuggestions,
   isSilenced,
   silenceNudges,
@@ -68,7 +69,11 @@ export function AssistantInterface() {
   useEffect(() => {
     setAutoNudge(false);
     const path = location.pathname;
-    if (open || !suggestion || suggestion.auto === false) return;
+    // Eligibility is computed from the path itself (not the memoized
+    // `suggestion` object) so the effect only re-runs on real navigation or an
+    // open/close — never on an incidental reference change.
+    const s = suggestionForPath(path);
+    if (open || !s || s.auto === false) return;
     if (isSilenced() || hasNudged(path) || nudgeCount() >= MAX_SESSION_NUDGES) return;
 
     const show = setTimeout(() => {
@@ -83,7 +88,7 @@ export function AssistantInterface() {
       clearTimeout(show);
       clearTimeout(hide);
     };
-  }, [location.pathname, open, suggestion]);
+  }, [location.pathname, open]);
 
   const openBlank = () => {
     setSeed("");
@@ -111,7 +116,10 @@ export function AssistantInterface() {
       />
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent className={`${styles.sheetContent} !bg-background !text-foreground`}>
+        <SheetContent
+          aria-describedby="clerk-can-cant"
+          className={`${styles.sheetContent} !bg-background !text-foreground`}
+        >
           <SheetHeader>
             <SheetTitle className={`${styles.sheetTitle} !text-foreground`}>
               <motion.span
@@ -135,7 +143,10 @@ export function AssistantInterface() {
               At your service
             </p>
             {/* persistent can/can't line — borrow the read-only credibility (§4) */}
-            <p className="mt-1.5 flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
+            <p
+              id="clerk-can-cant"
+              className="mt-1.5 flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground"
+            >
               <Lock className="mt-px h-3 w-3 shrink-0 text-gold" aria-hidden />
               <span>
                 I can see your transactions and draft actions. I can&rsquo;t move money

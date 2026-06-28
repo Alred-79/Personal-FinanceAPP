@@ -140,13 +140,6 @@
     opacity: 0.7;
   }
 }
-.atWork {
-  font-family: "Spline Sans Mono", ui-monospace, monospace;
-  font-size: 0.64rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: hsl(var(--muted-foreground));
-}
 
 /* ── Empty state — teaches the surface ───────────────────── */
 
@@ -216,50 +209,12 @@
   gap: 0.5rem;
   padding-top: 0.25rem;
 }
-.inputRow {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-.field {
-  color: hsl(var(--foreground));
-}
-.iconSize {
-  height: 1rem;
-  width: 1rem;
-}
-.clearButton {
-  height: 2.25rem;
-  width: 2.25rem;
-  flex-shrink: 0;
-  background-color: hsl(var(--secondary));
-  color: hsl(var(--secondary-foreground));
-}
-.recordingMic {
-  color: hsl(var(--debit));
-  animation: micPulse 1.2s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .recordingMic {
-    animation: none;
-  }
-}
-.spin {
-  animation: spin 0.9s linear infinite;
-}
 .voiceError {
   font-size: 0.8125rem;
   color: hsl(var(--debit));
   padding: 0.25rem 0.25rem 0;
 }
 
-@keyframes micPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
 @keyframes bounce {
   0%, 80%, 100% { transform: translateY(0); opacity: 0.45; }
   40% { transform: translateY(-4px); opacity: 1; }
