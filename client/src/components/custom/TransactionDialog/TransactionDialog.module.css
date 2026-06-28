@@ -1,9 +1,7 @@
-/* Lives in the Recent Postings action row (a flex row beside "Scan Receipt").
-   `flex: 1` lets it fill the remaining width and shrink with the column —
-   the old `width: 100%` forced the row past the card and off the page. */
+/* Lives in the Recent Postings action column, stacked under "Scan Receipt".
+   Width comes from the parent's `[&>button]:w-full`; keep only the plate
+   shadow here (the old `width:100%` in a flex ROW forced it off the page). */
 .newTransactionButton {
-  flex: 1 1 0%;
-  min-width: 0;
   box-shadow: 0 0 0.5rem rgba(0, 0, 0, 0.1);
 }
 

@@ -56,7 +56,7 @@ function TransactionsCard() {
             ))
           )}
         </div>
-        <div className="mt-4 flex min-w-0 items-center gap-2 border-t border-rule-strong/30 pt-4">
+        <div className="mt-4 flex flex-col gap-2 border-t border-rule-strong/30 pt-4 [&>button]:w-full">
           <ScanReceiptButton onScanned={openDialogWith} />
           <TransactionDialog
             onSubmit={handleNewTransaction}
