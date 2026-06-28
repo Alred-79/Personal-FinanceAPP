@@ -1,8 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Trash2, Mic, Square, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { ActionMessage } from "@/types";
 import styles from "./ClerkConversation.module.css";
@@ -12,6 +9,7 @@ import { ProposalCard } from "@/components/custom/AssistantInterface/ProposalCar
 import { SourcesCitation } from "@/components/custom/AssistantInterface/SourcesCitation";
 import BridgeCard from "@/components/custom/BridgeCard/BridgeCard";
 import { ClerkPortrait } from "./ClerkPortrait";
+import { ClerkComposer } from "./ClerkComposer";
 
 const STARTERS = [
   "How much have I spent this week?",
@@ -55,15 +53,15 @@ interface ClerkConversationProps {
 
 /**
  * The Clerk's conversation surface — message transcript as ledger entries,
- * proposal/bridge cards, the "at work" streaming states, voice, and the input
- * bar. Shared by the floating window and (later) the ⌘K deck over their own
+ * proposal/bridge cards, the "at work" streaming states, voice, and the guided
+ * composer. Shared by the floating window and (later) the ⌘K deck over their own
  * {@link useAssistantChat} instance.
  */
 export function ClerkConversation({ seedPrompt = "" }: ClerkConversationProps = {}) {
   const navigate = useNavigate();
   const chat = useAssistantChat();
   const [input, setInput] = useState(seedPrompt);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const voice = useVoiceInput();
 
@@ -76,8 +74,8 @@ export function ClerkConversation({ seedPrompt = "" }: ClerkConversationProps = 
   };
 
   // Toggle the mic: first tap records, second tap stops + transcribes. The
-  // transcript is APPENDED into the editable input box for the user to review —
-  // it is never auto-sent (a mis-hearing should be caught before it hits the LLM).
+  // transcript is APPENDED into the editable box for the user to review — it is
+  // never auto-sent (a mis-hearing should be caught before it hits the LLM).
   const handleMicToggle = async () => {
     if (voice.isRecording) {
       const text = await voice.stop();
@@ -91,7 +89,7 @@ export function ClerkConversation({ seedPrompt = "" }: ClerkConversationProps = 
   // end so the user can finish or edit the pre-filled prompt.
   useEffect(() => {
     if (!seedPrompt) return;
-    const el = inputRef.current;
+    const el = composerRef.current;
     if (el) {
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
@@ -105,13 +103,6 @@ export function ClerkConversation({ seedPrompt = "" }: ClerkConversationProps = 
     ) as HTMLElement | null;
     if (viewport) viewport.scrollTop = viewport.scrollHeight;
   }, [chat.messages, chat.isLoading, chat.isStreaming]);
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      submit();
-    }
-  };
 
   const isEmpty = chat.messages.length === 0;
   const lastIdx = chat.messages.length - 1;
@@ -190,56 +181,19 @@ export function ClerkConversation({ seedPrompt = "" }: ClerkConversationProps = 
             {voice.error}
           </div>
         )}
-        <div className={styles.inputRow}>
-          {!isEmpty && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => void chat.clear()}
-              className={styles.clearButton}
-              title="Clear chat"
-            >
-              <Trash2 className={styles.iconSize} />
-            </Button>
-          )}
-          <Input
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyPress}
-            placeholder={
-              voice.isRecording ? "Listening… tap to stop" : "Ask about your finances…"
-            }
-            disabled={chat.isLoading || voice.isRecording || voice.isTranscribing}
-            className={styles.field}
-          />
-          {voice.supported && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleMicToggle}
-              disabled={chat.isLoading || voice.isTranscribing}
-              title={voice.isRecording ? "Stop recording" : "Speak your message"}
-              aria-label={voice.isRecording ? "Stop recording" : "Speak your message"}
-              aria-pressed={voice.isRecording}
-            >
-              {voice.isTranscribing ? (
-                <Loader2 className={`${styles.iconSize} ${styles.spin}`} />
-              ) : voice.isRecording ? (
-                <Square className={`${styles.iconSize} ${styles.recordingMic}`} />
-              ) : (
-                <Mic className={styles.iconSize} />
-              )}
-            </Button>
-          )}
-          <Button
-            size="icon"
-            onClick={() => submit()}
-            disabled={!input.trim() || chat.isLoading || voice.isRecording}
-          >
-            <Send className={styles.iconSize} />
-          </Button>
-        </div>
+        <ClerkComposer
+          ref={composerRef}
+          value={input}
+          onChange={setInput}
+          onSubmit={() => submit()}
+          onClear={() => void chat.clear()}
+          hasMessages={!isEmpty}
+          disabled={chat.isLoading}
+          voiceSupported={voice.supported}
+          isRecording={voice.isRecording}
+          isTranscribing={voice.isTranscribing}
+          onMicToggle={handleMicToggle}
+        />
       </div>
     </>
   );
