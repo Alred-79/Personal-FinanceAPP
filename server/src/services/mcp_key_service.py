@@ -61,6 +61,11 @@ class MCPKeyService:
         if not scopes:
             raise ValueError("At least one scope is required.")
         allowed = set(settings.mcp_allowed_scopes)
+        # The propose-only write scope is mintable ONLY when the feature is on, so
+        # a default (feature-off) deployment can't even create a propose-capable
+        # key. See the note on settings.mcp_allowed_scopes.
+        if settings.mcp_propose_enabled:
+            allowed.add("propose:actions")
         unknown = set(scopes) - allowed
         if unknown:
             raise ValueError(

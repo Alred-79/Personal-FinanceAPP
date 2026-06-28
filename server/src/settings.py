@@ -468,10 +468,12 @@ class Settings(BaseSettings):
         "read:scenarios",
         # context resource scope
         "read:context",
-        # propose-only write tool (Tier-2). Never moves money — it only drafts an
-        # Assisted-Action Bridge the human must execute in-app. Gated additionally
-        # by ``mcp_propose_enabled`` (default off).
-        "propose:actions",
+        # NOTE: the propose-only write scope ("propose:actions", Tier-2) is
+        # deliberately NOT in this default allow-list. It is a write scope, so it
+        # is mintable only when ``mcp_propose_enabled`` is True — see
+        # MCPKeyService.create, which adds it to the effective allow-set then.
+        # That keeps the default (feature-off) deployment unable to even mint a
+        # propose-capable key.
     ]
     mcp_key_default_ttl_days: int = 90
     mcp_capability_ttl_seconds: int = 60
