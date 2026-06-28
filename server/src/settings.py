@@ -372,6 +372,18 @@ class Settings(BaseSettings):
     groq_stt_model: str = "whisper-large-v3-turbo"
     assistant_stt_rate_limit: str = "30/hour"
 
+    # --- Voice output (text-to-speech) ---
+    # Spoken Clerk replies. Groq also hosts PlayAI TTS, so this reuses
+    # ``groq_api_key`` — no new vendor (mirrors the STT decision above). The
+    # /assistant/speak/ endpoint streams synthesized audio of a reply the user
+    # ALREADY received as text — the transcript is always shown, never audio-only.
+    # OFF by default (ship-dark): the endpoint reports disabled when False. The
+    # model/voice defaults below are validated against Groq's catalogue in P7.
+    assistant_tts_enabled: bool = False
+    groq_tts_model: str = "playai-tts"
+    groq_tts_voice: str = "Celeste-PlayAI"
+    assistant_tts_rate_limit: str = "30/hour"
+
     # --- AI assistant ---
     # Chat model, sampling temperature, and how many prior turns the agent
     # remembers. These used to be hardcoded inside the assistant service.
@@ -386,6 +398,16 @@ class Settings(BaseSettings):
     # ``assistant_request_timeout``.
     assistant_turn_timeout: float = 120.0
     assistant_memory_window: int = 4
+
+    # --- Contextual suggestions (the Clerk's section-aware starters) ---
+    # GET /assistant/suggestions returns 2–4 data-aware starter prompts for the
+    # caller's current section (e.g. "You're $40 over on dining — want options?").
+    # HEURISTIC ONLY — built from existing read tools, no per-call LLM — and
+    # short-TTL cached, so it never touches the chat cost budget. The client always
+    # keeps a static section→prompt fallback, so this only *enriches*. OFF by default.
+    assistant_suggestions_enabled: bool = False
+    assistant_suggestions_ttl_seconds: int = 300
+
     # --- Context hygiene: cap large tool outputs before they enter agent memory.
     # A "show all transactions" tool call can return up to MAX_TX_LIMIT (500)
     # rows; ConversationBufferWindowMemory keeps them for several turns, bloating

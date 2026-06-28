@@ -61,6 +61,9 @@
     --z-ink: 9000;
     --z-toolbar: 10000;
     --z-nib: 10001;
+    /* The Clerk presence + window (the assistant). Above app chrome so the
+       drawer/portrait cover the page; named here instead of an ad-hoc 99999. */
+    --z-clerk: 10050;
 
     /* Engraver's extras (not part of the shadcn contract) */
     --gold: 42 56% 44%;

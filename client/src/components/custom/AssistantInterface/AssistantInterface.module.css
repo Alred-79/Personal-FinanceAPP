@@ -17,7 +17,7 @@
 }
 
 .sheetContent {
-  z-index: 99999;
+  z-index: var(--z-clerk);
   display: flex;
   height: 100%;
   width: 100%;
