@@ -8,9 +8,11 @@ import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { ProposalCard } from "@/components/custom/AssistantInterface/ProposalCard";
 import { SourcesCitation } from "@/components/custom/AssistantInterface/SourcesCitation";
 import BridgeCard from "@/components/custom/BridgeCard/BridgeCard";
+import { Volume2, VolumeX } from "lucide-react";
 import { ClerkPortrait } from "./ClerkPortrait";
 import { ClerkComposer } from "./ClerkComposer";
 import { ClerkVoice } from "./ClerkVoice";
+import { useClerkTts } from "@/hooks/useClerkTts";
 
 const STARTERS = [
   "How much have I spent this week?",
@@ -50,6 +52,8 @@ interface ClerkConversationProps {
   /** Pre-fill the input when the surface opens (from a contextual ticket).
    * Never auto-sent — the user reviews and sends. */
   seedPrompt?: string;
+  /** Bubble the TTS "speaking" state up so the docked portrait can react. */
+  onSpeakingChange?: (speaking: boolean) => void;
 }
 
 /**
@@ -58,13 +62,35 @@ interface ClerkConversationProps {
  * composer. Shared by the floating window and (later) the ⌘K deck over their own
  * {@link useAssistantChat} instance.
  */
-export function ClerkConversation({ seedPrompt = "" }: ClerkConversationProps = {}) {
+export function ClerkConversation({
+  seedPrompt = "",
+  onSpeakingChange,
+}: ClerkConversationProps = {}) {
   const navigate = useNavigate();
   const chat = useAssistantChat();
   const [input, setInput] = useState(seedPrompt);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const voice = useVoiceInput();
+  const tts = useClerkTts();
+  const wasStreaming = useRef(false);
+
+  // Read each completed reply aloud when voice mode is on.
+  useEffect(() => {
+    const was = wasStreaming.current;
+    wasStreaming.current = chat.isStreaming;
+    if (was && !chat.isStreaming && tts.enabled) {
+      const last = chat.messages[chat.messages.length - 1];
+      if (last && last.role === "assistant" && last.content.trim()) {
+        void tts.speak(last.content);
+      }
+    }
+  }, [chat.isStreaming, chat.messages, tts.enabled, tts.speak]);
+
+  // Surface the speaking state to the shell (the docked portrait reacts).
+  useEffect(() => {
+    onSpeakingChange?.(tts.speaking);
+  }, [tts.speaking, onSpeakingChange]);
 
   // Resolve the message (typed or a starter), clear the box, and send.
   const submit = (override?: string) => {
@@ -105,6 +131,24 @@ export function ClerkConversation({ seedPrompt = "" }: ClerkConversationProps = 
 
   return (
     <>
+      {tts.available && (
+        <div className={styles.topBar}>
+          <button
+            type="button"
+            className={`${styles.ttsToggle} ${tts.enabled ? styles.ttsOn : ""}`}
+            onClick={tts.toggle}
+            aria-pressed={tts.enabled}
+            title={tts.enabled ? "Spoken replies are on" : "Read the Clerk's replies aloud"}
+          >
+            {tts.enabled ? (
+              <Volume2 className={styles.ttsIcon} aria-hidden />
+            ) : (
+              <VolumeX className={styles.ttsIcon} aria-hidden />
+            )}
+            Read aloud
+          </button>
+        </div>
+      )}
       <ScrollArea ref={scrollAreaRef} className={styles.scroll}>
         {isEmpty ? (
           <div className={styles.empty}>

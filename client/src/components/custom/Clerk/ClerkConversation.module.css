@@ -6,6 +6,38 @@
   padding-right: 0.75rem;
 }
 
+/* ── Voice-mode (read-aloud) toggle ──────────────────────── */
+
+.topBar {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 0.15rem;
+}
+.ttsToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  border: 1px solid hsl(var(--rule-strong) / 0.4);
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+.ttsToggle:hover {
+  border-color: hsl(var(--gold) / 0.6);
+}
+.ttsOn {
+  color: hsl(var(--gold));
+  border-color: hsl(var(--gold) / 0.7);
+}
+.ttsIcon {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
 .stream {
   display: flex;
   flex-direction: column;

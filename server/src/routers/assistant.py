@@ -4,6 +4,7 @@ from fastapi import (
     File,
     HTTPException,
     Request,
+    Response,
     UploadFile,
     status,
 )
@@ -23,7 +24,9 @@ from ..services.assistant_service import (
 from ..services.speech_service import (
     ALLOWED_CONTENT_TYPES,
     MAX_AUDIO_BYTES,
+    TTS_MEDIA_TYPE,
     SpeechService,
+    TtsService,
 )
 from server.src.db.session import get_db
 from server.src.models import (
@@ -349,3 +352,56 @@ def get_suggestions(
     if not settings.assistant_suggestions_enabled:
         raise HTTPException(status_code=404, detail="Suggestions are not enabled.")
     return _data_aware_suggestions(db, current_user.id, context)
+
+
+# ---------------------------------------------------------------------------
+# Voice output (text-to-speech) — the Clerk reading a reply aloud
+# ---------------------------------------------------------------------------
+# Synthesises a reply the user ALREADY received as text (the transcript is always
+# shown; this is never audio-only). PAID Groq PlayAI TTS, so it reserves one
+# ``llm_budget`` unit like /transcribe/ and refunds on failure. OFF by default
+# (404 when the flag is off). Same Step-02 callable-limit gotcha as /chat/.
+class SpeakRequest(BaseModel):
+    text: str
+
+
+@router.post("/speak/")
+@limiter.limit(lambda: settings.assistant_tts_rate_limit)
+def speak(
+    request: Request,
+    payload: SpeakRequest,
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    if not settings.assistant_tts_enabled:
+        raise HTTPException(status_code=404, detail="Spoken replies are not enabled.")
+
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Nothing to speak.")
+
+    # Reserve one budget unit before the paid call; refund on any failure.
+    try:
+        llm_budget.check_and_reserve(db, current_user.id, requests=1)
+    except llm_budget.BudgetExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+
+    try:
+        audio = TtsService().synthesize(text)
+    except Exception:
+        llm_budget.release_request(db, current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not generate audio. The reply is still shown as text.",
+        )
+
+    if not audio:
+        llm_budget.release_request(db, current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not generate audio. The reply is still shown as text.",
+        )
+
+    return Response(content=audio, media_type=TTS_MEDIA_TYPE)

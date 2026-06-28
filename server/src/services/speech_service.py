@@ -88,3 +88,53 @@ class SpeechService:
         """Return the trimmed transcript. May raise from ``transcribe_fn``."""
         text = self.transcribe_fn(audio_bytes, content_type) or ""
         return text.strip()
+
+
+# ---------------------------------------------------------------------------
+# Text-to-speech (the Clerk reading a reply aloud)
+# ---------------------------------------------------------------------------
+# The mirror of STT: a reply the user ALREADY has as text → spoken audio. Groq
+# hosts PlayAI TTS, so this reuses ``settings.groq_api_key`` — no new vendor. The
+# synthesis call is injected (``synthesize_fn``) so tests never touch the SDK.
+
+# (text) -> WAV audio bytes from the TTS model.
+SynthesizeFn = Callable[[str], bytes]
+
+# WAV is what we request from Groq and is universally <audio>-playable.
+TTS_MEDIA_TYPE = "audio/wav"
+# Cap input so a runaway reply can't synthesise an unbounded clip (or bill).
+MAX_TTS_CHARS = 2000
+
+
+def _default_synthesize_fn(text: str) -> bytes:
+    """Call Groq's PlayAI TTS. Imported lazily so tests skip the SDK."""
+    from groq import Groq
+
+    from ..settings import settings
+
+    client = Groq(api_key=settings.groq_api_key)
+    resp = client.audio.speech.create(
+        model=settings.groq_tts_model,
+        voice=settings.groq_tts_voice,
+        input=text,
+        response_format="wav",
+    )
+    # The SDK returns an OpenAI-style binary response; prefer ``.read()`` and
+    # fall back to ``.content`` so an SDK shape change can't 500 us.
+    if hasattr(resp, "read"):
+        return resp.read()
+    return getattr(resp, "content", b"") or b""
+
+
+class TtsService:
+    """Synthesises a short reply to spoken WAV audio."""
+
+    def __init__(self, synthesize_fn: Optional[SynthesizeFn] = None) -> None:
+        self.synthesize_fn = synthesize_fn or _default_synthesize_fn
+
+    def synthesize(self, text: str) -> bytes:
+        """Return WAV bytes for ``text`` (trimmed + length-capped). May raise."""
+        clean = (text or "").strip()[:MAX_TTS_CHARS]
+        if not clean:
+            return b""
+        return self.synthesize_fn(clean)

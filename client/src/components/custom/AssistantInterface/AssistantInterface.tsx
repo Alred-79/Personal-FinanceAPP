@@ -7,7 +7,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Lock } from "lucide-react";
+import { motion } from "motion/react";
 import styles from "./AssistantInterface.module.css";
+import { useReducedMotion } from "@/hooks/useEnvironment";
 import { ClerkConversation } from "@/components/custom/Clerk/ClerkConversation";
 import { ClerkPresence } from "@/components/custom/Clerk/ClerkPresence";
 import { ClerkPortrait } from "@/components/custom/Clerk/ClerkPortrait";
@@ -41,6 +43,8 @@ export function AssistantInterface() {
   const [open, setOpen] = useState(false);
   const [seed, setSeed] = useState("");
   const [autoNudge, setAutoNudge] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const reduce = useReducedMotion();
 
   // Data-aware enrichment (server flag default-OFF → 404 → stays null → static
   // floor is used). Fetches on section change; the static `suggestion` still
@@ -110,9 +114,21 @@ export function AssistantInterface() {
         <SheetContent className={`${styles.sheetContent} !bg-background !text-foreground`}>
           <SheetHeader>
             <SheetTitle className={`${styles.sheetTitle} !text-foreground`}>
-              <span className="text-foreground">
-                <ClerkPortrait size={38} blink={false} />
-              </span>
+              <motion.span
+                className="inline-block text-foreground"
+                animate={speaking && !reduce ? { scale: [1, 1.07, 1] } : { scale: 1 }}
+                transition={
+                  speaking && !reduce
+                    ? { duration: 0.5, repeat: Infinity, ease: "easeInOut" }
+                    : { duration: 0.2 }
+                }
+              >
+                <ClerkPortrait
+                  size={38}
+                  blink={false}
+                  state={speaking ? "speaking" : "resting"}
+                />
+              </motion.span>
               <span className="font-display text-lg font-semibold">The Clerk</span>
             </SheetTitle>
             <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
@@ -128,7 +144,7 @@ export function AssistantInterface() {
             </p>
           </SheetHeader>
 
-          <ClerkConversation seedPrompt={seed} />
+          <ClerkConversation seedPrompt={seed} onSpeakingChange={setSpeaking} />
         </SheetContent>
       </Sheet>
     </>

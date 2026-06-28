@@ -5,6 +5,7 @@ import {
   useTransform,
   type MotionValue,
 } from "motion/react";
+import { useReducedMotion } from "@/hooks/useEnvironment";
 
 export type ClerkState =
   | "resting"
@@ -79,7 +80,9 @@ export function ClerkPortrait({
     return () => clearTimeout(timer);
   }, [blink]);
 
+  const reduce = useReducedMotion();
   const browLift = state === "aware" || state === "thinking" ? -1.4 : 0;
+  const speaking = state === "speaking" && !reduce;
 
   return (
     <svg
@@ -257,10 +260,25 @@ export function ClerkPortrait({
             opacity="0.8"
           />
 
-          {/* moustache + a faint mouth */}
+          {/* moustache (static) + a mouth that opens when speaking */}
           <g stroke="currentColor" fill="none">
             <path d="M43.5,56.6 Q50,59.2 56.5,56.6" strokeWidth="1.5" />
-            <path d="M47,58.8 Q50,59.4 53,58.8" strokeWidth="0.6" opacity="0.4" />
+            <motion.path
+              d="M47,58.8 Q50,59.4 53,58.8"
+              strokeWidth="0.6"
+              style={{ transformBox: "fill-box", transformOrigin: "center" }}
+              initial={false}
+              animate={
+                speaking
+                  ? { scaleY: [1, 2.6, 0.7, 2.1, 1], opacity: [0.4, 0.7, 0.45, 0.7, 0.4] }
+                  : { scaleY: 1, opacity: 0.4 }
+              }
+              transition={
+                speaking
+                  ? { duration: 0.46, repeat: Infinity, ease: "easeInOut" }
+                  : { duration: 0.2 }
+              }
+            />
           </g>
         </motion.g>
       </g>
