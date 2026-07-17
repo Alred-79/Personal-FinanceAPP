@@ -10,6 +10,68 @@
 
 export const DAYS = 30;
 export const START = 2980; // starting balance, dollars
+export const BASE_BURN = 46; // dollars/day of discretionary spend at rest
+
+export type DemoScenarioKey = "pay-delay" | "rent-rise" | "flight" | "cancel-bill";
+
+export type DemoScenario = {
+  key: DemoScenarioKey;
+  label: string;
+  detail: string;
+  safeDelta: number;
+  tone: "credit" | "debit";
+  net: Record<number, number>;
+};
+
+/**
+ * Curated, anonymous choices for the public Decision Lab. They all apply to the
+ * same illustrative ledger below, so a visitor sees a genuine baseline/scenario
+ * comparison without entering or transmitting personal financial data.
+ */
+export const DEMO_SCENARIOS: DemoScenario[] = [
+  {
+    key: "pay-delay",
+    label: "Paycheck 7 days late",
+    detail: "Move the next paycheck from day 18 to day 25.",
+    safeDelta: -(BASE_BURN * 7 + 150),
+    tone: "debit",
+    net: { 18: -1900, 25: 1900 },
+  },
+  {
+    key: "rent-rise",
+    label: "Rent rises $250",
+    detail: "Add $250 to the next rent payment.",
+    safeDelta: -250,
+    tone: "debit",
+    net: { 4: -250 },
+  },
+  {
+    key: "flight",
+    label: "Buy a $600 flight",
+    detail: "Place a one-time $600 purchase on day 10.",
+    safeDelta: -600,
+    tone: "debit",
+    net: { 10: -600 },
+  },
+  {
+    key: "cancel-bill",
+    label: "Cancel a $130 bill",
+    detail: "Remove $130 from the bill due on day 15.",
+    safeDelta: 130,
+    tone: "credit",
+    net: { 15: 130 },
+  },
+];
+
+export const BASE_SAFE_TO_SPEND = 850;
+
+export function scenarioNet(scenario: DemoScenario): number[] {
+  const net = new Array(DAYS).fill(0);
+  for (const [day, amount] of Object.entries(scenario.net)) {
+    net[Number(day)] += amount;
+  }
+  return net;
+}
 
 /** The scheduled net flow per day (recurring bills − / income +), in dollars. */
 function baselineSchedule(): number[] {
@@ -33,8 +95,6 @@ const POOL_MEAN = RAW_POOL.reduce((a, b) => a + b, 0) / RAW_POOL.length;
 // centred on zero, scaled up so the band is clearly visible and the overdraft
 // probability moves smoothly as you drag (rather than snapping 0→100%).
 const POOL = RAW_POOL.map((r) => (r - POOL_MEAN) * 2.6);
-
-export const BASE_BURN = 46; // dollars/day of discretionary spend at rest
 
 /** Deterministic PRNG (mulberry32) so a given input yields a stable band. */
 function mulberry32(seed: number) {

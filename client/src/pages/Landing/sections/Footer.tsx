@@ -1,22 +1,19 @@
-import { LedgerSeal } from "../shared";
+import { AnchorLink, LedgerSeal } from "../shared";
 
-/** Footer colophon. */
 export function Footer() {
   return (
-    <footer className="mt-20 border-t border-rule-strong/40 py-10">
-      <div className="mx-auto flex max-w-[1080px] flex-wrap items-center justify-between gap-4 px-4 sm:px-8">
-        <div className="flex items-center gap-2">
-          <LedgerSeal size={28} />
-          <b className="font-display text-[0.9rem] font-semibold">The Ledger</b>
-        </div>
-        <div className="flex gap-6">
-          {["Privacy", "Security", "Terms", "Contact"].map((l) => (
-            <span key={l} className="cursor-default text-[0.78rem] text-muted-foreground transition-colors hover:text-foreground">
-              {l}
-            </span>
-          ))}
-        </div>
-        <p className="serial font-mono text-[0.7rem] tracking-[0.18em] text-muted-foreground">No. LK-42018</p>
+    <footer className="decision-footer">
+      <div className="decision-footer__inner">
+        <AnchorLink to="#top" className="decision-footer__brand">
+          <LedgerSeal size={30} />
+          <span>The Ledger</span>
+        </AnchorLink>
+        <p>Independent personal money control · Est. MMXXVI</p>
+        <nav aria-label="Footer">
+          <AnchorLink to="#how-it-works">How it works</AnchorLink>
+          <AnchorLink to="#work-money">Work Money</AnchorLink>
+          <AnchorLink to="#trust">Trust</AnchorLink>
+        </nav>
       </div>
     </footer>
   );

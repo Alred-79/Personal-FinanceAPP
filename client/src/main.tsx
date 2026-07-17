@@ -1,34 +1,38 @@
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
-import Home from "./pages/Home/Home.tsx";
-import Expedition from "./pages/Expedition/Expedition.tsx";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-import Accounts from "./pages/Accounts/Accounts.tsx";
-import Transactions from "./pages/Transactions/Transactions.tsx";
-import Goals from "./pages/Goals/Goals.tsx";
-import Budgets from "./pages/Budgets/Budgets.tsx";
-import Subscriptions from "./pages/Subscriptions/Subscriptions.tsx";
-import Almanac from "./pages/Almanac/Almanac.tsx";
-import Income from "./pages/Income/Income.tsx";
-import Forecast from "./pages/Forecast/Forecast.tsx";
-import Reconcile from "./pages/Reconcile/Reconcile.tsx";
-import Tax from "./pages/Tax/Tax.tsx";
-import Login from "./pages/Login/Login.tsx";
-import Landing from "./pages/Landing/Landing.tsx";
-import Settings from "./pages/Settings/Settings.tsx";
-import Rules from "./pages/Rules/Rules.tsx";
-import Keeper from "./pages/Keeper/Keeper.tsx";
-import Debts from "./pages/Debts/Debts.tsx";
-import Campaigns from "./pages/Campaigns/Campaigns.tsx";
-import Outcomes from "./pages/Outcomes/Outcomes.tsx";
 import AppShell from "./components/layout/AppShell.tsx";
 import ProtectedRoute from "./components/layout/ProtectedRoute.tsx";
 import ErrorBoundary from "./components/layout/ErrorBoundary.tsx";
+import RouteFallback from "./components/layout/RouteFallback.tsx";
 import { Toaster } from "@/components/ui/toaster";
 import { GameModeProvider } from "@/store/gameMode";
 import { ScanlineOverlay } from "@/components/custom/ScanlineOverlay/ScanlineOverlay";
 import { apiBase } from "@/lib/apiBase";
+
+// Route boundaries keep the public landing from downloading the protected app,
+// charting, tax, and game surfaces before a visitor has chosen to enter.
+const Landing = lazy(() => import("./pages/Landing/Landing.tsx"));
+const Login = lazy(() => import("./pages/Login/Login.tsx"));
+const Home = lazy(() => import("./pages/Home/Home.tsx"));
+const Expedition = lazy(() => import("./pages/Expedition/Expedition.tsx"));
+const Accounts = lazy(() => import("./pages/Accounts/Accounts.tsx"));
+const Transactions = lazy(() => import("./pages/Transactions/Transactions.tsx"));
+const Goals = lazy(() => import("./pages/Goals/Goals.tsx"));
+const Budgets = lazy(() => import("./pages/Budgets/Budgets.tsx"));
+const Subscriptions = lazy(() => import("./pages/Subscriptions/Subscriptions.tsx"));
+const Almanac = lazy(() => import("./pages/Almanac/Almanac.tsx"));
+const Income = lazy(() => import("./pages/Income/Income.tsx"));
+const Forecast = lazy(() => import("./pages/Forecast/Forecast.tsx"));
+const Reconcile = lazy(() => import("./pages/Reconcile/Reconcile.tsx"));
+const Tax = lazy(() => import("./pages/Tax/Tax.tsx"));
+const Settings = lazy(() => import("./pages/Settings/Settings.tsx"));
+const Rules = lazy(() => import("./pages/Rules/Rules.tsx"));
+const Keeper = lazy(() => import("./pages/Keeper/Keeper.tsx"));
+const Debts = lazy(() => import("./pages/Debts/Debts.tsx"));
+const Campaigns = lazy(() => import("./pages/Campaigns/Campaigns.tsx"));
+const Outcomes = lazy(() => import("./pages/Outcomes/Outcomes.tsx"));
 
 // Wipe the assistant's history when the user closes the tab. `sendBeacon` is
 // the only request guaranteed to fire during unload — a regular `fetch` is
@@ -44,7 +48,8 @@ createRoot(document.getElementById("root")!).render(
         <BrowserRouter>
           <Toaster />
           <ScanlineOverlay />
-          <Routes>
+          <Suspense fallback={<RouteFallback />}>
+            <Routes>
           {/* Public, no login needed: the marketing landing sits before /login. */}
           <Route path="/welcome" element={<Landing />} />
           {/* Stands alone, no login needed */}
@@ -92,7 +97,8 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/outcomes" element={<Outcomes />} />
             </Route>
           </Route>
-          </Routes>
+            </Routes>
+          </Suspense>
         </BrowserRouter>
       </GameModeProvider>
     </ErrorBoundary>

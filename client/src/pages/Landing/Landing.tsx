@@ -1,59 +1,38 @@
 import { useLenis } from "./hooks/useLenis";
 import { useLandingTheme } from "./hooks/useLandingTheme";
-import { VaultLightsProvider } from "./hooks/useVaultLights";
 import { Backdrop } from "./effects/Backdrop";
-import { VaultLightSwitch } from "./effects/VaultLightSwitch";
 import { Nav } from "./sections/Nav";
 import { Hero } from "./sections/Hero";
-import { Forecast } from "./sections/Forecast";
-import { Instruments } from "./sections/Instruments";
-import { VaultDoor } from "./sections/VaultDoor";
-import { Security } from "./sections/Security";
-import { GameMode } from "./sections/GameMode";
+import { HowItWorks } from "./sections/HowItWorks";
+import { Modes } from "./sections/Modes";
+import { Trust } from "./sections/Trust";
 import { FinalCTA } from "./sections/FinalCTA";
 import { Footer } from "./sections/Footer";
 import "./landing.css";
 
-/**
- * The Ledger — "The Polymer Vault" public marketing landing, shown before /login.
- * Standalone (no AppShell), like /login. Re-skinned onto the existing "Engraver's
- * Ledger" system (same tokens, primitives, color law) and pushed toward a
- * captivating, high-end experience: a light→dark scroll journey, a living WebGL
- * guilloché field and a struck 3D coin, holographic foil and frosted polymer
- * "security windows". Money figures stay sober (.figure / .intaglio); the gold
- * accent decorates chrome only. Composed from sections/*; the scroll journey,
- * 3D coin, and polymer-glass layers arrive in later phases.
- */
+/** Public front door: universal decision layer, optional Work Money specialization. */
 export default function Landing() {
   useLandingTheme();
   useLenis();
 
   return (
-    <VaultLightsProvider>
-      <div className="landing-root relative min-h-screen overflow-x-clip bg-background text-foreground">
-        {/* living backdrop: static guilloché base + cursor-reactive WebGL field */}
-        <Backdrop />
+    <div className="landing-root min-h-screen overflow-x-clip bg-background text-foreground">
+      <Backdrop />
+      <Nav />
 
-        <Nav />
-
-        {/* the vault's own light-switch — appears only past the VaultDoor */}
-        <VaultLightSwitch />
-
-        <div className="relative z-[1] mx-auto max-w-[1080px] px-4 sm:px-8">
-          {/* Lead with the Hero, then the calibrated-overdraft Forecast right
-              below it (its original top-of-page placement), followed by the
-              working tools and the honest-AI vault / game trust features. */}
+      <main className="relative z-[1]">
+        <div className="decision-page-shell">
           <Hero />
-          <Forecast />
-          <Instruments />
-          <VaultDoor />
-          <Security />
-          <GameMode />
+          <HowItWorks />
+          <Modes />
+        </div>
+        <Trust />
+        <div className="decision-page-shell decision-page-shell--closing">
           <FinalCTA />
         </div>
+      </main>
 
-        <Footer />
-      </div>
-    </VaultLightsProvider>
+      <Footer />
+    </div>
   );
 }
