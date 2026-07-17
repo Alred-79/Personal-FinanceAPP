@@ -1,11 +1,16 @@
 """CI import guard for the MCP boundary.
 
-Scans every .py file under server/src/mcp/ except vault.py and fails if any
-module imports from server.src.db, db.models, or SessionLocal.
+Scans every .py file under server/src/mcp/ except the sanctioned DB *doors* and
+fails if any other module imports from server.src.db, db.models, or SessionLocal.
 
-vault.py is the *only* permitted entry point to the DB from the MCP side.
-Keeping all other MCP modules DB-free makes the boundary enforceable, not
-aspirational.
+There are exactly TWO sanctioned doors:
+  * ``vault.py``   — the read door (opens a session, never commits, rolls back).
+  * ``actions.py`` — the propose door (creates one Bridge and commits it).
+
+Every other MCP module must be DB-free. That keeps the boundary enforceable, not
+aspirational. ``test_db_doors_are_exactly_the_sanctioned_set`` additionally
+fails if a NEW module starts importing the DB, so the door set can't grow by
+accident — adding a third door has to be a deliberate edit to ``_DB_DOORS``.
 
 The final test (test_guard_bites_on_planted_violation) proves the scanner
 actually catches a violation by parsing a string with a forbidden import.
@@ -73,30 +78,51 @@ _MCP_SRC = (
     pathlib.Path(__file__).parent.parent / "src" / "mcp"
 )
 
+# The sanctioned DB doors — the ONLY mcp/ modules permitted to import a session.
+_DB_DOORS = {"vault.py", "actions.py"}
 
-def _non_vault_modules():
+
+def _non_door_modules():
     return [
         p for p in _MCP_SRC.glob("*.py")
-        if p.name != "vault.py" and not p.name.startswith("__")
+        if p.name not in _DB_DOORS and not p.name.startswith("__")
     ]
 
 
 class TestImportGuard:
     def test_no_violations_in_real_mcp_tree(self):
-        """All non-vault mcp/ modules must be DB-free."""
+        """Every non-door mcp/ module must be DB-free."""
         violations = []
-        for path in _non_vault_modules():
+        for path in _non_door_modules():
             source = path.read_text()
             if _has_forbidden_import(source):
                 violations.append(path.name)
         assert violations == [], (
-            f"These mcp/ modules import the DB directly (only vault.py may): {violations}"
+            "These mcp/ modules import the DB directly (only the sanctioned doors "
+            f"{sorted(_DB_DOORS)} may): {violations}"
         )
 
-    def test_vault_itself_is_excluded(self):
-        """vault.py must be excluded from the scan (it is the permitted importer)."""
-        scanned = {p.name for p in _non_vault_modules()}
-        assert "vault.py" not in scanned
+    def test_doors_are_excluded(self):
+        """The DB doors must be excluded from the scan (they are the permitted importers)."""
+        scanned = {p.name for p in _non_door_modules()}
+        assert not (_DB_DOORS & scanned)
+
+    def test_db_doors_are_exactly_the_sanctioned_set(self):
+        """No module outside _DB_DOORS may import the DB — and every door actually does.
+
+        This makes the door list closed: a NEW module that reaches for a session
+        fails the build until it is deliberately added to ``_DB_DOORS``, and a
+        door that stops importing the DB (dead entry) is flagged too.
+        """
+        importers = {
+            p.name
+            for p in _MCP_SRC.glob("*.py")
+            if not p.name.startswith("__") and _has_forbidden_import(p.read_text())
+        }
+        assert importers == _DB_DOORS, (
+            f"DB-importing mcp/ modules {sorted(importers)} != sanctioned doors "
+            f"{sorted(_DB_DOORS)}"
+        )
 
     # ── Prove the scanner bites ──────────────────────────────────────────
 
