@@ -27,7 +27,6 @@ interface HeaderProps {
  * (mobile hamburger → Sheet → Sidebar).
  */
 export default function Header({
-  title: _title,
   onConnectBank,
   canConnectBank,
   onLogout,

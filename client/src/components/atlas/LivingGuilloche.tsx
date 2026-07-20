@@ -91,7 +91,11 @@ export function LivingGuilloche({ seed = 421018 }: { seed?: number }) {
             (0.75 + 0.25 * Math.cos(p.k2 * a));
           const x = cx + rad * Math.cos(a);
           const y = cy + rad * Math.sin(a);
-          a === 0 ? ctx!.moveTo(x, y) : ctx!.lineTo(x, y);
+          if (a === 0) {
+            ctx!.moveTo(x, y);
+          } else {
+            ctx!.lineTo(x, y);
+          }
         }
         ctx!.closePath();
         ctx!.stroke();

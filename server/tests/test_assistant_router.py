@@ -193,9 +193,10 @@ def test_build_tools_tax_present_when_flag_on_and_tax_group(monkeypatch):
 # ── system-prompt trimming follows the mode; guardrails always kept ─────────
 
 
-def test_prompt_keeps_security_and_no_advice_in_every_mode(monkeypatch):
+def test_prompt_keeps_security_and_no_advice_in_every_mode(monkeypatch, _engine):
     from server.src.settings import settings as s
 
+    _bind_session(monkeypatch, _engine)
     monkeypatch.setattr(s, "tax_features_enabled", False)
     svc = AssistantService()
     for groups in (None, frozenset({READ}), frozenset({READ, MONEY})):
@@ -205,9 +206,10 @@ def test_prompt_keeps_security_and_no_advice_in_every_mode(monkeypatch):
         assert "not a licensed financial, investment, or tax advisor" in prompt
 
 
-def test_prompt_includes_money_paragraphs_only_with_money_group(monkeypatch):
+def test_prompt_includes_money_paragraphs_only_with_money_group(monkeypatch, _engine):
     from server.src.settings import settings as s
 
+    _bind_session(monkeypatch, _engine)
     monkeypatch.setattr(s, "tax_features_enabled", False)
     svc = AssistantService()
     with_money = svc._build_system_prompt(1, frozenset({READ, MONEY}))
@@ -218,9 +220,10 @@ def test_prompt_includes_money_paragraphs_only_with_money_group(monkeypatch):
     assert "create_rule" not in without_money
 
 
-def test_prompt_tax_paragraph_only_with_tax_group_and_flag(monkeypatch):
+def test_prompt_tax_paragraph_only_with_tax_group_and_flag(monkeypatch, _engine):
     from server.src.settings import settings as s
 
+    _bind_session(monkeypatch, _engine)
     monkeypatch.setattr(s, "tax_features_enabled", True)
     svc = AssistantService()
     with_tax = svc._build_system_prompt(1, frozenset({READ, MONEY, TAX}))
@@ -229,18 +232,20 @@ def test_prompt_tax_paragraph_only_with_tax_group_and_flag(monkeypatch):
     assert "TAX ORGANIZATION" not in no_tax_group
 
 
-def test_prompt_no_tax_paragraph_when_flag_off(monkeypatch):
+def test_prompt_no_tax_paragraph_when_flag_off(monkeypatch, _engine):
     from server.src.settings import settings as s
 
+    _bind_session(monkeypatch, _engine)
     monkeypatch.setattr(s, "tax_features_enabled", False)
     svc = AssistantService()
     prompt = svc._build_system_prompt(1, frozenset({READ, MONEY, TAX}))
     assert "TAX ORGANIZATION" not in prompt
 
 
-def test_prompt_full_when_groups_none_router_off(monkeypatch):
+def test_prompt_full_when_groups_none_router_off(monkeypatch, _engine):
     from server.src.settings import settings as s
 
+    _bind_session(monkeypatch, _engine)
     monkeypatch.setattr(s, "tax_features_enabled", False)
     svc = AssistantService()
     prompt = svc._build_system_prompt(1, None)

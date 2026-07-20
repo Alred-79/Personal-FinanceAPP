@@ -121,7 +121,11 @@ export function VoyageMap({
         ctx.strokeStyle = reached ? C("--gold") : C("--rule-strong");
         ctx.lineWidth = 1.6 * DPR;
         ctx.arc(p.x * W, p.y * H, 4 * DPR, 0, 6.2832);
-        reached ? ctx.fill() : ctx.stroke();
+        if (reached) {
+          ctx.fill();
+        } else {
+          ctx.stroke();
+        }
         ctx.fillStyle = C("--muted-foreground");
         ctx.globalAlpha = 0.8;
         ctx.font = `${9.5 * DPR}px "Spline Sans Mono", monospace`;

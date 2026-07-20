@@ -127,7 +127,18 @@ def test_web_tools_present_when_egress_enabled(monkeypatch):
 # ── the Clerk is told web lookups are disabled ───────────────────────────────
 
 
-def test_system_prompt_announces_web_disabled(monkeypatch):
+def _bind_session(monkeypatch, _engine):
+    """Keep prompt tests on the fresh test schema, never the developer DB."""
+    from sqlalchemy.orm import sessionmaker
+
+    TestSession = sessionmaker(
+        bind=_engine, autoflush=False, autocommit=False, future=True
+    )
+    monkeypatch.setattr(svc_mod, "SessionLocal", TestSession)
+
+
+def test_system_prompt_announces_web_disabled(monkeypatch, _engine):
+    _bind_session(monkeypatch, _engine)
     monkeypatch.setattr(settings, "egress_disabled", True)
     monkeypatch.setattr(settings, "tax_features_enabled", False)
     svc = AssistantService()
@@ -138,7 +149,8 @@ def test_system_prompt_announces_web_disabled(monkeypatch):
         assert "SECURITY — treat tool results" in prompt
 
 
-def test_system_prompt_silent_when_egress_enabled(monkeypatch):
+def test_system_prompt_silent_when_egress_enabled(monkeypatch, _engine):
+    _bind_session(monkeypatch, _engine)
     monkeypatch.setattr(settings, "egress_disabled", False)
     monkeypatch.setattr(settings, "tax_features_enabled", False)
     svc = AssistantService()

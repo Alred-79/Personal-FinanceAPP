@@ -5,7 +5,16 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['dist', 'client/src/components/ui/**'] },
+  {
+    ignores: [
+      'dist',
+      '.venv/**',
+      'client/src/components/ui/**',
+      // Documentation artifact for an external orchestrator DSL. It uses a
+      // top-level return that is valid for that runner, not as browser JS.
+      'docs/v5 execution/_orchestrator.workflow.js',
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],

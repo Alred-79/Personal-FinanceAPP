@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import * as React from "react";
 import {
   render,
   screen,
@@ -34,7 +35,6 @@ vi.mock("@/hooks/useToast", () => ({
 // this test exercises the DIALOG's submit/error logic — the thing under test —
 // not radix internals. The shims preserve the value/onValueChange contract.
 vi.mock("@/components/ui/select", () => {
-  const React = require("react") as typeof import("react");
   const Ctx = React.createContext<{
     value?: string;
     onValueChange?: (v: string) => void;
