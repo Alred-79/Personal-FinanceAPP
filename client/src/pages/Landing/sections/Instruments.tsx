@@ -163,7 +163,7 @@ function EngravedHeading() {
         viewport={vp}
         transition={{ duration: 0.6, ease: EASE }}
       >
-        The Instruments
+        The decision layer
       </motion.p>
       <motion.h2
         className="iv-head__title relative mt-2 text-balance font-display font-semibold"
@@ -173,7 +173,7 @@ function EngravedHeading() {
         viewport={vp}
         transition={{ duration: 1.05, ease: EASE, delay: 0.12 }}
       >
-        Every figure, engraved and accountable.
+        The context one bank cannot give you.
       </motion.h2>
       <motion.p
         className="relative mt-3 text-pretty text-[1.02rem] text-muted-foreground"
@@ -182,9 +182,9 @@ function EngravedHeading() {
         viewport={vp}
         transition={{ duration: 0.7, ease: EASE, delay: 0.55 }}
       >
-        Not another dashboard of charts you ignore. Each tool is a working
-        instrument — it does one thing, shows its reasoning, and never moves
-        real money without your stamp.
+        One account sees one slice. The Ledger combines the whole picture,
+        models the uncertain part, and keeps every answer tied to figures you
+        can inspect. Nothing moves without your confirmation.
       </motion.p>
     </div>
   );
@@ -194,17 +194,17 @@ function EngravedHeading() {
 function Heading() {
   return (
     <Rise className="mx-auto max-w-[42rem] px-[7vw] text-center">
-      <p className="dept-label">The Instruments</p>
+      <p className="dept-label">The decision layer</p>
       <h2
         className="mt-2 text-balance font-display font-semibold"
         style={{ fontSize: "clamp(1.8rem,4.5vw,2.8rem)" }}
       >
-        Every figure, engraved and accountable.
+        The context one bank cannot give you.
       </h2>
       <p className="mt-3 text-pretty text-[1.02rem] text-muted-foreground">
-        Not another dashboard of charts you ignore. Each tool is a working
-        instrument — it does one thing, shows its reasoning, and never moves
-        real money without your stamp.
+        One account sees one slice. The Ledger combines the whole picture,
+        models the uncertain part, and keeps every answer tied to figures you
+        can inspect. Nothing moves without your confirmation.
       </p>
     </Rise>
   );

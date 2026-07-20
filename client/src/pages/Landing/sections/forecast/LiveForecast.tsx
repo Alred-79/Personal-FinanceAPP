@@ -38,9 +38,9 @@ const gaugeY = (b: number) =>
 
 /** The what-if levers — each layers extra net flows onto the baseline schedule. */
 const SCENARIOS: { key: string; label: string; tone: "credit" | "debit"; net: Record<number, number> }[] = [
-  { key: "gig", label: "+ Side gig", tone: "credit", net: { 10: 420, 24: 420 } },
-  { key: "bill", label: "Kill a $130 bill", tone: "credit", net: { 12: 130 } },
-  { key: "buy", label: "Big purchase −$600", tone: "debit", net: { 16: -600 } },
+  { key: "gig", label: "+ $840 extra income", tone: "credit", net: { 10: 420, 24: 420 } },
+  { key: "bill", label: "Cancel a $130 bill", tone: "credit", net: { 12: 130 } },
+  { key: "buy", label: "Buy something −$600", tone: "debit", net: { 16: -600 } },
 ];
 
 function netFromChips(active: Set<string>): number[] {
@@ -223,7 +223,7 @@ export function LiveForecast() {
         {/* regime-shift annotation */}
         <line x1={xFor(6)} x2={xFor(6)} y1={PADT} y2={H - PADB} stroke="hsl(var(--gold))" strokeWidth={1} strokeDasharray="2 4" opacity={0.4} />
         <text x={xFor(6) + 5} y={PADT + 11} className="figure" fontFamily="'Spline Sans Mono', monospace" fontSize="9.5" letterSpacing="0.08em" fill="hsl(var(--gold))" opacity={0.85}>
-          ↑ spending +$465/mo · folded in
+          ↑ recent spending +$465/mo · included
         </text>
 
         {/* lowest-point marker on the median */}
@@ -356,7 +356,7 @@ export function LiveForecast() {
       {/* live metrics */}
       <div className="mt-4 grid grid-cols-3 gap-px border border-rule-strong/30 bg-rule-strong/25">
         <div className="bg-card px-4 py-3">
-          <div className="dept-label">Overdraft probability</div>
+          <div className="dept-label">Chance below $0</div>
           <div className={cn("figure mt-1 text-[1.12rem]", probClass(shown.prob))}>
             {Math.round(shown.prob * 100)}%
             {scenario && (
@@ -365,7 +365,7 @@ export function LiveForecast() {
           </div>
         </div>
         <div className="bg-card px-4 py-3">
-          <div className="dept-label">Projected low · 90% band</div>
+          <div className="dept-label">Modeled low · ~90% range</div>
           <div className={cn("figure mt-1 text-[1.12rem]", shown.troughMed < 0 ? "ink-debit" : "ink-credit")}>
             {dollars(shown.troughMed)}
           </div>
@@ -374,7 +374,7 @@ export function LiveForecast() {
           </div>
         </div>
         <div className="bg-card px-4 py-3">
-          <div className="dept-label">Runway · stays solvent</div>
+          <div className="dept-label">Runway without a shortfall</div>
           <div className={cn("figure mt-1 text-[1.12rem]", sRunway >= DAYS ? "ink-credit" : "ink-debit")}>
             {sRunway >= DAYS ? "all 30 days" : `${sRunway} days`}
           </div>
@@ -389,7 +389,7 @@ export function LiveForecast() {
 
       <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-[0.78rem] text-muted-foreground">
         <span aria-hidden className="text-gold">↕</span>
-        Drag the chart up or down to model spending · 240 simulated futures, re-run live
+        Drag up or down to change spending · 240 modeled futures update live
       </p>
     </div>
   );

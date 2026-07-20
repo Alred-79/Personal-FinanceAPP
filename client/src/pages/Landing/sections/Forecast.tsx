@@ -13,15 +13,15 @@ export function Forecast() {
   return (
     <section id="forecast" className="mt-28">
       <Rise className="mx-auto max-w-[44rem] text-center">
-        <p className="dept-label">The Sea-Chart · table-stakes, done honestly</p>
+        <p className="dept-label">The 30-day outlook · uncertainty included</p>
         <h2 className="mt-2 font-display font-semibold" style={{ fontSize: "clamp(1.8rem,4.5vw,2.8rem)" }}>
-          Know the odds you&rsquo;ll dip below zero before payday.
+          See the range before you make the move.
         </h2>
         <p className="mt-3 text-[1.02rem] text-muted-foreground">
-          Every app forecasts. Most draw one confident line and hope. We don&rsquo;t —
-          we give you a calibrated <em>probability</em>. Drag to model heavier or lighter
-          spending and watch hundreds of simulated futures, the ~90% trough band, and your
-          overdraft odds re-sound. A forecast that admits what it doesn&rsquo;t know.
+          A bank balance cannot account for everything already spoken for. The Ledger
+          combines scheduled cash flow with the variation in how you actually spend, then
+          shows a modeled low, a range, and the chance of falling below zero. Drag the chart
+          or add a what-if to see the answer change.
         </p>
       </Rise>
 
@@ -33,9 +33,9 @@ export function Forecast() {
 
       <div className="mt-16">
         <Rise className="text-center">
-          <p className="dept-label">The whole instrument</p>
+          <p className="dept-label">The whole answer</p>
           <h3 className="mt-1.5 font-display font-semibold" style={{ fontSize: "clamp(1.3rem,3vw,1.9rem)" }}>
-            One number, and all the work behind it.
+            One number, with the work close enough to inspect.
           </h3>
         </Rise>
         <Vignettes />

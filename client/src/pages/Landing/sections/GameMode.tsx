@@ -19,14 +19,14 @@ export function GameMode() {
   return (
     <section id="game" className="mt-28">
       <Rise className="mx-auto max-w-[44rem] text-center">
-        <p className="dept-label">The game, with a point</p>
+        <p className="dept-label">Focus Mode · only when it helps</p>
         <h2 className="mt-2 font-display font-semibold" style={{ fontSize: "clamp(1.8rem,4.5vw,2.8rem)" }}>
-          A game that shows you what your money is doing.
+          Progress you can see without turning spending into a game.
         </h2>
         <p className="mt-3 text-[1.02rem] text-muted-foreground">
-          Each one is a real product mechanic you can play with. See what minimum payments
-          actually cost you in interest, and watch the app surface the subscriptions quietly
-          draining you. Nothing here is a points gimmick, and nothing rewards spending.
+          Try two real product mechanics with sample numbers: see what minimum payments
+          cost in interest, then surface subscriptions that quietly drain a plan. Focus Mode
+          stays optional, keeps real figures visible, and never rewards spending.
         </p>
       </Rise>
 

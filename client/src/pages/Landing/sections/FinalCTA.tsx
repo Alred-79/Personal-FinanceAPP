@@ -10,11 +10,11 @@ export function FinalCTA() {
         <div className="relative flex flex-col items-center">
           <LedgerSeal size={48} className="mb-5" />
           <h2 className="font-display font-semibold" style={{ fontSize: "clamp(2rem,5vw,3.4rem)" }}>
-            Your accounts, in good standing.
+            Bring your real numbers into view.
           </h2>
           <p className="mx-auto mt-3 max-w-[34rem] text-muted-foreground">
-            Open the ledger today. It takes about two minutes, and you can read
-            everything before you connect a thing.
+            Open a ledger, connect only what you choose, and see the whole picture
+            before you change a thing.
           </p>
           <div className="mt-7 flex flex-wrap justify-center gap-3">
             <Magnetic>

@@ -15,27 +15,27 @@ type Claim = { title: string; body: string };
 const CLAIMS: Claim[] = [
   {
     title: "Read-only by default",
-    body: "Connect and the vault opens read-only — a read literally cannot write. You can see every figure before a single thing is allowed to move.",
+    body: "Connect only what you choose. The default connection can read the accounts you authorize, but it cannot quietly move money behind the page.",
   },
   {
-    title: "It proposes. You stamp.",
-    body: "The assistant drafts the move and hands it back as a diff. The model itself never writes — a change applies only when you return a one-time, single-use token.",
+    title: "It proposes. You confirm.",
+    body: "The assistant drafts a change and shows the before-and-after difference. Nothing becomes real until you explicitly confirm it.",
   },
   {
-    title: "Your details never reach the model raw",
-    body: "Before anything is sent to the assistant, a deterministic scrubber strips SSNs, emails and card numbers. A hard filter — not an LLM left to guess.",
+    title: "Sensitive details are removed first",
+    body: "Before data reaches the assistant, a deterministic filter strips SSNs, emails, and card or account numbers. The safety step does not depend on the model noticing them.",
   },
   {
-    title: "Money is whole cents, end to end",
-    body: "Every amount is stored as integer cents and rounded the banker's way, so $10.99 never quietly drifts to $10.989 three transactions later.",
+    title: "The arithmetic stays exact",
+    body: "Every amount is stored as whole cents and calculated outside the model, so $10.99 never quietly drifts after several transactions.",
   },
   {
-    title: "Stolen tokens self-destruct",
-    body: "Reuse a session token that has already been rotated and the entire family is revoked on the spot. A replayed credential locks itself out.",
+    title: "Reused sessions shut themselves down",
+    body: "If an already-rotated session credential appears again, the entire session family is revoked. A replayed credential locks itself out.",
   },
   {
     title: "We never sell your data",
-    body: "No ad model, no broker on the other end. Your ledger is yours — that's how it stays free without you quietly becoming the product.",
+    body: "There is no ad model and no broker on the other end. Your ledger exists to help you make decisions, not to sell you a financial product.",
   },
 ];
 
@@ -49,13 +49,14 @@ export function Security() {
             <Seal size={72} label="Sealed · Audited · Sealed · Audited" />
           </div>
         </div>
-        <p className="dept-label">The Vault · How it's kept</p>
+        <p className="dept-label">The Vault · How control is kept</p>
         <h2 className="mt-2 font-display font-semibold" style={{ fontSize: "clamp(1.8rem,4.5vw,2.8rem)" }}>
-          Built like a vault, not a billboard.
+          It shows its work. It never takes the wheel.
         </h2>
         <p className="mt-3 text-[1.02rem] text-muted-foreground">
-          A money app should earn the keys before it asks for them. These aren't
-          promises — they're how the thing is wired, all the way down.
+          A useful money assistant makes its evidence, uncertainty, and boundaries
+          visible. These are not promises pasted onto the page — they are how the
+          product is wired.
         </p>
       </Rise>
 

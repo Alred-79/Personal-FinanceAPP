@@ -23,10 +23,10 @@ export function Nav() {
       </div>
       <div className="flex items-center gap-5 sm:gap-7">
         <AnchorLink to="#features" className="hidden text-[0.82rem] text-muted-foreground transition-colors hover:text-foreground sm:inline">
-          Instruments
+          What it does
         </AnchorLink>
         <AnchorLink to="#vault" className="hidden text-[0.82rem] text-muted-foreground transition-colors hover:text-foreground sm:inline">
-          Security
+          Trust
         </AnchorLink>
         <Link
           to="/login"
@@ -38,7 +38,7 @@ export function Nav() {
           to="/login"
           className="press bg-primary px-3.5 py-2 text-[0.8rem] font-semibold uppercase tracking-[0.04em] text-primary-foreground"
         >
-          Open an account
+          Open your ledger
         </Link>
       </div>
     </nav>

@@ -78,26 +78,26 @@ type Step = { n: string; title: string; caption: string; art: ReactNode };
 const STEPS: Step[] = [
   {
     n: "i",
-    title: "Walk your ledger",
-    caption: "Your recurring bills and paychecks form a deterministic baseline, summed forward one day at a time from today's balance.",
+    title: "Start with what is known",
+    caption: "Your balances, scheduled bills, expected income, and goals form a day-by-day baseline from today forward.",
     art: <WalkLedger />,
   },
   {
     n: "ii",
-    title: "Simulate the futures",
-    caption: "A block bootstrap draws thousands of Monte Carlo futures, resampling your daily spending in weekly windows so real streaks survive instead of averaging away.",
+    title: "Model normal variation",
+    caption: "The forecast reuses weekly patterns from how you actually spend, preserving expensive and quiet stretches instead of averaging them away.",
     art: <FanFutures />,
   },
   {
     n: "iii",
-    title: "Calibrate the band",
-    caption: "Conformal calibration widens the corridor until its empirical coverage reaches about 90 percent, then widens it further as your variance rises.",
+    title: "Check the range",
+    caption: "The model measures how often its range contains the real outcome and widens that range when your spending is less predictable.",
     art: <CalibrateBand />,
   },
   {
     n: "iv",
-    title: "Catch the shift",
-    caption: "A CUSUM change point test flags when your spending rate breaks from its running mean and reweights the estimate toward the new regime.",
+    title: "Adjust when life changes",
+    caption: "When your recent spending breaks from the old pattern, the estimate gives the new reality more weight instead of hiding it in a long-term average.",
     art: <CatchShift />,
   },
 ];
@@ -130,9 +130,9 @@ export function HowItThinks() {
   return (
     <div className="mt-16">
       <Rise className="text-center">
-        <p className="dept-label">How the forecast thinks</p>
+        <p className="dept-label">How the answer is made</p>
         <h3 className="mt-1.5 font-display font-semibold" style={{ fontSize: "clamp(1.3rem,3vw,1.9rem)" }}>
-          Not a guess. A method.
+          The uncertainty is part of the answer.
         </h3>
       </Rise>
       <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

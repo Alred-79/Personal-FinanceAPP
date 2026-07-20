@@ -23,16 +23,16 @@ export function VaultDoor() {
         className="sticky top-0 grid h-screen content-center justify-items-center gap-5 px-4 text-center"
         style={reduce ? undefined : { opacity: labelOpacity }}
       >
-        <p className="dept-label">Vault · Authorized access</p>
+        <p className="dept-label">Vault · Your control</p>
         <h2
           className="font-display font-semibold"
           style={{ fontSize: "clamp(1.8rem,5vw,3rem)" }}
         >
-          Step inside the vault.
+          Nothing moves without you.
         </h2>
         <p className="mx-auto max-w-[34rem] leading-relaxed text-muted-foreground">
-          Below this line your accounts move into the Midnight Vault — the same
-          ledger, kept under lock and key.
+          Below this line, the same ledger reveals how every connection, answer,
+          and proposed action stays inside a boundary you can inspect.
         </p>
         <motion.div
           aria-hidden

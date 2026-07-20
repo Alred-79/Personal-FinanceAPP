@@ -203,7 +203,7 @@ export default function Login() {
             The Ledger
           </h1>
           <p className="mt-1 font-sans text-sm text-muted-foreground">
-            Keep your money in good standing.
+            Know what&rsquo;s safe. See what comes next.
           </p>
         </div>
       </div>
@@ -217,7 +217,7 @@ export default function Login() {
             Present your credentials
           </CardTitle>
           <CardDescription>
-            Sign the register to enter, or open a new account.
+            Sign in to your ledger, or open one to see your full financial picture.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -17,14 +17,14 @@ export type Feature = {
 export const FEATURES: Feature[] = [
   {
     no: "No. 01",
-    title: "Import Anything",
-    body: "Snap a photo of a receipt, tax form, or check — or drop a messy statement or mystery CSV. The Detangler reads them, reconciles the duplicates, and hands back a clean register — no manual category roulette.",
+    title: "Bring the Whole Picture",
+    body: "Connect your accounts or drop in receipts, statements, and messy CSVs. The Ledger reconciles duplicates and brings bills, income, and transactions into one register — so one bank never tells only part of the story.",
     icon: <path d="M4 5h16M4 12h16M4 19h10" />,
   },
   {
     no: "No. 02",
     title: "The Clerk",
-    body: "An assistant that drafts the move — re-budget, schedule, set money aside, draft a payment — then hands you a diff plate to authorize. You ask; it proposes; you stamp. It can read your transactions and draft actions; it can't move money or see full account numbers.",
+    body: "Ask a question in plain language and get an answer grounded in your ledger. The Clerk can draft a budget change, schedule, or allocation, then hands you the exact difference to review. It proposes; only you confirm.",
     icon: (
       <>
         <circle cx="12" cy="12" r="9" />
@@ -35,7 +35,7 @@ export const FEATURES: Feature[] = [
   {
     no: "No. 03",
     title: "Subscriptions Watch",
-    body: "The recurring charges you forgot about, surfaced and dated. It flags the trials about to bill — and, once it's seen a few repeat merchants, spots a subscription quietly creeping up in price. The small leaks stop draining the account.",
+    body: "See recurring charges across accounts in one place. The Ledger flags trials about to bill, subscriptions you may have stopped using, and repeat merchants that quietly raised their price.",
     icon: (
       <>
         <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 12a9 9 0 0 1-15 6.7L3 16" />
@@ -46,7 +46,7 @@ export const FEATURES: Feature[] = [
   {
     no: "No. 04",
     title: "The Expedition",
-    body: "Paying down debt and funding goals, charted as a voyage with bosses to fell and ground to claim. You earn progress for real money wins — never for spending. The dull parts of finance, finally worth playing.",
+    body: "Turn debt payoff and goal funding into visible progress when that helps. The optional game layer rewards real money wins — never spending — and always keeps the actual figures in view.",
     icon: (
       <>
         <path d="M12 2 4 6v6c0 5 8 8 8 8s8-3 8-8V6Z" />
@@ -55,12 +55,12 @@ export const FEATURES: Feature[] = [
       </>
     ),
     gated: true,
-    gatedNote: "The game layer starts off — flip it on (ambient or full) in Settings whenever you want it.",
+    gatedNote: "Focus Mode starts off — turn it on in Settings whenever visible progress would help.",
   },
   {
     no: "No. 05",
-    title: "Tax, tracked all year",
-    body: "1099s, deductions, and your quarterly estimate — tracked from January, not scrambled in April. We estimate what you'll owe and help you set it aside in a reserve you fund, so the bill isn't a surprise. The dread becomes a form you just sign.",
+    title: "Work Money, When Needed",
+    body: "Freelance, contract, commission, and mixed income tools stay available as an optional layer. Track uneven income, deductions, and a tax-reserve target you fund in your own bank without making work define the whole app.",
     icon: (
       <>
         <rect x="4" y="4" width="16" height="16" />
@@ -68,12 +68,12 @@ export const FEATURES: Feature[] = [
       </>
     ),
     gated: true,
-    gatedNote: "The tax desk switches on per workspace (and when you tell us you're self-employed).",
+    gatedNote: "The Work Money layer switches on only when uneven income or taxes are part of your picture.",
   },
   {
     no: "No. 06",
-    title: "Nightly Auditor",
-    body: "While you sleep, it reconciles the day, flags the odd charge, and leaves a short note in the margin. You wake up to an account already balanced.",
+    title: "A Quiet Second Look",
+    body: "The nightly review reconciles the day, flags an unusual charge, and leaves a short note in the margin. Important changes surface without turning money into a stream of alerts.",
     icon: (
       <>
         <path d="M12 2 4 6v6c0 5 8 8 8 8s8-3 8-8V6Z" />
@@ -81,6 +81,6 @@ export const FEATURES: Feature[] = [
       </>
     ),
     gated: true,
-    gatedNote: "An opt-in background job — off until your workspace turns it on.",
+    gatedNote: "An optional background review — off until you choose to turn it on.",
   },
 ];

@@ -16,7 +16,7 @@ const METRICS = [
   { l: "Inflows", v: "+$2,940.18", c: "ink-credit" },
   { l: "Outflows", v: "$1,910.00", c: "ink-debit" },
   { l: "Net change", v: "+$1,030.18", c: "" },
-  { l: "Bills cleared", v: "11 / 11", c: "" },
+  { l: "Bills covered", v: "11 / 11", c: "" },
 ];
 
 /** The hero — department label, headline, lede, CTAs, assurances, specimen note. */
@@ -38,7 +38,7 @@ export function Hero() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: EASE }}
       >
-        Department of Personal Accounts · Est. MMXXVI
+        Independent personal money control · Est. MMXXVI
       </motion.p>
       <motion.h1
         className="mx-auto font-display font-semibold leading-[1.04] tracking-tight"
@@ -47,9 +47,9 @@ export function Hero() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.08 }}
       >
-        Stop guessing what you owe
+        Know what&rsquo;s safe.
         <br />
-        at <span className="relative whitespace-nowrap text-gold">tax time</span>.
+        Test <span className="relative whitespace-nowrap text-gold">what&rsquo;s next</span>.
       </motion.h1>
       <motion.p
         className="mx-auto max-w-[40rem] text-muted-foreground"
@@ -58,9 +58,9 @@ export function Hero() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.16 }}
       >
-        Built for 1099 contractors and the self-employed. We hold back your tax % as each
-        payment lands, smooth your lumpy income into a steady paycheck, and show your real
-        number — what&rsquo;s actually safe to spend. We never move a dollar without your tap.
+        The Ledger reads across your accounts, bills, income, and goals to show what you
+        can spend now, what could derail it, and how a decision changes the outcome.
+        Work Money adds support for uneven income and taxes only when you need it.
       </motion.p>
       <motion.div
         className="mt-1 flex flex-wrap justify-center gap-3"
@@ -73,14 +73,14 @@ export function Hero() {
             to="/login"
             className="press inline-block bg-primary px-7 py-3.5 text-[0.9rem] font-semibold uppercase tracking-[0.04em] text-primary-foreground"
           >
-            See my real number
+            Open your ledger — free
           </Link>
         </Magnetic>
         <AnchorLink
           to="#features"
           className="press border border-rule-strong/60 px-7 py-3.5 text-[0.9rem] font-semibold uppercase tracking-[0.04em]"
         >
-          See the instruments
+          See how it works
         </AnchorLink>
       </motion.div>
       {/* persistent trust chip under the CTA — our most-distrusted surface, stated as a strength */}
@@ -90,8 +90,8 @@ export function Hero() {
         animate={{ opacity: 1 }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.32 }}
       >
-        <ReadOnlyBadge label="Read-only bank connection · nothing moves without you" />
-        {["No card required", "We never sell your data"].map((t) => (
+        <ReadOnlyBadge label="Read-only by default · nothing moves without you" />
+        {["No card required", "No product kickbacks"].map((t) => (
           <span key={t} className="flex items-center gap-1.5">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" className="text-gold">
               <path d="M20 6 9 17l-5-5" />
@@ -110,12 +110,12 @@ export function Hero() {
           </Foil>
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="dept-label">Safe to spend · read from your accounts</p>
+              <p className="dept-label">Illustrative safe to spend · across your accounts</p>
               <div className="intaglio mt-1 text-foreground" style={{ fontSize: "clamp(2rem,6vw,3.4rem)" }}>
                 $1,210.18
               </div>
               <p className="mt-1.5 text-[0.85rem] text-muted-foreground">
-                before payday · <span className="figure ink-credit">nothing moves without you</span>
+                until next income · <span className="figure ink-credit">assumptions included</span>
               </p>
             </div>
             <p className="serial font-mono text-[0.7rem] tracking-[0.18em] text-muted-foreground">

@@ -12,7 +12,7 @@ function SafeToSpend() {
   ];
   return (
     <div className="plate h-full bg-card p-5">
-      <p className="dept-label">Safe-to-Spend · to next payday</p>
+      <p className="dept-label">Safe-to-Spend · until next income</p>
       <div className="mt-2 flex items-baseline gap-1.5">
         <span className="intaglio text-foreground" style={{ fontSize: "clamp(1.8rem,5vw,2.6rem)" }}>
           $121
@@ -37,7 +37,7 @@ function SafeToSpend() {
 
 /** Compare — N saved scenarios against one baseline, the real Compare ledger. */
 function CompareTable() {
-  const cols = ["Baseline", "+ Gig", "Cut subs"];
+  const cols = ["Baseline", "+ Income", "Cut a bill"];
   const rows: { l: string; v: string[]; c?: (i: number) => string }[] = [
     { l: "Ending", v: ["$1,480", "$2,320", "$1,740"] },
     { l: "Lowest", v: ["−$180", "+$410", "+$60"], c: (i) => (i === 0 ? "ink-debit" : "ink-credit") },
@@ -107,7 +107,7 @@ function Calendar() {
           );
         })}
       </div>
-      <p className="mt-2.5 text-[0.76rem] text-muted-foreground">Projected pay (+) and bills (−), by day.</p>
+      <p className="mt-2.5 text-[0.76rem] text-muted-foreground">Projected income (+) and bills (−), by day.</p>
     </div>
   );
 }
