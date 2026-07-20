@@ -221,8 +221,15 @@ def test_audit_record_emits_structured_line(caplog):
             latency_ms=12.345,
         )
 
-    assert len(caplog.records) == 1
-    line = caplog.records[0].getMessage()
+    # Scope to the logger under test. This user_id has no row, so the DB write
+    # fails a FK constraint — which now emits its own WARNING from
+    # mcp_audit_store rather than being swallowed. That extra record is correct
+    # behaviour (see test_mcp_audit_log.py), and counting every logger's records
+    # would make this test fail for a reason it was never about. Worth noting the
+    # inverse: this test passed for as long as that write failed in silence.
+    audit_lines = [r for r in caplog.records if r.name == "mcp.audit"]
+    assert len(audit_lines) == 1
+    line = audit_lines[0].getMessage()
     parsed = json.loads(line)
 
     assert parsed["user_id"] == 42

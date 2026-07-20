@@ -41,10 +41,15 @@ export function AgentReadingRoom() {
         >
           Your AI can understand the whole ledger.
         </h2>
+        {/* "every request your key makes" — not "every request". Anonymous
+            denials are never persisted (mcp_audit_store.persist returns early
+            when user_id is None, because an unknown-key flood has nobody to
+            attribute it to), so an unresolvable key exists only in process
+            logs. The qualified wording is the exact one. */}
         <p className="mx-auto mt-3 max-w-[38rem] text-pretty text-[1.02rem] leading-relaxed text-muted-foreground">
           Connect an MCP-compatible assistant to your accounts, transactions, budgets,
           goals, forecasts, and scenarios. Choose what it can read, inspect every
-          request, and revoke access anytime.
+          request your key makes, and revoke access anytime.
         </p>
 
         <div className="mt-5 flex justify-center">

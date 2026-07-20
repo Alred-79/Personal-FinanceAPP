@@ -10,6 +10,7 @@ import { Instruments } from "./sections/Instruments";
 import { VaultDoor } from "./sections/VaultDoor";
 import { Security } from "./sections/Security";
 import { AgentReadingRoom } from "./sections/AgentReadingRoom";
+import { SpecimenSheet } from "./sections/SpecimenSheet";
 import { FinalCTA } from "./sections/FinalCTA";
 import { Footer } from "./sections/Footer";
 import "./landing.css";
@@ -44,13 +45,20 @@ export default function Landing() {
               below it (its original top-of-page placement), followed by the
               working tools, the vault's trust guarantees, and — last, on the
               dark side — the Reading Room where an AI reads the ledger under
-              scopes the visitor controls. */}
+              scopes the visitor controls.
+
+              Three registers on security, in widening depth and never repeating
+              each other: the Vault says what the product PROMISES you, the
+              Reading Room shows what happens to ONE REQUEST, and the Specimen
+              Sheet — the technical annex — documents HOW THE SURFACE IS BUILT
+              and cites the file and test for each claim. */}
           <Hero />
           <Forecast />
           <Instruments />
           <VaultDoor />
           <Security />
           <AgentReadingRoom />
+          <SpecimenSheet />
           <FinalCTA />
         </div>
 

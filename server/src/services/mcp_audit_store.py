@@ -12,7 +12,11 @@ ride it).
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
+
+
+_log = logging.getLogger(__name__)
 
 
 def persist(
@@ -35,9 +39,19 @@ def persist(
     try:
         from server.src.db.session import SessionLocal
         from server.src.db.models import MCPAuditLog
+        from server.src.db.rls import set_tenant
 
         db = SessionLocal()
         try:
+            # Load-bearing under RLS: this session is opened privately here, so it
+            # sits outside every request-scoped tenant binding — and nothing on the
+            # MCP path sets ``user_id_var``, so the ``after_begin`` net in
+            # db/session.py cannot bind it either. Without this the policy's
+            # WITH CHECK tests ``user_id`` against an unset GUC (NULL), rejects the
+            # INSERT, and the blanket except below swallows it: the audit trail
+            # silently empties in exactly the deployments that enabled RLS.
+            # No-ops on SQLite. Must precede the INSERT to share its transaction.
+            set_tenant(db, user_id)
             db.add(
                 MCPAuditLog(
                     user_id=user_id,
@@ -51,5 +65,15 @@ def persist(
             db.commit()
         finally:
             db.close()
-    except Exception:  # pragma: no cover - audit must never break a read
-        pass
+    except Exception:
+        # Still never re-raised: auditing must not break a read. But it IS
+        # reported — a silently discarded audit row is how the RLS tenant-binding
+        # bug stayed invisible, and an audit trail that can empty itself without
+        # a signal is worse than one that fails loudly.
+        _log.warning(
+            "mcp audit row discarded (user_id=%s resource=%s decision=%s)",
+            user_id,
+            resource,
+            decision,
+            exc_info=True,
+        )

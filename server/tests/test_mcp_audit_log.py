@@ -8,6 +8,8 @@ nothing and never raises.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
@@ -112,3 +114,30 @@ def test_anonymous_failure_writes_nothing(client):
     # An unknown-key flood has no user_id — must not write (and must not raise).
     audit.record_failure(reason="unknown_key", key_id=None, user_id=None)
     assert client.get("/api/mcp-keys/audit/", headers=headers).json() == []
+
+
+def test_write_failure_is_logged_not_silently_swallowed(caplog):
+    """A dropped audit row must leave a trace.
+
+    ``persist`` deliberately never raises — auditing must not break a read. But
+    swallowing the failure with a bare ``pass`` means the owner's security record
+    can empty itself with no signal anywhere (exactly how the RLS tenant-binding
+    bug hid: see test_mcp_audit_rls_postgres.py). Never raising and never
+    reporting are different promises; we keep the first, not the second.
+
+    Forces a real failure with an unknown ``user_id`` (FK violation) rather than
+    a mock, so the swallow path is exercised as it would actually be hit.
+    """
+    from server.src.services.mcp_audit_store import persist
+
+    with caplog.at_level(logging.WARNING):
+        persist(
+            user_id=999_999,  # no such user → FK violation on INSERT
+            key_id=1,
+            resource="read:accounts",
+            decision="allow",
+        )
+
+    assert any(
+        "audit" in record.getMessage().lower() for record in caplog.records
+    ), "a discarded audit row must be reported, not silently dropped"

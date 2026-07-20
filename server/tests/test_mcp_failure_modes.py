@@ -51,6 +51,14 @@ from server.src.mcp.server import MCPAuthMiddleware, _current_principal, get_pri
 from server.src.mcp.vault import VaultError
 from server.src.services.mcp_key_service import MCPKeyService
 from server.src.settings import settings
+from server.src.mcp.vault import _RESOURCE_SCOPES as _VAULT_RESOURCE_SCOPES
+
+# Every read scope the vault recognises, derived from the vault's own map rather
+# than hardcoded — so adding a resource cannot silently leave these fixtures
+# under-scoped. These tests are about vault behaviour, not scope binding; the
+# scope-binding gate itself is covered by test_mcp_vault_scope_binding.py.
+_ALL_READ_SCOPES = sorted({s for s in _VAULT_RESOURCE_SCOPES.values() if s})
+
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +139,7 @@ def patched_db(db_session, monkeypatch):
 @pytest.fixture
 def token_a():
     return issue_capability(
-        Principal(user_id=1, key_id=10, scopes=frozenset(["read"])), ["read"]
+        Principal(user_id=1, key_id=10, scopes=frozenset(list(_ALL_READ_SCOPES))), list(_ALL_READ_SCOPES)
     )
 
 
@@ -466,9 +474,9 @@ class TestConcurrencyIsolation:
         tokens, and assert each thread only ever sees its own user's account.
         Catches any shared-state / redaction crosstalk under concurrency."""
         cap_a = issue_capability(
-            Principal(user_id=1, key_id=1, scopes=frozenset(["read"])), ["read"])
+            Principal(user_id=1, key_id=1, scopes=frozenset(list(_ALL_READ_SCOPES))), list(_ALL_READ_SCOPES))
         cap_b = issue_capability(
-            Principal(user_id=2, key_id=2, scopes=frozenset(["read"])), ["read"])
+            Principal(user_id=2, key_id=2, scopes=frozenset(list(_ALL_READ_SCOPES))), list(_ALL_READ_SCOPES))
 
         errors: list[str] = []
 

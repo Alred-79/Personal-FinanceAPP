@@ -25,6 +25,14 @@ from server.src.mcp import vault
 from server.src.mcp.policy import issue_capability
 from server.src.mcp.principal import Principal
 from server.src.mcp.vault import VaultError
+from server.src.mcp.vault import _RESOURCE_SCOPES as _VAULT_RESOURCE_SCOPES
+
+# Every read scope the vault recognises, derived from the vault's own map rather
+# than hardcoded — so adding a resource cannot silently leave these fixtures
+# under-scoped. These tests are about vault behaviour, not scope binding; the
+# scope-binding gate itself is covered by test_mcp_vault_scope_binding.py.
+_ALL_READ_SCOPES = sorted({s for s in _VAULT_RESOURCE_SCOPES.values() if s})
+
 
 
 # ---------------------------------------------------------------------------
@@ -33,12 +41,12 @@ from server.src.mcp.vault import VaultError
 
 @pytest.fixture
 def principal_a():
-    return Principal(user_id=1, key_id=10, scopes=frozenset(["read"]))
+    return Principal(user_id=1, key_id=10, scopes=frozenset(list(_ALL_READ_SCOPES)))
 
 
 @pytest.fixture
 def token_a(principal_a):
-    return issue_capability(principal_a, ["read"])
+    return issue_capability(principal_a, list(_ALL_READ_SCOPES))
 
 
 @pytest.fixture

@@ -1634,6 +1634,11 @@ class MCPAuditLog(Base):
     SEE what an external agent actually did — the read side of the security
     story the Agent Vault surfaces.
 
+    "Append-only" here is a database control, not a convention: the triggers
+    defined below this class abort every UPDATE and DELETE on both SQLite and
+    Postgres (migration b8f720260720 installs the same pair on migrated DBs).
+    Until that landed this docstring made the claim and nothing enforced it.
+
     Privacy-preserving by construction: it stores only a truncated ``params_hash``
     (never raw parameter values — same hash ``mcp/audit.py`` already computes) and
     no financial detail. ``key_id`` is nullable because a denial can precede key
@@ -1655,6 +1660,59 @@ class MCPAuditLog(Base):
     params_hash: Mapped[str] = mapped_column(String, nullable=False, default="")
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), server_default=func.current_timestamp(), index=True
+    )
+
+
+# Append-only enforcement for the audit trail, mirrored from the Alembic
+# migration so a ``create_all`` DB (the test suite) gets the same guard as a
+# migrated one — the same arrangement game_events uses above. This table's whole
+# value is being believed after the fact, so its immutability has to be a
+# database control rather than a docstring: BEFORE UPDATE and BEFORE DELETE both
+# abort unconditionally, below any application code that might one day try to
+# launder a recorded denial into an allow.
+#
+# Consequence, deliberate: ``user_id`` is ON DELETE CASCADE, so once these exist
+# a user row cannot be deleted while it has audit rows. There is no
+# account-deletion path today, and game_events already accepts this same
+# tradeoff; a future one must drop these triggers in a migration first.
+# (``TRUNCATE`` bypasses row-level triggers, so the PG test teardown is fine.)
+_AUDIT_NO_UPDATE_TRIGGER = DDL(
+    "CREATE TRIGGER IF NOT EXISTS mcp_audit_log_no_update "
+    "BEFORE UPDATE ON mcp_audit_log "
+    "BEGIN SELECT RAISE(ABORT, 'mcp_audit_log is append-only'); END"
+)
+_AUDIT_NO_DELETE_TRIGGER = DDL(
+    "CREATE TRIGGER IF NOT EXISTS mcp_audit_log_no_delete "
+    "BEFORE DELETE ON mcp_audit_log "
+    "BEGIN SELECT RAISE(ABORT, 'mcp_audit_log is append-only'); END"
+)
+for _audit_ddl in (_AUDIT_NO_UPDATE_TRIGGER, _AUDIT_NO_DELETE_TRIGGER):
+    event.listen(
+        MCPAuditLog.__table__, "after_create", _audit_ddl.execute_if(dialect="sqlite")
+    )
+
+# Postgres equivalent. SQLite's ``RAISE(ABORT, ...)`` is not valid PG, so install
+# a PL/pgSQL function that RAISE EXCEPTIONs and wire it to both events. Postgres
+# has no ``CREATE TRIGGER IF NOT EXISTS``, hence the DROP-then-CREATE pairs.
+_PG_AUDIT_FN = DDL(
+    "CREATE OR REPLACE FUNCTION mcp_audit_log_append_only() RETURNS trigger AS $$ "
+    "BEGIN RAISE EXCEPTION 'mcp_audit_log is append-only'; END; $$ LANGUAGE plpgsql"
+)
+_PG_AUDIT_NO_UPDATE = DDL(
+    "DROP TRIGGER IF EXISTS mcp_audit_log_no_update ON mcp_audit_log; "
+    "CREATE TRIGGER mcp_audit_log_no_update BEFORE UPDATE ON mcp_audit_log "
+    "FOR EACH ROW EXECUTE FUNCTION mcp_audit_log_append_only()"
+)
+_PG_AUDIT_NO_DELETE = DDL(
+    "DROP TRIGGER IF EXISTS mcp_audit_log_no_delete ON mcp_audit_log; "
+    "CREATE TRIGGER mcp_audit_log_no_delete BEFORE DELETE ON mcp_audit_log "
+    "FOR EACH ROW EXECUTE FUNCTION mcp_audit_log_append_only()"
+)
+for _pg_audit_ddl in (_PG_AUDIT_FN, _PG_AUDIT_NO_UPDATE, _PG_AUDIT_NO_DELETE):
+    event.listen(
+        MCPAuditLog.__table__,
+        "after_create",
+        _pg_audit_ddl.execute_if(dialect="postgresql"),
     )
 
 

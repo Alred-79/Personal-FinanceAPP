@@ -1483,3 +1483,769 @@
   .rr-slip:hover, .rr-grant:active, .rr-switch:active { transform: none; }
   .vls-plate, .vls-plate:hover, .vls-plate:active { transition: none !important; }
 }
+
+/* ======================================================================
+   === THE SPECIMEN SHEET === — the agent surface's anti-forgery features,
+   documented the way a banknote documents its own: an engraved plate with
+   numbered callouts on leader lines, a reading beneath it, and a quieter
+   register of everything else that is enforced.
+
+   Unlike the Reading Room (which keeps its own dark archive surfaces in both
+   themes because it is a room), this is a PRINTED SHEET and therefore lives on
+   the page's own paper: every colour below resolves through the theme tokens,
+   so it reads correctly on Ledger Paper and on Midnight.
+
+   Layout is mobile-first. The small screen gets the honest treatment — the
+   callouts leave the plate and become a numbered rail beneath it, the leader
+   lines go, and the note keeps its key as numerals beside each anchor. Leader
+   lines are only re-attached at >= 720px, where there is room for them to point.
+   ====================================================================== */
+
+.spx-sheet {
+  position: relative;
+  padding: clamp(0.85rem, 2.2vw, 1.5rem);
+  border: 1px solid hsl(var(--rule-strong) / 0.5);
+  background:
+    linear-gradient(168deg, hsl(var(--paper-high) / 0.5), transparent 62%),
+    hsl(var(--card));
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--gold) / 0.07),
+    0 24px 60px hsl(var(--rule-strong) / 0.16);
+}
+/* the woven border strips top and bottom — the same primitive the certificates
+   use, so the sheet is bound the way every other plate on the page is */
+.spx-sheet__band {
+  color: hsl(var(--rule-strong));
+  opacity: 0.8;
+  overflow: hidden;
+}
+.spx-sheet__band--foot { transform: scaleY(-1); }
+
+/* ── the plate ─────────────────────────────────────────────────────────── */
+.spx-plate {
+  position: relative;
+  margin: clamp(0.5rem, 1.6vw, 1rem) 0 0;
+  transform-origin: 50% 40%;
+  transition: transform 0.5s var(--ease-out);
+}
+
+/* ── going out of focus ────────────────────────────────────────────────────
+   The section's whole argument is that a security feature is graded by the
+   instrument you inspect it with. So inspection is literal here: the moment a
+   visitor picks a callout, the specimen goes out of focus the way everything
+   but your subject does under a lens, and only the feature under inspection —
+   its leader and its numbered disc — stays sharp and lit, tying the numeral on
+   the plate to the reading below it.
+
+   It is a state, not the resting appearance: on load the plate is at full
+   contrast and unblurred, because nothing is under the lens yet. `is-inspecting`
+   is set the first time a callout is actually chosen. */
+.spx-note__art {
+  transition:
+    opacity 0.55s var(--ease-out),
+    filter 0.55s var(--ease-out);
+}
+.spx-plate.is-inspecting { transform: scale(0.985); }
+.spx-plate.is-inspecting .spx-note__art {
+  /* Enough defocus to move the eye to the reading, NOT enough to erase the
+     specimen. At 0.26/1.5px the plate became a smudge in both themes and the
+     active leader pointed at a feature you could no longer see — which inverts
+     the whole conceit: under a lens the focal detail stays legible and the
+     SURROUND softens. The lit leader and disc already carry the emphasis. */
+  opacity: 0.5;
+  filter: blur(0.7px);
+}
+.spx-plate.is-inspecting .spx-leader:not(.is-on) { opacity: 0.18; }
+
+/* Below 720px the callouts are a RAIL, not discs on the plate — it is the
+   section's navigation, so it is never dimmed, and the plate recedes more
+   gently because at this size it is not sitting next to the prose it competes
+   with. The defocus still reads; it just does not erase the specimen. */
+@media (max-width: 719.98px) {
+  .spx-plate.is-inspecting .spx-note__art { opacity: 0.5; filter: blur(0.8px); }
+}
+@media (min-width: 720px) {
+  .spx-plate.is-inspecting .spx-mark:not(.is-on) { opacity: 0.42; }
+  .spx-plate.is-inspecting .spx-mark:not(.is-on):hover,
+  .spx-plate.is-inspecting .spx-mark:not(.is-on):focus-visible { opacity: 1; }
+}
+
+/* Reduced motion keeps the SAME END STATE — the defocus is information, not
+   decoration — and simply arrives there without a transition. */
+@media (prefers-reduced-motion: reduce) {
+  .spx-plate,
+  .spx-note__art,
+  .spx-leader,
+  .spx-mark,
+  .spx-mark__disc,
+  .spx-thread,
+  .spx-locks,
+  .spx-register-block,
+  .spx-blank { transition: none; }
+  .spx-thread__wire,
+  .spx-leader.is-on .spx-leader__line { animation: none; }
+}
+/* the engraved field. Kept as its own positioned box so the rosette stays
+   registered to the note's portrait even when the callout rail is in flow
+   beneath it on small screens. */
+.spx-plate__field { position: relative; }
+.spx-note {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: auto;
+  /* Belt and braces with the clipPath the leader layer carries: no stroke may
+     leave the plate's own box and reach the reading below it. */
+  overflow: hidden;
+  color: hsl(var(--foreground) / 0.88);
+}
+/* the guilloché rosette inside the portrait vignette — a real engraving, turned
+   slowly, not a texture image */
+.spx-plate__rosette {
+  position: absolute;
+  z-index: 0;
+  left: 21.5%;
+  top: 50%;
+  width: 23%;
+  transform: translate(-50%, -50%);
+  color: hsl(var(--gold));
+  opacity: 0.62;
+  pointer-events: none;
+}
+
+/* features dim a touch when another callout holds the floor */
+.spx-thread,
+.spx-locks,
+.spx-register-block,
+.spx-blank {
+  opacity: 0.66;
+  transition: opacity 0.35s var(--ease-out);
+}
+.spx-thread.is-on,
+.spx-locks.is-on,
+.spx-register-block.is-on,
+.spx-blank.is-on { opacity: 1; }
+
+/* the locks sit at rest below the doorway engraving they are cut into, and come
+   up to full brass when their own callout is selected — the same "raise the
+   feature you are reading" rule the thread and the register follow. */
+.spx-locks { opacity: 0.5; }
+
+/* the security thread shimmers the way a real one catches the light */
+.spx-thread__wire { animation: spx-thread 16s linear infinite; }
+.spx-thread.is-on .spx-thread__wire { animation-duration: 5s; }
+@keyframes spx-thread { to { stroke-dashoffset: -48; } }
+
+/* ── leader lines + anchor rings ───────────────────────────────────────── */
+.spx-leader {
+  color: hsl(var(--rule-strong));
+  opacity: 0.68;
+  transition: opacity 0.35s var(--ease-out), color 0.35s var(--ease-out);
+}
+.spx-leader.is-on {
+  color: hsl(var(--gold));
+  opacity: 1;
+}
+.spx-leader__line { display: none; }
+.spx-leader__n { display: block; opacity: 0.75; }
+
+/* ── the numbered callouts ─────────────────────────────────────────────── */
+/* Small screens: a numbered rail beneath the plate. The plate keeps the key. */
+.spx-marks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0 clamp(0.8rem, 3vw, 1.8rem);
+  margin-top: 0.9rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid hsl(var(--rule-strong) / 0.3);
+}
+.spx-mark {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  min-height: 46px;
+  padding: 0.4rem 0.1rem;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid hsl(var(--rule));
+  cursor: pointer;
+  transition: opacity 0.45s var(--ease-out);
+}
+.spx-mark:focus-visible { outline-offset: 2px; }
+.spx-mark__disc {
+  display: grid;
+  place-items: center;
+  width: clamp(30px, 3.6vw, 42px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid hsl(var(--rule-strong) / 0.6);
+  background: hsl(var(--background));
+  font-family: "Spline Sans Mono", ui-monospace, monospace;
+  font-size: clamp(0.78rem, 1.5vw, 0.98rem);
+  font-weight: 700;
+  color: hsl(var(--foreground) / 0.72);
+  box-shadow: inset 0 1px 0 hsl(var(--paper-high)), 0 2px 10px hsl(var(--rule-strong) / 0.16);
+  transition:
+    transform 0.28s var(--ease-out),
+    box-shadow 0.28s var(--ease-out),
+    color 0.28s var(--ease-out),
+    border-color 0.28s var(--ease-out);
+}
+.spx-mark__name {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: hsl(var(--foreground) / 0.78);
+  transition: color 0.28s var(--ease-out);
+}
+.spx-mark:hover .spx-mark__disc { transform: translateY(-2px); }
+.spx-mark.is-on .spx-mark__disc {
+  color: hsl(var(--gold));
+  border-color: hsl(var(--gold));
+  box-shadow: 0 0 0 4px hsl(var(--gold) / 0.14), 0 4px 14px hsl(var(--gold) / 0.22);
+}
+.spx-mark.is-on .spx-mark__name { color: hsl(var(--foreground)); }
+
+/* >= 720px: the callouts leave the rail and pin themselves to the plate, each
+   on the leader line that points at the feature it names. */
+@media (min-width: 720px) {
+  .spx-marks {
+    position: absolute;
+    inset: 0;
+    display: block;
+    margin: 0;
+    padding: 0;
+    border-top: none;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .spx-mark {
+    position: absolute;
+    left: var(--spx-x);
+    top: var(--spx-y);
+    transform: translate(-50%, -50%);
+    display: block;
+    width: auto;
+    min-height: 0;
+    padding: 7px;
+    border-bottom: none;
+    border-radius: 50%;
+    pointer-events: auto;
+  }
+  /* the name is still announced; it just isn't printed on the plate */
+  .spx-mark__name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    border: 0;
+  }
+  .spx-leader__line { display: block; }
+  .spx-leader.is-on .spx-leader__line { animation: spx-travel 1.2s linear infinite; }
+  .spx-leader__n { display: none; }
+}
+@keyframes spx-travel { to { stroke-dashoffset: -20; } }
+
+/* ── the reading ───────────────────────────────────────────────────────── */
+/* The reading is a SEPARATE LEAF laid over the sheet, not a caption printed on
+   it. It carries its own fully opaque ground — hsl(var(--card)) resolves to
+   ledger paper in the light theme and to the dark plate ground in Midnight — so
+   no engraving, microprint or callout disc can ever read through the prose. The
+   ground is deliberately flat, with no alpha: a translucent scrim over artwork
+   is exactly the failure this replaces. */
+.spx-reading {
+  position: relative;
+  z-index: 3;
+  margin-top: clamp(1.6rem, 3.4vw, 2.6rem);
+  padding: clamp(1.1rem, 2.4vw, 1.7rem) clamp(1rem, 2.2vw, 1.6rem);
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--rule-strong) / 0.4);
+  border-top-width: 2px;
+  border-top-color: hsl(var(--gold) / 0.5);
+  box-shadow: 0 -1px 0 hsl(var(--paper-high) / 0.6) inset, 0 18px 44px hsl(var(--rule-strong) / 0.14);
+}
+.spx-reading:focus-visible { outline: 2px solid hsl(var(--gold)); outline-offset: 4px; }
+.spx-reading__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(0.9rem, 2.4vw, 1.4rem);
+}
+.spx-reading__key {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 0.9rem;
+  align-items: baseline;
+}
+.spx-reading__numeral {
+  grid-row: 1 / span 3;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(2.4rem, 6vw, 3.4rem);
+  font-weight: 600;
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+  color: hsl(var(--gold));
+}
+.spx-reading__feature {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(1.14rem, 2.4vw, 1.4rem);
+  font-weight: 600;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+.spx-reading__mech {
+  margin-top: 0.3rem;
+  font-size: 0.87rem;
+  line-height: 1.5;
+  color: hsl(var(--foreground) / 0.8);
+}
+.spx-reading__kind {
+  margin-top: 0.5rem;
+  font-family: "Instrument Sans", sans-serif;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: hsl(var(--foreground) / 0.7);
+}
+.spx-reading__body { display: grid; gap: clamp(0.9rem, 2vw, 1.3rem); }
+.spx-entry__label {
+  font-family: "Instrument Sans", sans-serif;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: hsl(var(--foreground) / 0.74);
+}
+.spx-entry--threat .spx-entry__label { color: hsl(var(--debit)); }
+/* Measure. NOTE the `ch` gotcha: `ch` is the advance of "0", and in this
+   proportional sans the average glyph is much narrower — 68ch measured out at
+   89 real characters per line in Chrome. 52ch lands on ~68, inside the 60–75
+   band this page reads best at. Re-measure, never re-guess, if the face
+   changes. */
+.spx-entry__text {
+  margin-top: 0.4rem;
+  max-width: 52ch;
+  font-size: 0.92rem;
+  line-height: 1.65;
+  color: hsl(var(--foreground) / 0.85);
+  text-wrap: pretty;
+}
+.spx-proof {
+  padding-top: clamp(0.7rem, 1.6vw, 1rem);
+  border-top: 1px dashed hsl(var(--rule-strong) / 0.32);
+}
+.spx-proof__list {
+  margin-top: 0.5rem;
+  display: grid;
+  gap: 0.36rem;
+}
+.spx-proof__tell {
+  margin-top: 0.75rem;
+  max-width: 56ch;
+  font-size: 0.8rem;
+  font-style: italic;
+  line-height: 1.6;
+  color: hsl(var(--foreground) / 0.72);
+  text-wrap: pretty;
+}
+
+/* ── citations: path + symbol NAME, never a line number ────────────────── */
+.spx-cite {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.42rem;
+  font-family: "Spline Sans Mono", ui-monospace, monospace;
+  font-size: 0.74rem;
+  line-height: 1.55;
+}
+.spx-cite__kind {
+  font-family: "Instrument Sans", sans-serif;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.34rem;
+  border: 1px solid hsl(var(--rule-strong) / 0.45);
+  color: hsl(var(--foreground) / 0.74);
+}
+.spx-cite__kind--test {
+  color: hsl(var(--credit));
+  border-color: hsl(var(--credit) / 0.5);
+}
+.spx-cite__path {
+  color: hsl(var(--foreground) / 0.68);
+  overflow-wrap: anywhere;
+}
+.spx-cite__sep { color: hsl(var(--rule-strong)); }
+.spx-cite__sym {
+  color: hsl(var(--foreground));
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+/* the register treatment: the kind chip drops away (the path already says
+   `tests/`) and the type steps down, so a level's citations never compete with
+   the four callouts' proof block. */
+.spx-cite--compact { font-size: 0.69rem; }
+.spx-cite--compact .spx-cite__kind { display: none; }
+
+/* ── the engraved figure block ─────────────────────────────────────────────
+   A ledger totals line, not a stat row: hairline above and below, serif
+   numerals in the accent, vertical rules between the columns, no boxes and no
+   icons. Every figure was measured — see IMPACT in specimenData.ts. */
+.spx-figures {
+  margin: clamp(1.6rem, 4vw, 2.6rem) auto 0;
+  max-width: 62rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  border-top: 1px solid hsl(var(--rule-strong) / 0.45);
+  border-bottom: 1px solid hsl(var(--rule-strong) / 0.45);
+}
+.spx-figure {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0 0.85rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid hsl(var(--rule));
+}
+.spx-figure:last-child { border-bottom: none; }
+.spx-figure__value {
+  font-family: "Fraunces", Georgia, serif;
+  font-variant-numeric: lining-nums tabular-nums;
+  /* sized so the longest figure — the two test counts — sets on ONE line in the
+     narrowest column the band ever produces. A wrapped number reads as two. */
+  font-size: clamp(1.55rem, 3.2vw, 1.9rem);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  color: hsl(var(--gold));
+}
+.spx-figure__caption {
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: hsl(var(--foreground) / 0.78);
+  text-wrap: pretty;
+}
+
+/* ── the grading note that introduces the three levels ─────────────────── */
+.spx-grading {
+  max-width: 46rem;
+  margin-inline: auto;
+  text-align: center;
+}
+.spx-grading__head {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(1.25rem, 3vw, 1.6rem);
+  font-weight: 600;
+  text-wrap: balance;
+}
+.spx-grading__body {
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+  line-height: 1.68;
+  color: hsl(var(--foreground) / 0.8);
+  text-wrap: pretty;
+}
+
+/* ======================================================================
+   === THE THREE VERIFICATION LEVELS ===
+   Three registers, three instruments, three treatments — never three copies
+   of one list. Level I is full ink on solid rules. Level II is washed by a
+   raking lamp, ruled in dashes, and every entry opens with its precondition
+   struck in brass. Level III is a dark plate, because those mechanisms ship
+   dark; its entries open with the flag that holds them, set like a slide
+   label. The gate line is structural: for II and III it is rendered before
+   the body, and the data contract refuses an entry without one.
+   ====================================================================== */
+.spx-tier { margin-top: clamp(2rem, 5vw, 3.2rem); }
+
+.spx-tier__head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.3rem 1rem;
+  padding-bottom: 0.9rem;
+}
+.spx-tier__lensmark {
+  grid-row: 1 / span 2;
+  display: block;
+  width: clamp(30px, 3.4vw, 40px);
+  color: hsl(var(--gold));
+}
+.spx-tier__lensmark svg { display: block; width: 100%; height: auto; }
+.spx-tier__title { display: grid; align-items: baseline; }
+.spx-tier__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.7rem;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(1.16rem, 2.6vw, 1.45rem);
+  font-weight: 600;
+  line-height: 1.2;
+}
+.spx-tier__level {
+  font-family: "Instrument Sans", sans-serif;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: hsl(var(--gold));
+}
+.spx-tier__lens {
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: hsl(var(--foreground) / 0.66);
+}
+.spx-tier__rule {
+  /* full width on a narrow screen — the lens mark's column is worth ~50px there,
+     and this paragraph is the one that explains what the level means */
+  grid-column: 1 / -1;
+  margin-top: 0.5rem;
+  max-width: 62ch;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: hsl(var(--foreground) / 0.78);
+  text-wrap: pretty;
+}
+
+.spx-tier__list { display: grid; }
+.spx-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.4rem clamp(1rem, 3vw, 2.2rem);
+  padding: 1rem 0;
+}
+.spx-row__title {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 0.98rem;
+  font-weight: 600;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+.spx-row__text {
+  max-width: 72ch;
+  font-size: 0.85rem;
+  line-height: 1.64;
+  color: hsl(var(--foreground) / 0.8);
+  text-wrap: pretty;
+}
+.spx-row__cites {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1rem;
+}
+
+/* the precondition, never a footnote */
+.spx-gate {
+  margin-bottom: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  max-width: 72ch;
+  font-size: 0.8rem;
+  line-height: 1.58;
+  text-wrap: pretty;
+}
+.spx-gate__label {
+  margin-right: 0.5rem;
+  font-family: "Instrument Sans", sans-serif;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ── LEVEL I — naked eye: full ink, solid ledger rules ─────────────────── */
+.spx-tier--i .spx-tier__head { border-bottom: 1.5px solid hsl(var(--rule-strong) / 0.55); }
+.spx-tier--i .spx-row { border-bottom: 1px solid hsl(var(--rule)); }
+.spx-tier--i .spx-row:last-child { border-bottom: none; }
+
+/* ── LEVEL II — under the lamp: a raking wash, dashed rules, brass gates ── */
+.spx-tier--ii {
+  padding: clamp(0.9rem, 2.4vw, 1.6rem) clamp(0.9rem, 2.4vw, 1.5rem);
+  border: 1px solid hsl(var(--gold) / 0.28);
+  /* the lamp, raking in from the upper left across the sheet */
+  background:
+    linear-gradient(104deg, hsl(var(--gold) / 0.11) 0%, hsl(var(--gold) / 0.03) 34%, transparent 66%);
+}
+.spx-tier--ii .spx-tier__head { border-bottom: 1px dashed hsl(var(--gold) / 0.4); }
+.spx-tier--ii .spx-row { border-bottom: 1px dashed hsl(var(--rule-strong) / 0.35); }
+.spx-tier--ii .spx-row:last-child { border-bottom: none; }
+.spx-tier--ii .spx-gate {
+  border: 1px solid hsl(var(--gold) / 0.45);
+  background: hsl(var(--gold) / 0.07);
+  color: hsl(var(--foreground) / 0.86);
+}
+.spx-tier--ii .spx-gate__label { color: hsl(var(--gold)); }
+
+/* ── LEVEL III — under the microscope: a dark plate, because it ships dark ─
+   Keeps its own dark surfaces in BOTH themes, on the same reasoning as the
+   Reading Room: this is an object, and what it depicts is literally unlit.
+   Brass is hardcoded warm here because --gold is indigo in Midnight. */
+.spx-tier--iii {
+  --spx3-ink: hsl(220 22% 93%);
+  --spx3-soft: hsl(220 14% 72%);
+  --spx3-brass: hsl(44 72% 62%);
+  --spx3-line: hsl(0 0% 100% / 0.1);
+
+  position: relative;
+  padding: clamp(1rem, 2.6vw, 1.7rem) clamp(0.9rem, 2.4vw, 1.5rem);
+  color: var(--spx3-ink);
+  background: radial-gradient(130% 90% at 12% 0%, hsl(226 26% 13%), hsl(228 32% 7%) 74%);
+  border: 1px solid hsl(var(--rule-strong) / 0.5);
+  box-shadow: inset 0 2px 40px hsl(0 0% 0% / 0.45);
+}
+.spx-tier--iii::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  pointer-events: none;
+  border: 1px solid hsl(44 50% 55% / 0.14);
+}
+.spx-tier--iii > * { position: relative; }
+.spx-tier--iii .spx-tier__lensmark,
+.spx-tier--iii .spx-tier__level { color: var(--spx3-brass); }
+.spx-tier--iii .spx-tier__head { border-bottom: 1px solid var(--spx3-line); }
+.spx-tier--iii .spx-tier__lens,
+.spx-tier--iii .spx-tier__rule,
+.spx-tier--iii .spx-row__text { color: var(--spx3-soft); }
+.spx-tier--iii .spx-row { border-bottom: 1px solid var(--spx3-line); }
+.spx-tier--iii .spx-row:last-child { border-bottom: none; }
+/* the flag, set like the label on a slide */
+.spx-tier--iii .spx-gate {
+  padding: 0.45rem 0.65rem;
+  border-left: none;
+  border: 1px solid hsl(44 55% 58% / 0.32);
+  background: hsl(226 30% 10% / 0.75);
+  font-family: "Spline Sans Mono", ui-monospace, monospace;
+  font-size: 0.74rem;
+  color: var(--spx3-soft);
+}
+.spx-tier--iii .spx-gate__label {
+  font-family: "Instrument Sans", sans-serif;
+  color: var(--spx3-brass);
+}
+.spx-tier--iii .spx-cite__path { color: hsl(220 14% 62%); }
+.spx-tier--iii .spx-cite__sym { color: var(--spx3-ink); }
+.spx-tier--iii .spx-cite__sep { color: hsl(220 12% 45%); }
+
+/* ── what no level absorbs ─────────────────────────────────────────────── */
+.spx-notclaimed {
+  margin-top: clamp(1.8rem, 4vw, 2.6rem);
+  max-width: 76ch;
+  padding: 1rem 1.15rem;
+  border: 1px dashed hsl(var(--debit) / 0.55);
+}
+.spx-notclaimed__head {
+  font-family: "Instrument Sans", sans-serif;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: hsl(var(--debit));
+}
+.spx-notclaimed__body {
+  margin-top: 0.5rem;
+  font-size: 0.86rem;
+  line-height: 1.66;
+  color: hsl(var(--foreground) / 0.84);
+  text-wrap: pretty;
+}
+.spx-notclaimed__tell {
+  margin-top: 0.45rem;
+  font-size: 0.8rem;
+  font-style: italic;
+  line-height: 1.6;
+  color: hsl(var(--foreground) / 0.72);
+}
+.spx-notclaimed__cites { margin-top: 0.5rem; }
+
+/* ── the sheet's own Level I caption ───────────────────────────────────── */
+.spx-sheet__caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.7rem;
+  padding-top: 0.5rem;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: hsl(var(--foreground) / 0.66);
+}
+.spx-sheet__level {
+  font-family: "Instrument Sans", sans-serif;
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: hsl(var(--gold));
+}
+
+/* ── wider: figures across the band, entries in two columns ────────────── */
+@media (min-width: 720px) {
+  .spx-figures { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .spx-figure {
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: 0.4rem;
+    padding: clamp(0.9rem, 2vw, 1.25rem) clamp(0.7rem, 1.8vw, 1.1rem);
+    border-bottom: none;
+    border-left: 1px solid hsl(var(--rule));
+  }
+  .spx-figure:first-child { border-left: none; padding-left: 0; }
+  .spx-figure__caption { font-size: 0.78rem; }
+}
+@media (min-width: 640px) {
+  .spx-tier__rule { grid-column: 2; }
+}
+@media (min-width: 900px) {
+  .spx-row { grid-template-columns: minmax(0, 17rem) minmax(0, 1fr); }
+}
+
+
+/* ── wider sheets: the reading opens into two columns ──────────────────── */
+@media (min-width: 900px) {
+  .spx-reading__grid { grid-template-columns: minmax(0, 15rem) minmax(0, 1fr); }
+  .spx-reading__key {
+    position: relative;
+    display: block;
+    padding-right: clamp(1rem, 2.4vw, 1.7rem);
+  }
+  .spx-reading__key::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 0.3rem;
+    bottom: 0.3rem;
+    width: 1px;
+    background: hsl(var(--rule-strong) / 0.28);
+  }
+  .spx-reading__numeral { display: block; }
+  .spx-reading__feature { margin-top: 0.45rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spx-thread__wire,
+  .spx-leader.is-on .spx-leader__line { animation: none !important; }
+  .spx-mark__disc,
+  .spx-mark__name,
+  .spx-leader,
+  .spx-thread,
+  .spx-register-block,
+  .spx-blank { transition: none !important; }
+  .spx-mark:hover .spx-mark__disc { transform: none; }
+}

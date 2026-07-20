@@ -22,8 +22,14 @@ const CLAIMS: Claim[] = [
     body: "The assistant drafts a change and shows the before-and-after difference. Nothing becomes real until you explicitly confirm it.",
   },
   {
+    // The word "assistant" here is load-bearing and must stay qualified. This
+    // filter runs on the IN-APP assistant path (services/pii.py). It does NOT
+    // run on the MCP/agent surface described further down the same page —
+    // server/src/mcp/ never imports it — so the claim is written so it cannot
+    // be read as covering the agent path. The Specimen Sheet states that gap
+    // outright rather than leaving it to be discovered.
     title: "Sensitive details are removed first",
-    body: "Before data reaches the assistant, a deterministic filter strips SSNs, emails, and card or account numbers. The safety step does not depend on the model noticing them.",
+    body: "Before data reaches the in-app assistant, a deterministic filter strips SSNs, emails, and card or account numbers. The safety step does not depend on the model noticing them. It covers the assistant inside the app — not an outside AI you connect yourself.",
   },
   {
     title: "The arithmetic stays exact",

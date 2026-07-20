@@ -133,6 +133,36 @@ def _redact(rows: list[dict], *drop_keys: str) -> list[dict]:
 # Dispatch
 # ---------------------------------------------------------------------------
 
+# The scope a capability must carry to read each resource. This is the vault's
+# own gate, NOT a copy of the tool layer's: tools.py calls policy.require before
+# minting, but the vault must not depend on its caller having done so — this is
+# the boundary that actually guards the data, and a future tool (or a mistake in
+# an existing one) must not be able to reach past it.
+#
+# Fail-closed: a resource absent from this map is denied, so adding one to
+# _dispatch without deciding its scope breaks the request instead of silently
+# exposing the data. test_mcp_vault_scope_binding.py pins that invariant.
+#
+# ``ping`` is deliberately None — it echoes only the uid the verified capability
+# already establishes, so it discloses nothing the token didn't already carry.
+_RESOURCE_SCOPES: dict[str, str | None] = {
+    "ping": None,
+    "context": "read:context",
+    "accounts": "read:accounts",
+    "tx_by_date": "read:transactions",
+    "tx_by_category": "read:transactions",
+    "tx_per_account": "read:transactions",
+    "categories": "read:transactions",
+    "goals": "read:goals",
+    "budgets": "read:budgets",
+    "spend_summary": "read:budgets",
+    "forecast": "read:forecast",
+    "net_worth": "read:networth",
+    "subscriptions": "read:subscriptions",
+    "what_if": "read:scenarios",
+}
+
+
 def _dispatch(db, uid: int, resource: str, params: dict, scopes: frozenset[str]) -> object:
     """Route *resource* to the data layer, always scoped to *uid*."""
     if resource == "ping":
@@ -303,6 +333,9 @@ def read(capability_token: str, resource: str, **params) -> object:
 
     Steps:
     1. Verify the capability token — raises ``VaultError`` on failure.
+    1b. Check the token's scopes against ``_RESOURCE_SCOPES`` for *resource*,
+        fail-closed on an unmapped resource. A capability minted for one
+        resource cannot be spent on another.
     2. Open a read-only session (never commits; always rolled back).
     3. Dispatch by *resource* to the data layer, scoped to ``claims.uid``.
     4. Redact the result.
@@ -330,6 +363,34 @@ def read(capability_token: str, resource: str, **params) -> object:
     uid: int = int(claims["uid"])
     key_id: int = int(claims.get("kid", 0))
     scopes: frozenset[str] = frozenset(claims.get("scopes", []))
+
+    # Step 1b — bind the capability to the resource it is being spent on. A token
+    # minted for one resource must not open another.
+    if resource not in _RESOURCE_SCOPES:
+        audit_record(
+            user_id=uid,
+            key_id=key_id,
+            resource=resource,
+            params=params or None,
+            decision="deny:unknown_resource",
+            latency_ms=(time.monotonic() - t0) * 1000,
+        )
+        raise VaultError(f"Unknown resource: '{resource}'.")
+
+    required_scope = _RESOURCE_SCOPES[resource]
+    if required_scope is not None and required_scope not in scopes:
+        audit_record(
+            user_id=uid,
+            key_id=key_id,
+            resource=resource,
+            params=params or None,
+            decision="deny:missing_scope",
+            latency_ms=(time.monotonic() - t0) * 1000,
+        )
+        raise VaultError(
+            f"Capability is missing the '{required_scope}' scope required to "
+            f"read '{resource}'."
+        )
 
     # Step 2 — read-only session
     db = SessionLocal()
