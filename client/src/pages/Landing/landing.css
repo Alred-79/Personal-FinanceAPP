@@ -972,7 +972,7 @@
   font-size: 0.56rem;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: hsl(200 12% 40%);
+  color: hsl(200 16% 30%);
 }
 .rr-slip__q {
   font-family: "Fraunces", Georgia, serif;
@@ -987,7 +987,7 @@
   font-size: 0.58rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: hsl(200 10% 46%);
+  color: hsl(200 16% 30%);
 }
 .rr-slip.is-filed .rr-slip__file { color: hsl(28 62% 32%); font-weight: 700; }
 
@@ -1023,6 +1023,9 @@
 }
 .rr-rack__list { display: grid; }
 .rr-clause {
+  /* the real checkbox is parked inside this row rather than escaping to the
+     room's own positioning context — keyboard focus must land where the eye is */
+  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -1087,7 +1090,7 @@
   font-family: "Spline Sans Mono", ui-monospace, monospace;
   font-size: 0.56rem;
   letter-spacing: 0.02em;
-  color: hsl(220 12% 44%);
+  color: hsl(220 13% 58%);
 }
 /* a clause this request depends on — a brass tick in the margin */
 .rr-clause.is-needed { box-shadow: inset 2px 0 0 hsl(44 60% 55% / 0.5); }
@@ -1405,7 +1408,7 @@
   margin-top: 0.35rem;
   font-size: 0.62rem;
   line-height: 1.5;
-  color: hsl(220 12% 46%);
+  color: hsl(220 13% 58%);
 }
 
 /* ── the one honest sentence about writing (engineer view) ─────────────── */

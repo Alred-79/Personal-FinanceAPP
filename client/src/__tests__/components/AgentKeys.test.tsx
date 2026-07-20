@@ -163,7 +163,8 @@ describe("AgentKeys", () => {
     await screen.findByText("bdgt_live_THE_SECRET_VALUE");
     // The endpoint + bearer header, in the shape an MCP client reads.
     const snippet = screen.getByText(/mcpServers/);
-    expect(snippet.textContent).toContain(`${window.location.origin}/mcp`);
+    // The trailing slash matters — the bare path falls through to the SPA.
+    expect(snippet.textContent).toContain(`"${window.location.origin}/mcp/"`);
     expect(snippet.textContent).toContain("Bearer bdgt_live_THE_SECRET_VALUE");
   });
 

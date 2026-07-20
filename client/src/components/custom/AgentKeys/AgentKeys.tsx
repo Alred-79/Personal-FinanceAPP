@@ -510,13 +510,18 @@ function RevealNote({ minted, onClose }: { minted: MintedKey; onClose: () => voi
   // The client-side half of the connection: the mounted MCP endpoint plus the
   // bearer header. Written out once, alongside the key, because this is the only
   // moment the raw key exists outside the hash.
+  //
+  // The trailing slash is load-bearing. The MCP app is mounted at "/mcp", and a
+  // request to the bare path falls through to the SPA's static catch-all and
+  // comes back as index.html — a client pasting it would get HTML instead of a
+  // handshake. "/mcp/" hits the mount and answers 401 until a key is presented.
   const setup = useMemo(
     () =>
       JSON.stringify(
         {
           mcpServers: {
             ledger: {
-              url: `${window.location.origin}/mcp`,
+              url: `${window.location.origin}/mcp/`,
               headers: { Authorization: `Bearer ${minted.raw_key}` },
             },
           },
