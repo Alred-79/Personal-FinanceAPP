@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import PageHeader from "@/components/layout/PageHeader";
 import {
   Card,
@@ -183,8 +184,19 @@ function AutoExecuteThreshold() {
   );
 }
 
+/** The folios, in tab order — also the allow-list for the ?tab= deep link. */
+const TABS = [
+  "preferences",
+  "automation",
+  "memory",
+  "accounts",
+  "agent-keys",
+  "security",
+];
+
 export default function Settings() {
   const { toast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     warningPosition,
     savingsPercent,
@@ -266,6 +278,12 @@ export default function Settings() {
     await deleteAccount(accountId);
   };
 
+  // The open folio is addressable: /settings?tab=agent-keys lands straight on the
+  // Bureau, so the landing page's "Connect your AI" can point at it through login.
+  const tab = TABS.includes(searchParams.get("tab") ?? "")
+    ? (searchParams.get("tab") as string)
+    : "preferences";
+
   return (
     <>
       <PageHeader
@@ -274,7 +292,12 @@ export default function Settings() {
         reference="Folio VIII · Standing Instructions"
       />
 
-      <Tabs defaultValue="preferences">
+      <Tabs
+        value={tab}
+        onValueChange={(v) =>
+          setSearchParams(v === "preferences" ? {} : { tab: v }, { replace: true })
+        }
+      >
         <TabsList>
           <TabsTrigger value="preferences">Preferences</TabsTrigger>
           <TabsTrigger value="automation">Automation</TabsTrigger>

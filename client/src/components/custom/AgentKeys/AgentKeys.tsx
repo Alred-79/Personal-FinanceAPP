@@ -39,12 +39,18 @@ interface MintedKey {
   expires_at: string | null;
 }
 
-/** The grantable read scopes, in the order they read on a writ. */
+/** The grantable read scopes, in the order they read on a writ. Every scope the
+ *  MCP surface accepts is grantable here (server/src/settings.py mcp_allowed_scopes);
+ *  the propose door is deliberately absent — it ships dark and is never a picker. */
 const SCOPES: { id: string; label: string; clause: string }[] = [
   { id: "read:accounts", label: "Accounts", clause: "names & balances of your accounts" },
   { id: "read:transactions", label: "Transactions", clause: "every posted debit and credit" },
   { id: "read:budgets", label: "Budgets", clause: "envelopes, limits & pace" },
   { id: "read:goals", label: "Goals", clause: "savings targets & progress" },
+  { id: "read:forecast", label: "Forecast", clause: "the cash outlook & overdraft odds" },
+  { id: "read:networth", label: "Net worth", clause: "totals & the snapshot trend" },
+  { id: "read:subscriptions", label: "Subscriptions", clause: "detected recurring charges" },
+  { id: "read:scenarios", label: "Scenarios", clause: "what-if projections, never committed" },
   { id: "read:context", label: "Context", clause: "a composed read-only snapshot" },
 ];
 
@@ -498,7 +504,28 @@ function RegisterSkeleton() {
 function RevealNote({ minted, onClose }: { minted: MintedKey; onClose: () => void }) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const [copiedSetup, setCopiedSetup] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
+
+  // The client-side half of the connection: the mounted MCP endpoint plus the
+  // bearer header. Written out once, alongside the key, because this is the only
+  // moment the raw key exists outside the hash.
+  const setup = useMemo(
+    () =>
+      JSON.stringify(
+        {
+          mcpServers: {
+            ledger: {
+              url: `${window.location.origin}/mcp`,
+              headers: { Authorization: `Bearer ${minted.raw_key}` },
+            },
+          },
+        },
+        null,
+        2
+      ),
+    [minted.raw_key]
+  );
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -513,6 +540,17 @@ function RevealNote({ minted, onClose }: { minted: MintedKey; onClose: () => voi
       setCopied(true);
       toast({ title: "Copied to clipboard" });
       setTimeout(() => setCopied(false), 2200);
+    } catch {
+      toast({ title: "Copy failed — select it manually", variant: "destructive" });
+    }
+  };
+
+  const copySetup = async () => {
+    try {
+      await navigator.clipboard.writeText(setup);
+      setCopiedSetup(true);
+      toast({ title: "Connection copied" });
+      setTimeout(() => setCopiedSetup(false), 2200);
     } catch {
       toast({ title: "Copy failed — select it manually", variant: "destructive" });
     }
@@ -559,6 +597,30 @@ function RevealNote({ minted, onClose }: { minted: MintedKey; onClose: () => voi
             This is the only time the full key is shown. It is stored only as a
             one-way hash — we cannot recover it. Lose it and you must re-issue.
           </p>
+
+          {/* the connection itself — endpoint + bearer, in the shape MCP clients read */}
+          <div className="mt-5">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="dept-label">The Connection — for your client's config</p>
+              <button
+                onClick={copySetup}
+                className={cn(
+                  "press border border-rule px-2 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors",
+                  copiedSetup ? "border-credit text-credit" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {copiedSetup ? "✓ Copied" : "Copy"}
+              </button>
+            </div>
+            <pre className="mt-1.5 max-h-40 overflow-auto border border-rule-strong/40 bg-paper-high/60 p-3 font-mono text-[11px] leading-relaxed text-foreground selection:bg-gold/40">
+              {setup}
+            </pre>
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
+              Paste into your MCP client (Claude Desktop's{" "}
+              <code className="font-mono">claude_desktop_config.json</code>, say). The
+              door it opens is read-only and scoped to the clauses above.
+            </p>
+          </div>
 
           <div className="mt-5 flex items-center gap-2">
             <button

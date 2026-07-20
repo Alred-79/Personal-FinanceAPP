@@ -10,7 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/useToast";
 import { useStore } from "@/store/store";
 import api from "@/lib/api";
@@ -18,8 +18,22 @@ import { AxiosError } from "axios";
 import { Brandmark } from "@/components/layout/Brandmark";
 import { Guilloche, GuillocheBand } from "@/components/engraving/Guilloche";
 
+/**
+ * Where to land after signing in. `?next=` lets a public page (the landing's
+ * "Connect your AI") point through login at a specific folio. Only same-origin
+ * absolute paths are honoured — a leading "//" or any scheme would be an open
+ * redirect, so anything else falls back to the dashboard.
+ */
+function safeNext(raw: string | null): string {
+  if (!raw) return "/";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
+  return raw;
+}
+
 export default function Login() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const next = safeNext(searchParams.get("next"));
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [demoEnabled, setDemoEnabled] = useState(false);
@@ -50,7 +64,7 @@ export default function Login() {
         description: "You're exploring a pre-filled showcase account.",
       });
       useStore.setState({ isLoggedIn: true });
-      navigate("/");
+      navigate(next);
     } catch (error) {
       const axiosError = error as AxiosError<{ detail: string }>;
       toast({
@@ -103,7 +117,7 @@ export default function Login() {
       useStore.setState({ isLoggedIn: true });
 
       // Redirect to dashboard or home
-      navigate("/");
+      navigate(next);
     } catch (error) {
       const axiosError = error as AxiosError<{ detail: string }>;
       toast({
@@ -148,7 +162,7 @@ export default function Login() {
       useStore.setState({ isLoggedIn: true });
 
       // Redirect to dashboard or home
-      navigate("/");
+      navigate(next);
     } catch (error) {
       const axiosError = error as AxiosError<{ detail: string | { msg: string }[] }>;
       const detail = axiosError.response?.data?.detail;

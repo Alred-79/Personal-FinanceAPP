@@ -87,6 +87,86 @@ describe("AgentKeys", () => {
     );
   });
 
+  it("offers every read scope the MCP surface accepts", async () => {
+    apiGet.mockResolvedValue({ data: [] });
+    render(<AgentKeys />);
+    await screen.findByText("No writs on file");
+
+    // All nine read scopes are grantable — the four analytical ones included.
+    for (const id of [
+      "read:accounts",
+      "read:transactions",
+      "read:budgets",
+      "read:goals",
+      "read:forecast",
+      "read:networth",
+      "read:subscriptions",
+      "read:scenarios",
+      "read:context",
+    ]) {
+      expect(screen.getByText(id)).toBeInTheDocument();
+    }
+    // The propose door ships dark and is never offered as a clause.
+    expect(screen.queryByText("propose:actions")).not.toBeInTheDocument();
+  });
+
+  it("grants a newly-added scope when its clause is toggled on", async () => {
+    apiGet.mockResolvedValue({ data: [] });
+    apiPost.mockResolvedValue({
+      data: {
+        raw_key: "bdgt_live_X",
+        id: 3,
+        name: "Forecaster",
+        key_prefix: "bdgt_live_X",
+        scopes: "read:accounts,read:transactions,read:forecast",
+        expires_at: null,
+      },
+    });
+    render(<AgentKeys />);
+    await screen.findByText("No writs on file");
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. Claude Desktop"), {
+      target: { value: "Forecaster" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Forecast/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Seal & Issue/i }));
+
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith(
+        "/mcp-keys/",
+        expect.objectContaining({
+          scopes: expect.arrayContaining(["read:forecast"]),
+        })
+      )
+    );
+  });
+
+  it("hands over a copyable connection alongside the one-time key", async () => {
+    apiGet.mockResolvedValue({ data: [] });
+    apiPost.mockResolvedValue({
+      data: {
+        raw_key: "bdgt_live_THE_SECRET_VALUE",
+        id: 9,
+        name: "My Agent",
+        key_prefix: "bdgt_live_TH",
+        scopes: "read:accounts",
+        expires_at: null,
+      },
+    });
+    render(<AgentKeys />);
+    await screen.findByText("No writs on file");
+    fireEvent.change(screen.getByPlaceholderText("e.g. Claude Desktop"), {
+      target: { value: "My Agent" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Seal & Issue/i }));
+
+    await screen.findByText("bdgt_live_THE_SECRET_VALUE");
+    // The endpoint + bearer header, in the shape an MCP client reads.
+    const snippet = screen.getByText(/mcpServers/);
+    expect(snippet.textContent).toContain(`${window.location.origin}/mcp`);
+    expect(snippet.textContent).toContain("Bearer bdgt_live_THE_SECRET_VALUE");
+  });
+
   it("revokes a live key", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     apiGet.mockResolvedValue({ data: [KEY] });
