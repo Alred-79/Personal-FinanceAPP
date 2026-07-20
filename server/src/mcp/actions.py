@@ -35,6 +35,11 @@ from server.src.services.assisted_action_service import (
 
 _REQUIRED_SCOPE = "propose:actions"
 
+# Upper bounds on agent-supplied free-text/structured fields that get persisted.
+# An agent could otherwise store arbitrarily large blobs on a proposal row.
+MAX_RATIONALE_LEN = 2000
+MAX_REF_LEN = 256
+MAX_HOW_BYTES = 4096
 
 class ProposeError(Exception):
     """Raised for a denied or malformed propose request.
@@ -62,6 +67,35 @@ def _to_dict(bridge) -> dict:
         "verify_ref": bridge.verify_ref,
         "created_at": bridge.created_at,
     }
+
+def _validate_fields(rationale, source_ref, dest_ref, how) -> None:
+    """Type- and size-check the agent-supplied fields persisted on a proposal.
+
+    Raises ``ProposeError`` on a wrong type or an over-length value. ``kind`` and
+    ``amount`` are validated separately (and ``kind`` again by the service).
+    """
+    if not isinstance(rationale, str):
+        raise ProposeError("'rationale' must be a string.")
+    if len(rationale) > MAX_RATIONALE_LEN:
+        raise ProposeError(
+            f"'rationale' is too long (max {MAX_RATIONALE_LEN} chars)."
+        )
+    for name, ref in (("source_ref", source_ref), ("dest_ref", dest_ref)):
+        if ref is None:
+            continue
+        if not isinstance(ref, str):
+            raise ProposeError(f"'{name}' must be a string or omitted.")
+        if len(ref) > MAX_REF_LEN:
+            raise ProposeError(f"'{name}' is too long (max {MAX_REF_LEN} chars).")
+    if how is not None:
+        if not isinstance(how, dict):
+            raise ProposeError("'how' must be an object or omitted.")
+        try:
+            encoded = json.dumps(how)
+        except (TypeError, ValueError) as exc:
+            raise ProposeError("'how' must be JSON-serializable.") from exc
+        if len(encoded) > MAX_HOW_BYTES:
+            raise ProposeError(f"'how' is too large (max {MAX_HOW_BYTES} bytes).")
 
 
 def propose(
@@ -139,6 +173,18 @@ def propose(
         )
         raise ProposeError("'amount' must be positive.")
     amount_cents = dollars_to_cents(amount)
+
+    # Step 3b — bound the agent-supplied fields that get persisted on the row, so
+    # a proposal can't carry an arbitrarily large blob.
+    try:
+        _validate_fields(rationale, source_ref, dest_ref, how)
+    except ProposeError:
+        audit_record(
+            user_id=uid, key_id=key_id, resource=f"propose:{kind}",
+            decision="deny:bad_field",
+            latency_ms=(time.monotonic() - t0) * 1000,
+        )
+        raise
 
     # Step 4 — write + commit, scoped to the token's user.
     db = SessionLocal()

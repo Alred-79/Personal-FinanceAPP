@@ -65,6 +65,24 @@ from server.src.services.read_queries import (
 )
 
 
+# Upper bounds on agent-supplied request sizes (resource-exhaustion guards).
+# A forecast horizon is a per-day walk + bootstrap sim, so an unbounded ``days``
+# is a DoS vector; cap it at ~1 year. An overlay drives the same projection, so
+# cap the total number of hypothetical items a single what_if may carry.
+MAX_FORECAST_DAYS = 366
+MAX_OVERLAY_ITEMS = 200
+
+# Overlay keys whose values are lists of hypothetical items — summed against
+# MAX_OVERLAY_ITEMS so no single what_if can balloon the projection.
+_OVERLAY_LIST_KEYS = (
+    "added_recurring",
+    "discrete_flows",
+    "overridden_recurring",
+    "goal_mutations",
+    "excluded_source_ids",
+)
+
+
 def _parse_iso_date(value: str, field: str) -> str:
     """Validate *value* is a YYYY-MM-DD date, returning it unchanged.
 
@@ -212,6 +230,9 @@ def _forecast(db, uid: int, params: dict) -> dict:
         raise VaultError("'days' must be an integer number of days.")
     if days <= 0:
         raise VaultError("'days' must be a positive number of days.")
+    # Clamp the horizon so an arbitrarily huge `days` can't drive an unbounded
+    # per-day projection + bootstrap simulation (resource exhaustion).
+    days = min(days, MAX_FORECAST_DAYS)
     today = date.today()
     raw = ForecastService(db).forecast(
         uid, today, today + timedelta(days=days), include_burn=True
@@ -250,6 +271,18 @@ def _what_if(db, uid: int, params: dict) -> dict:
     overlay = params.get("overlay")
     if not isinstance(overlay, dict):
         raise VaultError("what_if requires an 'overlay' object.")
+    # Bound total hypothetical items so a single overlay can't explode the
+    # projection (resource exhaustion). Counted before deserialization.
+    item_count = sum(
+        len(overlay[k])
+        for k in _OVERLAY_LIST_KEYS
+        if isinstance(overlay.get(k), (list, tuple))
+    )
+    if item_count > MAX_OVERLAY_ITEMS:
+        raise VaultError(
+            f"overlay has too many items ({item_count}); the maximum is "
+            f"{MAX_OVERLAY_ITEMS}."
+        )
     spec = dict(overlay)
     spec.setdefault("schema_version", SCENARIO_SCHEMA_VERSION)
     try:
