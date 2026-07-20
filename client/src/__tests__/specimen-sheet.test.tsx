@@ -6,7 +6,6 @@ import { SpecimenSheet } from "@/pages/Landing/sections/SpecimenSheet";
 import { Security } from "@/pages/Landing/sections/Security";
 import { AgentReadingRoom } from "@/pages/Landing/sections/AgentReadingRoom";
 import {
-  IMPACT,
   NOT_CLAIMED,
   PLATES,
   TIERS,
@@ -201,30 +200,6 @@ describe("The Specimen Sheet", () => {
     expect(two.textContent).toContain("ENABLE_RLS=true");
     expect(two.textContent).toContain("TRUST_PROXY");
     expect(two.textContent).toMatch(/not a superuser/i);
-  });
-
-  /* ── the figures ─────────────────────────────────────────────────────── */
-
-  it("prints measured figures, with no invented precision", () => {
-    const { container } = render(<SpecimenSheet />);
-    // Scoped to the figure band: "1" and "3" are also callout numerals.
-    const band = within(container.querySelector(".spx-figures") as HTMLElement);
-    expect(IMPACT).toHaveLength(4);
-    for (const f of IMPACT) {
-      expect(band.getByText(f.value)).toBeInTheDocument();
-      // No rounded-off marketing numbers: nothing ends in "+" or "~".
-      expect(f.value).not.toMatch(/[+~]/);
-      expect(f.value).toMatch(/^[\d,]+(\s\/\s[\d,]+)?$/);
-    }
-    expect(band.getByText(/security mechanisms audited/i)).toBeInTheDocument();
-    // Two docstrings that described enforcement the code did not perform have now
-    // been made true, not two-thirds of one. The caption has to say which is which.
-    expect(band.getByText("4")).toBeInTheDocument();
-    expect(
-      band.getByText(/two by building the enforcement the docstring described, two by narrowing/i)
-    ).toBeInTheDocument();
-    // The test counts are the two the runner actually printed, not a headline.
-    expect(band.getByText("1,573 / 1,590")).toBeInTheDocument();
   });
 
   /* ── the honesty contract ─────────────────────────────────────────────── */

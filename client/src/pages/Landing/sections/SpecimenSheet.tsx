@@ -8,7 +8,6 @@ import { SpecimenNote } from "./specimen/SpecimenNote";
 import { TierRegister } from "./specimen/TierRegister";
 import { Cite } from "./specimen/Cite";
 import {
-  IMPACT,
   NOT_CLAIMED,
   PLATES,
   TIERS,
@@ -94,18 +93,6 @@ export function SpecimenSheet() {
           shows what happens to a single request. This one is for the engineer who
           would rather open the files.
         </p>
-      </Rise>
-
-      {/* ── the engraved figure block: what the audit actually turned up ──── */}
-      <Rise delay={0.05}>
-        <div className="spx-figures" role="list">
-          {IMPACT.map((f) => (
-            <div className="spx-figure" role="listitem" key={f.caption}>
-              <span className="spx-figure__value">{f.value}</span>
-              <span className="spx-figure__caption">{f.caption}</span>
-            </div>
-          ))}
-        </div>
       </Rise>
 
       <Rise delay={0.08}>

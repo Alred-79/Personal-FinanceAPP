@@ -1899,46 +1899,6 @@
 .spx-cite--compact { font-size: 0.69rem; }
 .spx-cite--compact .spx-cite__kind { display: none; }
 
-/* ── the engraved figure block ─────────────────────────────────────────────
-   A ledger totals line, not a stat row: hairline above and below, serif
-   numerals in the accent, vertical rules between the columns, no boxes and no
-   icons. Every figure was measured — see IMPACT in specimenData.ts. */
-.spx-figures {
-  margin: clamp(1.6rem, 4vw, 2.6rem) auto 0;
-  max-width: 62rem;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  border-top: 1px solid hsl(var(--rule-strong) / 0.45);
-  border-bottom: 1px solid hsl(var(--rule-strong) / 0.45);
-}
-.spx-figure {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: baseline;
-  gap: 0 0.85rem;
-  padding: 0.85rem 0;
-  border-bottom: 1px solid hsl(var(--rule));
-}
-.spx-figure:last-child { border-bottom: none; }
-.spx-figure__value {
-  font-family: "Fraunces", Georgia, serif;
-  font-variant-numeric: lining-nums tabular-nums;
-  /* sized so the longest figure — the two test counts — sets on ONE line in the
-     narrowest column the band ever produces. A wrapped number reads as two. */
-  font-size: clamp(1.55rem, 3.2vw, 1.9rem);
-  font-weight: 600;
-  line-height: 1.05;
-  letter-spacing: -0.02em;
-  white-space: nowrap;
-  color: hsl(var(--gold));
-}
-.spx-figure__caption {
-  font-size: 0.84rem;
-  line-height: 1.5;
-  color: hsl(var(--foreground) / 0.78);
-  text-wrap: pretty;
-}
-
 /* ── the grading note that introduces the three levels ─────────────────── */
 .spx-grading {
   max-width: 46rem;
@@ -2195,20 +2155,6 @@
   color: hsl(var(--gold));
 }
 
-/* ── wider: figures across the band, entries in two columns ────────────── */
-@media (min-width: 720px) {
-  .spx-figures { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .spx-figure {
-    grid-template-columns: minmax(0, 1fr);
-    align-content: start;
-    gap: 0.4rem;
-    padding: clamp(0.9rem, 2vw, 1.25rem) clamp(0.7rem, 1.8vw, 1.1rem);
-    border-bottom: none;
-    border-left: 1px solid hsl(var(--rule));
-  }
-  .spx-figure:first-child { border-left: none; padding-left: 0; }
-  .spx-figure__caption { font-size: 0.78rem; }
-}
 @media (min-width: 640px) {
   .spx-tier__rule { grid-column: 2; }
 }

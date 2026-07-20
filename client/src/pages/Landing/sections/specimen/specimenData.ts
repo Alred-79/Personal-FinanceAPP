@@ -571,56 +571,6 @@ export const TIERS: Tier[] = [
   },
 ];
 
-/* ── The engraved figure block ───────────────────────────────────────────── */
-
-export type Figure = { value: string; caption: string };
-
-/**
- * Measured, not estimated, and never rounded.
- *
- * The two test counts were OBSERVED by running the backend suite on the default
- * SQLite configuration (`1573 passed, 17 skipped`), and again with
- * TEST_DATABASE_URL pointed at PostgreSQL 17.7, where the 17 Postgres-only
- * tests stop being skipped (`1590 passed`, no skips in the summary line). Both
- * are reported exactly as pytest printed them. The two runs are tied together:
- * every one of the 17 SQLite skips reports the same reason — "RLS is
- * Postgres-only" — so the second figure is the first plus exactly those.
- *
- * The 4 overstated claims are each a diff, not an impression. TWO were closed by
- * building what the docstring already claimed:
- *   • the audit-log model called its table append-only with nothing behind it —
- *     now BEFORE UPDATE/DELETE triggers on both dialects;
- *   • the vault's docstring listed a scope check that `read()` never performed —
- *     now `_RESOURCE_SCOPES`, checked before the session opens.
- * TWO were closed by narrowing the wording, because the code was right and the
- * sentence was not:
- *   • the landing's "inspect every request" → "every request your key makes",
- *     because anonymous denials are never persisted;
- *   • the Vault's PII claim, fenced to the in-app assistant, because the agent
- *     path does not use that filter at all.
- *
- * The "42 audited" is a record of the audit pass and is deliberately NOT bumped
- * for the scope gate: that mechanism did not exist to be audited — the audit is
- * what produced it.
- */
-export const IMPACT: Figure[] = [
-  { value: "42", caption: "security mechanisms audited across the agent surface" },
-  {
-    value: "4",
-    caption:
-      "overstated claims found and corrected — two by building the enforcement the docstring described, two by narrowing the wording",
-  },
-  {
-    value: "1",
-    caption:
-      "silent-failure bug found and fixed: enabling row-level security discarded every audit row, swallowed by a bare except",
-  },
-  {
-    value: "1,573 / 1,590",
-    caption: "backend tests passing on SQLite, and on Postgres 17.7 with none skipped",
-  },
-];
-
 /**
  * What a specimen sheet leaves off is information too — and the tier system
  * must not be allowed to absorb it. This one is not Level II awaiting a
