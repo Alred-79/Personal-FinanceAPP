@@ -9,7 +9,7 @@ import { Forecast } from "./sections/Forecast";
 import { Instruments } from "./sections/Instruments";
 import { VaultDoor } from "./sections/VaultDoor";
 import { Security } from "./sections/Security";
-import { GameMode } from "./sections/GameMode";
+import { AgentReadingRoom } from "./sections/AgentReadingRoom";
 import { FinalCTA } from "./sections/FinalCTA";
 import { Footer } from "./sections/Footer";
 import "./landing.css";
@@ -42,13 +42,15 @@ export default function Landing() {
         <div className="relative z-[1] mx-auto max-w-[1080px] px-4 sm:px-8">
           {/* Lead with the Hero, then the calibrated-overdraft Forecast right
               below it (its original top-of-page placement), followed by the
-              working tools and the honest-AI vault / game trust features. */}
+              working tools, the vault's trust guarantees, and — last, on the
+              dark side — the Reading Room where an AI reads the ledger under
+              scopes the visitor controls. */}
           <Hero />
           <Forecast />
           <Instruments />
           <VaultDoor />
           <Security />
-          <GameMode />
+          <AgentReadingRoom />
           <FinalCTA />
         </div>
 

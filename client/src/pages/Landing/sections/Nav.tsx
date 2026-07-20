@@ -28,6 +28,9 @@ export function Nav() {
         <AnchorLink to="#vault" className="hidden text-[0.82rem] text-muted-foreground transition-colors hover:text-foreground sm:inline">
           Trust
         </AnchorLink>
+        <AnchorLink to="#agents" className="hidden text-[0.82rem] text-muted-foreground transition-colors hover:text-foreground sm:inline">
+          Your AI
+        </AnchorLink>
         <Link
           to="/login"
           className="press hidden border border-rule-strong/60 px-3.5 py-2 text-[0.8rem] font-semibold uppercase tracking-[0.04em] sm:inline-block"
