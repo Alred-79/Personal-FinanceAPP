@@ -109,6 +109,7 @@ def _to_user_in_db(user: Any) -> UserInDB:
         # to its "off" default, so /users/me/ always reported "off" regardless of
         # the stored value.
         game_mode=cast(str, getattr(user, "game_mode", "off")),
+        is_demo=cast(str, user.username) == DEMO_USERNAME,
     )
 
 
@@ -275,8 +276,22 @@ class AuthService:
             # §5.2.2.3): revoke the whole family, so any session minted from this
             # lineage, including the one the attacker just rotated, dies too.
             # Commit right away so the revocation survives the 401's rollback.
-            AuthService.revoke_all_user_tokens(db, cast(int, row.user_id))
-            db.commit()
+            owner = db.execute(
+                select(UserORM).where(UserORM.id == row.user_id)
+            ).scalar_one_or_none()
+            # The public demo account is intentionally shared across unrelated
+            # visitors. Reuse still rejects this token, but must not interpret
+            # one visitor's stale tab as theft from every other visitor and
+            # revoke all their independent sessions. Normal accounts retain the
+            # hardened whole-family response.
+            shared_demo = (
+                settings.demo_mode_enabled
+                and owner is not None
+                and owner.username == DEMO_USERNAME
+            )
+            if not shared_demo:
+                AuthService.revoke_all_user_tokens(db, cast(int, row.user_id))
+                db.commit()
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or revoked refresh token",

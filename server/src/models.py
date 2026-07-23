@@ -100,6 +100,9 @@ class User(BaseModel):
     savings_percent: int = 10
     # v4 package 02: game intensity dial; 'off' keeps the app pure-finance.
     game_mode: str = "off"
+    # Server-confirmed session identity. The client must not infer this from a
+    # username string when deciding which shared-demo safeguards to apply.
+    is_demo: bool = False
 
 
 class UserInDB(User):

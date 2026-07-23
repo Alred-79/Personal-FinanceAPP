@@ -37,6 +37,7 @@ from server.src.money import (
 from server.src.services.recurring_service import (
     RECURRENCE_TO_DAYS,
     RecurringService,
+    latest_recurring_rows,
 )
 
 
@@ -86,21 +87,16 @@ class SpendService:
         # proration across runs / engines). Every non-aggregated selected column
         # is now in the GROUP BY (incl. ``recurrence``) so the cadence used for
         # proration is the row's real cadence and the result is deterministic.
-        fixed_rows = (
+        recurring_rows = (
             self.db.execute(
-                select(ExpenseORM.amount, ExpenseORM.recurrence)
+                select(ExpenseORM)
                 .join(AccountORM, ExpenseORM.account_id == AccountORM.id)
                 .where(
                     ExpenseORM.recurrence.isnot(None),
                     AccountORM.user_id == user.id,
                 )
-                .group_by(
-                    ExpenseORM.title,
-                    ExpenseORM.amount,
-                    ExpenseORM.category,
-                    ExpenseORM.recurrence,
-                )
             )
+            .scalars()
             .all()
         )
 
@@ -108,9 +104,9 @@ class SpendService:
         # per-bill + per-goal accumulation can't pick up binary-float drift and the
         # result is exact to the cent. Dollars only re-appear at the return.
         total_fixed_cents = 0
-        for amount_cents, recurrence in fixed_rows:
-            days = RECURRENCE_TO_DAYS.get(recurrence, 30)
-            total_fixed_cents += (amount_cents * 14) // days
+        for row in latest_recurring_rows(recurring_rows):
+            days = RECURRENCE_TO_DAYS.get(row.recurrence, 30)
+            total_fixed_cents += (row.amount * 14) // days
 
         # Active goals
         goal_rows = (

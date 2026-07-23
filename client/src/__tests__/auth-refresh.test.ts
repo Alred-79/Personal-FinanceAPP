@@ -2,14 +2,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // F1 — refreshOnce() must collapse concurrent callers onto ONE POST /refresh/.
 // We mock the axios instance's post and drive refreshOnce concurrently.
-const { apiPost } = vi.hoisted(() => ({ apiPost: vi.fn() }));
+const { apiPost, responseUse } = vi.hoisted(() => ({
+  apiPost: vi.fn(),
+  responseUse: vi.fn(),
+}));
 
 vi.mock("axios", () => {
   const instance = {
     post: apiPost,
     interceptors: {
       request: { use: vi.fn() },
-      response: { use: vi.fn() },
+      response: { use: responseUse },
     },
   };
   return { default: { create: () => instance } };
@@ -52,5 +55,18 @@ describe("refreshOnce — single-flight refresh (F1)", () => {
     // And recovers: the next call can succeed.
     apiPost.mockResolvedValueOnce({});
     await expect(refreshOnce()).resolves.toBeUndefined();
+  });
+
+  it("does not start a refresh loop when demo login itself is unauthorized", async () => {
+    const rejectResponse = responseUse.mock.calls[0][1] as (
+      error: unknown
+    ) => Promise<unknown>;
+    const error = {
+      config: { url: "/demo-login/" },
+      response: { status: 401 },
+    };
+
+    await expect(rejectResponse(error)).rejects.toBe(error);
+    expect(apiPost).not.toHaveBeenCalled();
   });
 });

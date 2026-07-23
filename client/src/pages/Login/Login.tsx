@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -36,44 +36,58 @@ export default function Login() {
   const next = safeNext(searchParams.get("next"));
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [demoEnabled, setDemoEnabled] = useState(false);
+  const [demoAvailability, setDemoAvailability] = useState<
+    "checking" | "hidden" | "ready" | "unavailable"
+  >("checking");
+  const [demoError, setDemoError] = useState<string | null>(null);
 
-  // Ask the backend whether demo mode is on. The button only appears when the
-  // gated /demo-login/ route actually exists (false in any normal deployment).
+  const checkDemoStatus = useCallback(async (active: () => boolean = () => true) => {
+    setDemoError(null);
+    setDemoAvailability("checking");
+    try {
+      const response = await api.get("/demo-status");
+      if (!active()) return;
+      if (!response.data?.enabled) {
+        setDemoAvailability("hidden");
+      } else {
+        // Fail closed unless the backend has verified the current schema and
+        // canonical dataset. An older `enabled`-only response must not expose a
+        // button that can navigate into a partial, error-filled showcase.
+        setDemoAvailability(response.data?.ready === true ? "ready" : "unavailable");
+      }
+    } catch {
+      // Without a confirmed enabled flag, fail closed just as a normal
+      // non-demo deployment does.
+      if (active()) setDemoAvailability("hidden");
+    }
+  }, []);
+
+  // Ask whether the showcase is both enabled and provisioned. An enabled but
+  // unready deployment gets a quiet retry state instead of a button that is
+  // guaranteed to fail after the visitor clicks it.
   useEffect(() => {
     let active = true;
-    api
-      .get("/demo-status")
-      .then((res) => {
-        if (active) setDemoEnabled(Boolean(res.data?.enabled));
-      })
-      .catch(() => {
-        /* no demo button if the probe fails — fail closed */
-      });
+    void checkDemoStatus(() => active);
     return () => {
       active = false;
     };
-  }, []);
+  }, [checkDemoStatus]);
 
   const handleDemo = async () => {
     setIsLoading(true);
+    setDemoError(null);
     try {
-      await api.post("/demo-login");
+      await useStore.getState().bootstrapDemoSession();
       toast({
         title: "Demo data opened",
         description: "You're exploring a pre-filled financial story. Nothing here is connected to a real bank.",
       });
-      useStore.setState({ isLoggedIn: true });
       navigate(next);
-    } catch (error) {
-      const axiosError = error as AxiosError<{ detail: string }>;
-      toast({
-        variant: "destructive",
-        title: "Couldn't enter the demo",
-        description:
-          axiosError.response?.data?.detail ||
-          "The demo is unavailable right now.",
-      });
+    } catch {
+      // Keep this local and singular. Page-level fetchers never mount because
+      // the bootstrap is atomic, so one unavailable message replaces the old
+      // cascade of destructive "cannot load" toasts.
+      setDemoError("The demo is being refreshed. Please try again in a moment.");
     } finally {
       setIsLoading(false);
     }
@@ -114,7 +128,7 @@ export default function Login() {
       });
 
       // Set isLoggedIn to true
-      useStore.setState({ isLoggedIn: true });
+      useStore.getState().beginAuthenticatedSession();
 
       // Redirect to dashboard or home
       navigate(next);
@@ -159,7 +173,7 @@ export default function Login() {
       });
 
       // Set isLoggedIn to true
-      useStore.setState({ isLoggedIn: true });
+      useStore.getState().beginAuthenticatedSession();
 
       // Redirect to dashboard or home
       navigate(next);
@@ -274,7 +288,7 @@ export default function Login() {
                 </Button>
               </form>
 
-              {demoEnabled && (
+              {demoAvailability !== "hidden" && demoAvailability !== "checking" && (
                 <div className="mt-5 space-y-3">
                   <div className="flex items-center gap-3">
                     <span className="h-px flex-1 bg-rule/60" aria-hidden />
@@ -283,19 +297,42 @@ export default function Login() {
                     </span>
                     <span className="h-px flex-1 bg-rule/60" aria-hidden />
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full border-gold/40 text-foreground hover:bg-gold/10"
-                    onClick={handleDemo}
-                    disabled={isLoading}
-                  >
-                    {isLoading ? "Opening demo data…" : "View demo data"}
-                  </Button>
-                  <p className="text-center font-sans text-[11px] leading-relaxed text-muted-foreground">
-                    No sign-up or bank connection. Explore pre-filled accounts,
-                    budgets, goals, forecasts, subscriptions, debts, and scenarios.
-                  </p>
+                  {demoAvailability === "ready" ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full border-gold/40 text-foreground hover:bg-gold/10"
+                        onClick={handleDemo}
+                        disabled={isLoading}
+                      >
+                        {isLoading ? "Opening demo data…" : "View demo data"}
+                      </Button>
+                      <p className="text-center font-sans text-[11px] leading-relaxed text-muted-foreground">
+                        No sign-up or bank connection. Explore pre-filled accounts,
+                        budgets, goals, forecasts, subscriptions, debts, and scenarios.
+                      </p>
+                    </>
+                  ) : (
+                    <div className="text-center font-sans text-[11px] leading-relaxed text-muted-foreground">
+                      <p>The demo data is being prepared.</p>
+                      <button
+                        type="button"
+                        className="mt-1 min-h-11 px-3 font-semibold text-foreground underline decoration-rule-strong underline-offset-4 hover:text-gold"
+                        onClick={() => void checkDemoStatus()}
+                      >
+                        Check again
+                      </button>
+                    </div>
+                  )}
+                  {demoError && (
+                    <p
+                      role="status"
+                      className="text-center font-sans text-[11px] leading-relaxed text-muted-foreground"
+                    >
+                      {demoError}
+                    </p>
+                  )}
                 </div>
               )}
             </TabsContent>

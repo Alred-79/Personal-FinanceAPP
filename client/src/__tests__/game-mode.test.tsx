@@ -21,6 +21,7 @@ import {
   useGameMode,
   useTerm,
 } from "@/store/gameMode";
+import { useStore } from "@/store/store";
 import { Term } from "@/components/custom/Term/Term";
 import { ScanlineOverlay } from "@/components/custom/ScanlineOverlay/ScanlineOverlay";
 import offTerms from "@/terms/terms.off.json";
@@ -179,4 +180,34 @@ it("provider remount reads the persisted mode from the server", async () => {
   );
   await waitFor(() => expect(api?.mode).toBe("ambient"));
   expect(document.documentElement.dataset.mode).toBe("ambient");
+});
+
+it("normal settings hydration applies the persisted game mode after login", async () => {
+  apiGet
+    .mockResolvedValueOnce({ data: { preferences: { game_mode: "off" } } })
+    .mockResolvedValueOnce({
+      data: {
+        preferences: {
+          game_mode: "ambient",
+          spend_warning: 70,
+          savings_percent: 20,
+        },
+        features: {},
+      },
+    });
+  useStore.setState({ settingsLoaded: false, settingsError: false });
+  let modeApi: ReturnType<typeof useGameMode> | null = null;
+  render(
+    <GameModeProvider>
+      <Harness onReady={(value) => (modeApi = value)} />
+    </GameModeProvider>
+  );
+  await waitFor(() => expect(modeApi?.mode).toBe("off"));
+
+  await act(async () => {
+    await useStore.getState().fetchUserSettings();
+  });
+
+  await waitFor(() => expect(modeApi?.mode).toBe("ambient"));
+  expect(useStore.getState().settingsLoaded).toBe(true);
 });

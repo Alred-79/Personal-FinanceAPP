@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useStore } from "@/store/store";
 import PageHeader from "@/components/layout/PageHeader";
@@ -161,7 +161,16 @@ export default function Forecast() {
 
             <BalanceChart data={forecast.timeline} />
             {forecast.regime_shift && <RegimeShiftNote shift={forecast.regime_shift} />}
-            {forecast.trough_band && <LowPointRange band={forecast.trough_band} />}
+            {forecast.trough_band && (
+              <LowPointRange
+                band={forecast.trough_band}
+                centralPathLow={forecast.lowest_balance}
+                startingBalance={forecast.starting_balance}
+                horizonDays={forecastHorizon}
+                pathsBelowZero={forecast.paths_below_zero}
+                pathsTotal={forecast.paths_total}
+              />
+            )}
             <EventList events={forecast.events ?? []} />
             <CashflowCalendar forecast={forecast} />
             {forecastEvidenceEnabled && (
@@ -218,7 +227,15 @@ export default function Forecast() {
                   </CardContent>
                 </Card>
                 <ScenarioChart data={overlayData} />
-                {activeResult.scenario.result.trough_band && <LowPointRange band={activeResult.scenario.result.trough_band} />}
+                {activeResult.scenario.result.trough_band && (
+                  <LowPointRange
+                    band={activeResult.scenario.result.trough_band}
+                    centralPathLow={activeResult.scenario.result.lowest_balance}
+                    horizonDays={forecastHorizon}
+                    pathsBelowZero={activeResult.scenario.result.paths_below_zero}
+                    pathsTotal={activeResult.scenario.result.paths_total}
+                  />
+                )}
               </section>
             )}
 
@@ -312,43 +329,221 @@ function ScenarioChart({ data }: { data: Array<{ date: string; baseline?: number
   );
 }
 
-function LowPointRange({ band }: { band: { low: number; median: number; high: number } }) {
-  const spread = Math.max(band.high - band.low, 1);
-  const medianPosition = Math.max(0, Math.min(100, ((band.median - band.low) / spread) * 100));
-  const markerX = 32 + medianPosition * 4.56;
+interface LowPointRangeProps {
+  band: { low: number; median: number; high: number };
+  centralPathLow: number;
+  startingBalance?: number;
+  horizonDays: number;
+  pathsBelowZero?: number;
+  pathsTotal?: number;
+}
+
+const LOW_POINT_PLOT = { left: 48, right: 592 } as const;
+
+function horizonLabel(days: number): string {
+  return days === 365 ? "1 year" : `${days} days`;
+}
+
+function LowPointRange({
+  band,
+  centralPathLow,
+  startingBalance,
+  horizonDays,
+  pathsBelowZero,
+  pathsTotal,
+}: LowPointRangeProps) {
+  const patternId = `low-point-hatch-${useId().replace(/:/g, "")}`;
+  const finite = (value: number, fallback = 0) =>
+    Number.isFinite(value) ? value : fallback;
+  const reportedLow = finite(band.low);
+  const reportedHigh = finite(band.high, reportedLow);
+  const low = Math.min(reportedLow, reportedHigh);
+  const high = Math.max(reportedLow, reportedHigh);
+  const median = Math.max(low, Math.min(high, finite(band.median, low)));
+  const central = finite(centralPathLow);
+  const hasStartingBalance =
+    startingBalance != null && Number.isFinite(startingBalance);
+  const start = hasStartingBalance ? startingBalance : null;
+
+  // A shared dollar domain makes the width meaningful. Positive-only bands begin
+  // at the $0 reference; negative and mixed bands extend left of it. Anchoring the
+  // upper end to the starting balance (when the response supplies one) also stops
+  // a narrow range from filling the entire card and looking more uncertain than
+  // it is. The central path participates in both bounds so its distinct marker is
+  // never silently clamped to an edge outside its true value.
+  const domainMin = Math.min(0, low, central);
+  const domainMax = Math.max(0, high, central, ...(start == null ? [] : [start]));
+  const rawDomainSpan = domainMax - domainMin;
+  const domainSpan = Math.max(rawDomainSpan, 0.01);
+  const plotWidth = LOW_POINT_PLOT.right - LOW_POINT_PLOT.left;
+  const xFor = (value: number) => {
+    if (rawDomainSpan <= 0) {
+      return LOW_POINT_PLOT.left + plotWidth / 2;
+    }
+    const ratio = Math.max(0, Math.min(1, (value - domainMin) / domainSpan));
+    return LOW_POINT_PLOT.left + ratio * plotWidth;
+  };
+  const percentFor = (value: number) => {
+    if (rawDomainSpan <= 0) return 50;
+    return Math.max(0, Math.min(100, ((value - domainMin) / domainSpan) * 100));
+  };
+
+  const lowX = xFor(low);
+  const highX = xFor(high);
+  const medianX = xFor(median);
+  const centralX = xFor(central);
+  const zeroX = xFor(0);
+  const startX = start == null ? null : xFor(start);
+  const degenerate = Math.abs(high - low) <= 0.005;
+  const medianLowOverlap = !degenerate && Math.abs(medianX - lowX) < 14;
+  const medianHighOverlap = !degenerate && Math.abs(medianX - highX) < 14;
+  const allBandMarkersOverlap = medianLowOverlap && medianHighOverlap;
+  const sameMedianLowValue = Math.abs(median - low) <= 0.005;
+  const sameMedianHighValue = Math.abs(median - high) <= 0.005;
+  const period = horizonLabel(horizonDays);
+  const countKnown = pathsBelowZero != null && pathsTotal != null;
+  const countText = countKnown
+    ? `${pathsBelowZero} of ${pathsTotal} modeled paths fell below $0 over ${period}.`
+    : `Modeled across ${period}.`;
+  const rangeLabel = degenerate
+    ? `The reported bounds and median coincide at ${formatCurrency(low)}.`
+    : `Modeled low-point bounds run from ${formatCurrency(low)} to ${formatCurrency(high)}, with a median simulated low of ${formatCurrency(median)}.`;
+  const accessibleSummary = `${countText} ${rangeLabel} The central daily path reaches a low of ${formatCurrency(central)}.${start == null ? "" : ` The starting balance is ${formatCurrency(start)}.`}`;
+
   return (
-    <Card raking className="overflow-hidden">
+    <Card raking className="overflow-hidden" data-testid="low-point-range">
       <div className="text-gold/35"><GuillocheBand height={12} waves={4} seed={17} /></div>
       <CardHeader>
-        <CardTitle>Modeled low-point range</CardTitle>
+        <CardTitle>Modeled low points</CardTitle>
         <p className="mt-1 text-sm text-muted-foreground">
-          A distribution of each modeled path&rsquo;s lowest balance—not a corridor around every date.
+          Across {period}, each simulation contributes its single lowest balance.
+          This is a distribution of lows—not a band around each date.
         </p>
+        <p className="mt-2 font-mono text-xs text-foreground">{countText}</p>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         <svg
-          viewBox="0 0 520 58"
-          className="h-16 w-full"
+          viewBox="0 0 640 96"
+          className="h-24 w-full"
           role="img"
-          aria-label={`Modeled low-point bounds run from ${formatCurrency(band.low)} to ${formatCurrency(band.high)}, with a central modeled low of ${formatCurrency(band.median)}`}
+          aria-label={accessibleSummary}
+          data-domain-min={domainMin}
+          data-domain-max={domainMax}
+          data-zero-position={percentFor(0)}
         >
           <defs>
-            <pattern id="low-point-hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <pattern id={patternId} width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
               <line x1="0" y1="0" x2="0" y2="7" stroke="hsl(var(--gold))" strokeWidth="1" opacity="0.42" />
             </pattern>
           </defs>
-          <line x1="32" x2="488" y1="29" y2="29" stroke="hsl(var(--rule-strong))" strokeWidth="1" />
-          <rect x="32" y="18" width="456" height="22" fill="hsl(var(--gold) / 0.08)" stroke="hsl(var(--gold) / 0.45)" />
-          <rect x="32" y="18" width="456" height="22" fill="url(#low-point-hatch)" />
-          <line x1="32" x2="32" y1="12" y2="46" stroke="hsl(var(--rule-strong))" strokeWidth="2" />
-          <line x1="488" x2="488" y1="12" y2="46" stroke="hsl(var(--rule-strong))" strokeWidth="2" />
-          <line x1={markerX} x2={markerX} y1="8" y2="50" stroke="hsl(var(--gold))" strokeWidth="3" />
-          <circle cx={markerX} cy="8" r="4" fill="hsl(var(--gold))" />
+          <line x1={LOW_POINT_PLOT.left} x2={LOW_POINT_PLOT.right} y1="46" y2="46" stroke="hsl(var(--rule-strong))" strokeWidth="1" />
+
+          {/* $0 is always in the domain and carries a redundant dashed cue, so
+              positive/negative meaning never depends on position or color alone. */}
+          <line data-testid="zero-reference" x1={zeroX} x2={zeroX} y1="12" y2="78" stroke="hsl(var(--debit) / 0.7)" strokeWidth="1.5" strokeDasharray="4 4" />
+          <text x={zeroX} y="10" textAnchor="middle" fill="hsl(var(--muted-foreground))" fontFamily="ui-monospace, monospace" fontSize="10">$0</text>
+
+          {/* The starting balance anchors the scale without pretending it is one
+              of the simulated lows. */}
+          {startX != null && (
+            <line data-testid="starting-balance-marker" x1={startX} x2={startX} y1="20" y2="34" stroke="hsl(var(--rule-strong))" strokeWidth="1.5" />
+          )}
+
+          {degenerate ? (
+            <g data-testid="modeled-low-point" data-position={percentFor(low)}>
+              <circle cx={lowX} cy="46" r="8" fill="hsl(var(--background))" stroke="hsl(var(--gold))" strokeWidth="2" />
+              <circle cx={lowX} cy="46" r="3" fill="hsl(var(--gold))" />
+            </g>
+          ) : (
+            <g
+              data-testid="modeled-low-band"
+              data-start-position={percentFor(low)}
+              data-width={percentFor(high) - percentFor(low)}
+            >
+              <rect x={lowX} y="34" width={Math.max(highX - lowX, 1)} height="24" fill="hsl(var(--gold) / 0.08)" stroke="hsl(var(--gold) / 0.45)" />
+              <rect x={lowX} y="34" width={Math.max(highX - lowX, 1)} height="24" fill={`url(#${patternId})`} />
+              <line x1={lowX} x2={lowX} y1="28" y2="64" stroke="hsl(var(--rule-strong))" strokeWidth="2" />
+              <line x1={highX} x2={highX} y1="28" y2="64" stroke="hsl(var(--rule-strong))" strokeWidth="2" />
+              {!medianLowOverlap && !medianHighOverlap && (
+                <g data-testid="median-simulated-marker">
+                  <line x1={medianX} x2={medianX} y1="24" y2="68" stroke="hsl(var(--gold))" strokeWidth="2.5" />
+                  <circle cx={medianX} cy="24" r="4" fill="hsl(var(--gold))" />
+                </g>
+              )}
+              {allBandMarkersOverlap && (
+                <g data-testid="median-range-marker">
+                  <circle cx={medianX} cy="28" r="5" fill="hsl(var(--gold))" />
+                </g>
+              )}
+              {medianLowOverlap && !allBandMarkersOverlap && (
+                <g data-testid="median-low-marker">
+                  <circle cx={lowX} cy="28" r="5" fill="hsl(var(--gold))" />
+                </g>
+              )}
+              {medianHighOverlap && !allBandMarkersOverlap && (
+                <g data-testid="median-high-marker">
+                  <circle cx={highX} cy="28" r="5" fill="hsl(var(--gold))" />
+                </g>
+              )}
+            </g>
+          )}
+
+          {/* A separate diamond identifies the deterministic central daily path;
+              it is not mislabeled as the median of the simulations. */}
+          <g data-testid="central-path-marker" data-position={percentFor(central)} transform={`translate(${centralX} 78)`}>
+            <path d="M 0 -6 L 6 0 L 0 6 L -6 0 Z" fill="hsl(var(--chart-3))" stroke="hsl(var(--background))" strokeWidth="1.5" />
+          </g>
         </svg>
-        <div className="mt-2 grid gap-2 font-mono text-xs text-muted-foreground sm:grid-cols-3">
-          <span>Lower modeled bound {formatCurrency(band.low)}</span>
-          <span className="sm:text-center">Central modeled low {formatCurrency(band.median)}</span>
-          <span className="sm:text-right">Upper modeled bound {formatCurrency(band.high)}</span>
+
+        <div className="flex flex-wrap gap-x-5 gap-y-2 font-mono text-xs text-muted-foreground" aria-hidden="true">
+          <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-gold" />Median simulated low</span>
+          <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rotate-45 bg-chart-3" />Central daily path low</span>
+          <span><span className="mr-1.5 inline-block w-4 border-t border-dashed border-debit" />$0 reference</span>
+        </div>
+
+        <div className="grid gap-2 font-mono text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
+          {degenerate ? (
+            <span>Reported bounds and median coincide at {formatCurrency(low)}</span>
+          ) : (
+            <>
+              {allBandMarkersOverlap ? (
+                <span>
+                  Lower bound / median simulated / upper bound{" "}
+                  {sameMedianLowValue && sameMedianHighValue
+                    ? formatCurrency(median)
+                    : `${formatCurrency(low)} / ${formatCurrency(median)} / ${formatCurrency(high)}`}
+                </span>
+              ) : medianLowOverlap ? (
+                <>
+                  <span>
+                    Lower bound / median simulated{" "}
+                    {sameMedianLowValue
+                      ? formatCurrency(low)
+                      : `${formatCurrency(low)} / ${formatCurrency(median)}`}
+                  </span>
+                  <span>Upper modeled bound {formatCurrency(high)}</span>
+                </>
+              ) : medianHighOverlap ? (
+                <>
+                  <span>Lower modeled bound {formatCurrency(low)}</span>
+                  <span>
+                    Median simulated / upper bound{" "}
+                    {sameMedianHighValue
+                      ? formatCurrency(high)
+                      : `${formatCurrency(median)} / ${formatCurrency(high)}`}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span>Lower modeled bound {formatCurrency(low)}</span>
+                  <span>Median simulated low {formatCurrency(median)}</span>
+                  <span>Upper modeled bound {formatCurrency(high)}</span>
+                </>
+              )}
+            </>
+          )}
+          <span>Central daily path low {formatCurrency(central)}</span>
+          {start != null && <span>Starting balance {formatCurrency(start)}</span>}
         </div>
       </CardContent>
     </Card>

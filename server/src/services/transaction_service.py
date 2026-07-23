@@ -31,6 +31,7 @@ from server.src.services.categorization_service import (
     canonicalize_category,
 )
 from server.src.services.rule_engine import RuleEngine
+from server.src.services.recurring_service import latest_recurring_rows
 
 # Type alias for the two ORM model classes this service handles.
 TransactionModel = Type[ExpenseORM] | Type[IncomeORM]
@@ -355,7 +356,11 @@ class TransactionService:
         return {"message": f"{label} deleted successfully"}
 
     def fixed_per_month(self, user_id: int) -> float:
-        """Sum of recurring expense amounts (returned as dollars)."""
+        """Monthlyized current recurring expenses, returned as dollars.
+
+        One latest row represents each merchant/account series, even when the
+        ledger retains older occurrences at an old price or cadence.
+        """
         account_ids = (
             self.db.execute(
                 select(AccountORM.id).where(AccountORM.user_id == user_id)
@@ -366,11 +371,16 @@ class TransactionService:
         if not account_ids:
             return 0.0
 
-        total = self.db.execute(
-            select(func.sum(ExpenseORM.amount)).where(
+        rows = self.db.execute(
+            select(ExpenseORM).where(
                 ExpenseORM.account_id.in_(account_ids),
                 ExpenseORM.recurrence.isnot(None),
             )
-        ).scalar()
+        ).scalars().all()
+        total_cents = 0
+        from server.src.services.recurring_service import RECURRENCE_TO_DAYS
 
-        return cents_to_dollars(total) if total else 0.0
+        for row in latest_recurring_rows(rows):
+            days = RECURRENCE_TO_DAYS.get(row.recurrence, 30)
+            total_cents += (int(row.amount) * 30) // days
+        return cents_to_dollars(total_cents) if total_cents else 0.0

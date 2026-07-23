@@ -40,5 +40,6 @@ RUN mkdir -p /app/data
 
 EXPOSE 8000
 
-# Run migrations then start the server
-CMD ["sh", "-c", "alembic upgrade head && uvicorn server.src.main:app --host 0.0.0.0 --port 8000"]
+# Migrate first. A dedicated demo service bootstraps only an absent canonical
+# seed; it never silently resets an existing database during a deploy.
+CMD ["sh", "-c", "alembic upgrade head && if [ \"${DEMO_MODE_ENABLED:-false}\" = \"true\" ]; then python -m server.scripts.seed_demo --bootstrap; fi && uvicorn server.src.main:app --host 0.0.0.0 --port 8000"]

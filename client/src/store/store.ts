@@ -24,7 +24,7 @@ import {
 import api from "../lib/api";
 import { currentWeekRange, toLocalISODate, parseLocalISODate } from "../lib/dates";
 import { toast } from "../hooks/useToast";
-import { resetGameMode } from "./gameMode";
+import { hydrateGameMode, resetGameMode } from "./gameMode";
 
 // ``ForecastPoint`` moved to types/index.ts (so the scenario types can reuse it
 // without a store→types→store cycle); re-exported here for existing consumers.
@@ -34,6 +34,8 @@ export interface User {
   id: number;
   username: string;
   full_name: string | null;
+  /** Server-derived identity marker; clients must not infer this from a name. */
+  is_demo?: boolean;
 }
 
 interface BackendGoal {
@@ -203,6 +205,8 @@ interface StoreState {
   userLoaded: boolean;
   linkToken: string | null;
   isLoggedIn: boolean;
+  /** True only after `/users/me/` confirms the reserved shared demo user. */
+  isDemoSession: boolean;
   settingsLoaded: boolean;
   settingsError: boolean;
   /** Pillar 3: server-side feature flag for the tax layer (read-only; gates the
@@ -313,6 +317,8 @@ interface StoreState {
 
   // New actions for user and Plaid
   fetchUser: () => Promise<void>;
+  beginAuthenticatedSession: () => void;
+  bootstrapDemoSession: () => Promise<void>;
   logout: () => void;
   fetchLinkToken: () => Promise<void>;
   exchangePublicToken: (
@@ -457,6 +463,7 @@ const initialState = {
   userLoaded: false,
   linkToken: null as string | null,
   isLoggedIn: false,
+  isDemoSession: false,
   settingsLoaded: false,
   settingsError: false,
   taxFeaturesEnabled: false,
@@ -950,10 +957,173 @@ export const useStore = create<StoreState>((set, get) => ({
 
     try {
       const response = await api.get("/users/me/");
-      set({ user: response.data, isLoggedIn: true, userLoaded: true });
+      set({
+        user: response.data,
+        isLoggedIn: true,
+        isDemoSession: response.data?.is_demo === true,
+        userLoaded: true,
+      });
     } catch (error) {
       console.error("Error fetching user:", error);
-      set({ isLoggedIn: false, user: null, userLoaded: true });
+      set({
+        isLoggedIn: false,
+        isDemoSession: false,
+        user: null,
+        userLoaded: true,
+      });
+    }
+  },
+
+  beginAuthenticatedSession: () => {
+    // The token/signup request has already minted the new session cookie. Clear
+    // every prior user's in-memory identity, finance, settings, and demo slices
+    // without calling /logout/ (which would revoke that new cookie). Protected
+    // Route will resolve /users/me/ for the new identity immediately afterward.
+    set({ ...initialState, isLoggedIn: true });
+    resetGameMode();
+  },
+
+  bootstrapDemoSession: async () => {
+    // Clear all prior-user financial and identity state before minting a new
+    // session. We intentionally do not mark the client logged in until every
+    // Overview-critical request below has succeeded, so a partial bootstrap
+    // cannot flash stale figures or navigate into a cascade of page-level
+    // errors.
+    set({ ...initialState });
+    resetGameMode();
+
+    let demoSessionMinted = false;
+    try {
+      await api.post("/demo-login");
+      demoSessionMinted = true;
+
+      const { startDate, endDate } = currentWeekRange();
+      const [
+        userResponse,
+        settingsResponse,
+        budgetResponse,
+        safeToSpendResponse,
+        fixedResponse,
+        spendResponse,
+        budgetsResponse,
+        transactionsResponse,
+        netWorthResponse,
+        forecastResponse,
+        accountsResponse,
+        accountTransactionsResponse,
+      ] = await Promise.all([
+        api.get("/users/me/"),
+        api.get("/settings/"),
+        api.get("/spend/budget-allotment"),
+        api.get("/spend/safe-to-spend"),
+        api.get("/expenses/fixed-per-month"),
+        api.get(
+          `/spend/spend-over-time?start_date=${startDate}&end_date=${endDate}`
+        ),
+        api.get("/budgets"),
+        api.get("/transactions", { params: { page: 1, page_size: 20 } }),
+        api.get("/networth"),
+        api.get("/forecast", { params: { days: 30 } }),
+        api.get("/accounts"),
+        api.get<Record<string, Transaction[]>>("/accounts/all/transactions"),
+      ]);
+
+      const user = userResponse.data as User;
+      if (user?.is_demo !== true) {
+        throw new Error("The server did not confirm the demo account.");
+      }
+
+      const settings = settingsResponse.data ?? {};
+      const prefs = settings.preferences ?? {};
+      const features = settings.features ?? {};
+      const recent = transactionsResponse.data?.items;
+      const budgets = budgetsResponse.data;
+      const netWorth = netWorthResponse.data;
+      const accounts = accountsResponse.data;
+      const safeToSpend = safeToSpendResponse.data;
+      const forecast = forecastResponse.data;
+      if (
+        typeof settings.preferences !== "object" ||
+        settings.preferences === null ||
+        !Array.isArray(recent) ||
+        recent.length === 0 ||
+        !Array.isArray(budgets) ||
+        budgets.length === 0 ||
+        !Array.isArray(netWorth) ||
+        netWorth.length === 0 ||
+        !Array.isArray(accounts) ||
+        accounts.length === 0 ||
+        typeof safeToSpend?.available !== "number" ||
+        !Number.isFinite(safeToSpend.available) ||
+        !forecast ||
+        !Array.isArray(forecast.timeline) ||
+        forecast.timeline.length === 0 ||
+        typeof budgetResponse.data !== "number" ||
+        typeof fixedResponse.data !== "number" ||
+        typeof spendResponse.data !== "number"
+      ) {
+        throw new Error("The demo showcase is incomplete.");
+      }
+
+      const txByAccount = accountTransactionsResponse.data ?? {};
+      const accountsWithTransactions = (accounts as Account[]).map(
+        (account) => ({
+          ...account,
+          transactions: txByAccount[String(account.id)] ?? [],
+        })
+      );
+
+      set({
+        user,
+        userLoaded: true,
+        isLoggedIn: true,
+        isDemoSession: true,
+        warningPosition: prefs.spend_warning ?? initialState.warningPosition,
+        savingsPercent: prefs.savings_percent ?? initialState.savingsPercent,
+        s2sPrefs: {
+          s2s_horizon: prefs.s2s_horizon ?? "paycheck",
+          s2s_include_income: prefs.s2s_include_income ?? true,
+          s2s_include_goals: prefs.s2s_include_goals ?? true,
+          s2s_buffer: prefs.s2s_buffer ?? 0,
+        },
+        taxFeaturesEnabled: features.tax_features_enabled ?? false,
+        mcpEnabled: features.mcp_enabled ?? false,
+        freelancerModeEnabled: features.freelancer_mode_enabled ?? false,
+        merchantAliasesEnabled: features.merchant_aliases_enabled ?? false,
+        forecastEvidenceEnabled: features.forecast_evidence_enabled ?? false,
+        planComposerEnabled: features.plan_composer_enabled ?? false,
+        settingsLoaded: true,
+        settingsError: false,
+        budgetAllotment: budgetResponse.data,
+        safeToSpend,
+        fixedPerMonth: fixedResponse.data,
+        spendOverTime: spendResponse.data,
+        hasLoaded: true,
+        budgets,
+        budgetsLoaded: true,
+        recentTransactions: (recent as Transaction[]).map((transaction) => ({
+          ...transaction,
+          backgroundColor: categoryColor(transaction.category),
+        })),
+        netWorth,
+        netWorthLoaded: true,
+        forecast,
+        forecastLoaded: true,
+        forecastHorizon: 30,
+        accounts: accountsWithTransactions,
+        accountsLoaded: true,
+      });
+      hydrateGameMode(prefs.game_mode);
+    } catch (error) {
+      // Roll back the client half of the transition. The server cookie may have
+      // been minted, but the app remains on login and no partial demo figures
+      // are presented as a working showcase.
+      set({ ...initialState });
+      resetGameMode();
+      if (demoSessionMinted) {
+        await api.post("/logout/").catch(() => {});
+      }
+      throw error;
     }
   },
 
@@ -972,8 +1142,8 @@ export const useStore = create<StoreState>((set, get) => ({
 
   fetchLinkToken: async () => {
     try {
-      const user = get().user;
-      if (!user) return;
+      const { user, isDemoSession } = get();
+      if (!user || isDemoSession || user.is_demo === true) return;
 
       // Step 03 made this endpoint authed and removed the user_id param — the
       // server now derives the Plaid client_user_id from the session. Passing
@@ -1030,6 +1200,7 @@ export const useStore = create<StoreState>((set, get) => ({
         settingsLoaded: true,
         settingsError: false,
       });
+      hydrateGameMode(prefs.game_mode);
     } catch (error) {
       console.error("Error fetching user settings:", error);
       set({ settingsError: true, settingsLoaded: false, mcpEnabled: false });

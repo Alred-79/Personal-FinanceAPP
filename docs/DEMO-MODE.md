@@ -16,6 +16,9 @@ the security assessment live in [`DEMO-MODE-PLAN.md`](./DEMO-MODE-PLAN.md).
 - The `demo` user is an ordinary `disabled=0` user. Every request still flows
   `auth → get_current_active_user → RLS`, so a demo session can only ever see the
   demo user's rows — never a real account's data.
+- Enabling the flag alone is not readiness. `GET /api/demo-status/` checks the
+  exact Alembic head and the canonical seed contract. Login returns 503 and sets
+  no cookies until both are ready; request paths never migrate or seed.
 
 ## Credentials
 
@@ -42,8 +45,7 @@ ENVIRONMENT=production            # real cookie 'secure', strict validators
 SINGLE_USER=true                  # only the demo user exists
 ALLOW_SIGNUP=false                # no demo2 accounts (keeps per-user LLM cap = instance cap)
 MCP_ENABLED=false
-SCHEDULER_ENABLED=false           # don't burn LLM budget on nightly jobs; the seed
-                                  #   writes the auditor/lifecycle outputs directly
+SCHEDULER_ENABLED=false           # no background work in the public showcase
 COOKIE_DOMAIN=<exact demo hostname>
 ALLOWED_ORIGINS=["https://<exact demo hostname>"]
 
@@ -60,21 +62,26 @@ SUBSCRIPTION_ACTIONS_ENABLED=true
 BEHAVIORAL_EARMARKS_ENABLED=true
 ```
 
-## Seeding
+## Deterministic bootstrap
 
-The game layer is **event-sourced and append-only** (`game_events`,
-`runs.map_json` are protected by DB triggers that block UPDATE/DELETE), so a
-clean re-seed must run on a **fresh database**. Re-running the seed against a DB
-that already has a demo `game_events` stream will be refused for the game portion
-(`--fresh` guard); the financial portion stays idempotent via `reset_user`.
+The canonical persona is Maya Chen, a salaried renter with side income. Game
+mode stays off; the seed creates no MCP credentials/audit activity and invents
+no forecast-calibration history. Rule executions come from the real RuleEngine
+over seeded transactions. Lifecycle amounts/dates and price changes are derived
+from the ledger (the lifecycle probability remains explicitly modeled output).
+
+The container runs migrations first, then `seed_demo --bootstrap` when demo mode
+is enabled. An absent demo user is seeded, a ready canonical seed is a no-op, and
+an incomplete existing demo causes deployment to fail without mutation.
 
 ### Local (SQLite)
 
 ```bash
 cd Personal-FinanceAPP
-rm -f finance_tracker.db                       # fresh DB (game layer is append-only)
+rm -f .demo/showcase.db                        # dedicated demo DB only
+export DATABASE_URL=sqlite:///.demo/showcase.db
 ./.venv/bin/alembic upgrade head
-DEMO_MODE_ENABLED=true ./.venv/bin/python -m server.scripts.seed_demo
+DEMO_MODE_ENABLED=true ./.venv/bin/python -m server.scripts.seed_demo --bootstrap
 ```
 
 ### Railway (dedicated demo Postgres)
@@ -82,16 +89,15 @@ DEMO_MODE_ENABLED=true ./.venv/bin/python -m server.scripts.seed_demo
 ```bash
 # point DATABASE_URL at the demo Postgres (postgresql+psycopg://...)
 alembic upgrade head
-python -m server.scripts.seed_demo
+python -m server.scripts.seed_demo --bootstrap
 ```
 
 ## Reset
 
-Because the game tables are append-only, you **cannot** wipe in place. To reset:
-**drop & re-provision the demo Postgres** (Railway), then re-seed. Locally,
-`rm finance_tracker.db` and repeat the seed steps above. Do this periodically
-(cron / redeploy) so visitors who poison the shared account's goals/budgets don't
-degrade the demo for the next visitor.
+Prefer dropping/re-provisioning the dedicated demo database and redeploying. An
+operator can intentionally replace only the demo user's financial showcase rows
+with `python -m server.scripts.seed_demo --reset-financials`. The explicit flag
+exists because this is destructive. Never point it at the production service.
 
 ## Security guards (already in code)
 
@@ -100,10 +106,18 @@ degrade the demo for the next visitor.
   attaching a REAL Plaid item to the shared account.
 - **Self-immutable** — `routers/users.py` `change-password` 403s for `demo`, so a
   visitor can't change the password + `revoke_all_user_tokens` and kick everyone.
+- **Canonical ledger is read-only** — the authenticated router dependency
+  rejects demo financial commands with `403 / demo_read_only`, before route
+  code runs. Dry-run rule previews and scenario compose/compare/evaluate calls
+  remain available because they do not persist changes. Ordinary users and
+  deployments with demo mode off are unaffected.
 - **Parameterless login** — nothing to enumerate or credential-stuff.
 - **Rate-limited** (per-IP `login_rate_limit`) + the demo user's refresh tokens
   are pruned/capped so repeated taps can't bloat the table.
 - **`SameSite=Strict`** cookies on the demo-login path.
+- **Shared-session isolation** — one demo visitor's stale refresh token is
+  rejected without revoking unrelated demo visitors. Ordinary accounts retain
+  whole-family revocation on refresh-token reuse.
 
 ## Turning it off
 

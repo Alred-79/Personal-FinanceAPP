@@ -105,6 +105,18 @@ export function resetGameMode() {
   resetters.forEach((fn) => fn());
 }
 
+/**
+ * Session-bootstrap bridge. Login lives outside the provider's authenticated
+ * tree, so a one-tap demo login can receive persisted settings after the
+ * provider's logged-out probe has already failed. Hydrating through this bridge
+ * applies the server-confirmed mode before the first signed-in screen paints.
+ */
+const hydrators = new Set<(mode: GameMode) => void>();
+export function hydrateGameMode(mode: unknown) {
+  if (!isMode(mode)) return;
+  hydrators.forEach((fn) => fn(mode));
+}
+
 const VALID: readonly GameMode[] = ["off", "ambient", "full"];
 
 function isMode(value: unknown): value is GameMode {
@@ -143,8 +155,10 @@ export function GameModeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const reset = () => setModeState("off");
     resetters.add(reset);
+    hydrators.add(setModeState);
     return () => {
       resetters.delete(reset);
+      hydrators.delete(setModeState);
     };
   }, []);
 

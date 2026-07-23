@@ -27,7 +27,13 @@ api.interceptors.request.use((config) => {
 // like any other request, the outer `await api.post("/refresh/")` would wait
 // on a promise that is only ever settled *after* that await resolves — a
 // deadlock that leaves the app hung instead of redirecting to /login.
-const AUTH_PATHS = ["/refresh", "/token", "/signup", "/logout"];
+const AUTH_PATHS = [
+  "/refresh",
+  "/token",
+  "/signup",
+  "/logout",
+  "/demo-login",
+];
 
 // A single in-flight refresh promise. Concurrent 401s (from the axios
 // interceptor AND the raw-fetch SSE hook) all await THIS one promise, so the

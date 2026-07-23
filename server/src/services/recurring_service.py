@@ -61,6 +61,33 @@ _RECURRENCE_DAYS = {
 _MAX_OCCURRENCES = 5000
 
 
+def latest_recurring_rows(rows: list[Any]) -> list[Any]:
+    """Return one latest row for each recurring merchant/account series.
+
+    Historical imports commonly keep one row per posted occurrence. Amount does
+    not belong in series identity, so the newest observed price is used for
+    projection and fixed-cost math. Cadence remains in identity because a user
+    may legitimately have same-title monthly and annual obligations.
+    """
+    latest: dict[tuple[int, str, str], Any] = {}
+    for row in rows:
+        title_key = " ".join(str(row.title or "").casefold().split())
+        # Cadence remains part of identity: two same-title obligations on one
+        # account can legitimately coexist (e.g. monthly service + annual fee).
+        # Amount does not: a price change is a new observation of the same
+        # series, not a second future bill.
+        key = (int(row.account_id), title_key, str(row.recurrence))
+        incumbent = latest.get(key)
+        row_date = parse_iso_date(row.date) or date.min
+        if incumbent is None:
+            latest[key] = row
+            continue
+        incumbent_date = parse_iso_date(incumbent.date) or date.min
+        if (row_date, int(row.id or 0)) > (incumbent_date, int(incumbent.id or 0)):
+            latest[key] = row
+    return list(latest.values())
+
+
 def _add_months(d: date, months: int) -> date:
     """Add *months* calendar months to *d*, clamping to the last valid day.
 
@@ -156,26 +183,15 @@ class RecurringService:
             .all()
         )
 
-        # Collapse multiple historical rows of the SAME recurring series — same
-        # merchant/amount/cadence/account — to a single anchor. Stores that keep
+        # Collapse multiple historical rows of the SAME recurring series to a
+        # single latest interpretation. Stores that keep
         # one row per past occurrence (e.g. the demo seed: 4 monthly Spotify
         # rows) would otherwise have each occurrence spawn its own forward
         # series, so one monthly charge projects 4x on every future date —
         # inflating the Cadence timeline and over-counting the forecast. Anchor
         # on the most recent occurrence (tie-break: highest id) so the forward
         # walk steps from the latest real charge.
-        deduped: dict[tuple, Any] = {}
-        for row in rows:
-            key = (row.title, row.amount, row.recurrence, row.account_id)
-            incumbent = deduped.get(key)
-            if incumbent is None:
-                deduped[key] = row
-                continue
-            row_date = parse_iso_date(row.date) or date.min  # type: ignore[arg-type]
-            inc_date = parse_iso_date(incumbent.date) or date.min  # type: ignore[arg-type]
-            if (row_date, row.id) > (inc_date, incumbent.id):
-                deduped[key] = row
-        rows = list(deduped.values())
+        rows = latest_recurring_rows(rows)
 
         projected: list[dict[str, Any]] = []
         for row in rows:

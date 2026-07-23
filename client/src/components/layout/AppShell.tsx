@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import Lenis from "lenis";
+import { LockKeyhole } from "lucide-react";
 import { useStore } from "@/store/store";
 import { useToast } from "@/hooks/useToast";
 import { usePlaidReady, type PlaidHandler } from "@/lib/plaid";
@@ -11,6 +12,29 @@ import { AtlasLayers } from "@/components/atlas/AtlasLayers";
 import Header from "./Header";
 import SidebarRail from "./SidebarRail";
 import { titleForPath } from "./nav";
+
+export function DemoReadOnlyNotice({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+
+  return (
+    <aside
+      aria-label="Sample data access"
+      className="border-b border-rule-strong/40 bg-gold-soft/45 px-4 py-2.5 text-foreground md:px-6"
+    >
+      <div className="mx-auto flex w-full max-w-[1500px] items-start gap-2.5 font-sans text-xs leading-5 sm:items-center">
+        <LockKeyhole
+          aria-hidden="true"
+          className="mt-0.5 h-4 w-4 shrink-0 text-gold sm:mt-0"
+        />
+        <p>
+          <strong className="font-semibold">Sample data · read-only.</strong>{" "}
+          Explore every view and run decision or rule previews. Create your own
+          ledger to add, edit, or delete records.
+        </p>
+      </div>
+    </aside>
+  );
+}
 
 /**
  * Layout for signed in users: a fixed left sidebar on desktop (a drawer on
@@ -33,6 +57,7 @@ export default function AppShell() {
     exchangePublicToken,
     fetchUserSettings,
     settingsLoaded,
+    isDemoSession,
   } = useStore();
 
   // Load instance settings once so app-wide flags (e.g. the tax-feature nav
@@ -65,8 +90,8 @@ export default function AppShell() {
   };
 
   useEffect(() => {
-    if (user && !linkToken) fetchLinkToken();
-  }, [user, linkToken, fetchLinkToken]);
+    if (user && !isDemoSession && !linkToken) fetchLinkToken();
+  }, [user, isDemoSession, linkToken, fetchLinkToken]);
 
   useEffect(() => {
     if (!linkToken || !plaidReady || !window.Plaid) return;
@@ -123,6 +148,7 @@ export default function AppShell() {
         canConnectBank={!!plaidHandler}
         onLogout={handleLogout}
       />
+      <DemoReadOnlyNotice visible={isDemoSession} />
       <div className="flex flex-1">
         {/* The folio index: a left rail on desktop; the header hamburger drawer
             (Sheet → Sidebar) takes over below lg. */}

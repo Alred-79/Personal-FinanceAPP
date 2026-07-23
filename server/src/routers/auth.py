@@ -25,6 +25,7 @@ from server.src.services.auth_service import (
     AuthService,
 )
 from server.src.settings import settings
+from server.src.services.demo_readiness import assess_demo_readiness
 
 router = APIRouter()
 auth_service = AuthService()
@@ -182,13 +183,19 @@ async def logout(
 
 
 @router.get("/demo-status/")
-async def demo_status():
+async def demo_status(db: Session = Depends(get_db)):
     """Public. Tells the logged-out UI whether to show the "Enter the demo" button.
 
     Leaks nothing beyond the boolean flag value (which is observable anyway from
     whether demo-login 404s). NOT gated — it must answer ``false`` when off.
     """
-    return {"enabled": settings.demo_mode_enabled}
+    readiness = assess_demo_readiness(db, enabled=settings.demo_mode_enabled)
+    return {
+        "enabled": settings.demo_mode_enabled,
+        "ready": readiness.ready,
+        "state": readiness.state,
+        "reason_code": readiness.reason_code,
+    }
 
 
 @router.post("/demo-login/", dependencies=[Depends(_require_demo_enabled)])
@@ -210,13 +217,20 @@ async def demo_login(
     tokens are pruned/capped so repeated taps can't bloat the table; cookies use
     ``SameSite=Strict`` to tighten the shared session's cross-site exposure.
     """
-    user = auth_service.get_user(db, DEMO_USERNAME)
-    if user is None:
-        # Flag is on but the seed hasn't been run on this instance.
+    readiness = assess_demo_readiness(db, enabled=True)
+    if not readiness.ready:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Demo account not provisioned. Run the demo seed.",
+            detail={
+                "message": "The demo is being prepared. Please try again shortly.",
+                "reason_code": readiness.reason_code,
+            },
         )
+    user = auth_service.get_user(db, DEMO_USERNAME)
+    # Readiness proved this row exists; keep the guard for type-checking and a
+    # concurrent operator teardown between the two read-only queries.
+    if user is None:
+        raise HTTPException(status_code=503, detail="Demo account unavailable.")
     if user.disabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

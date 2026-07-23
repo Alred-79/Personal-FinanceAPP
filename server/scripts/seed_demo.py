@@ -1,25 +1,23 @@
 """Seed the database with the canonical demo showcase account.
 
-Run:  DEMO_MODE_ENABLED=true ./.venv/bin/python -m server.scripts.seed_demo
+Run:  DEMO_MODE_ENABLED=true ./.venv/bin/python -m server.scripts.seed_demo --bootstrap
 
-Creates (or resets) the single ``demo`` account and fills it with plentiful,
+Creates the single ``demo`` account (or resets it only with an explicit flag)
+and fills it with plentiful,
 realistic mock data that exercises every feature of the app at its finest:
 accounts, ~12 months of income (W-2 bi-weekly + lumpy self-employment), ~6 months
 of categorized spending with a deliberate regime-shift and subscription price
 creep, budgets, goals + earmarks, balance snapshots, liabilities, merchant
 lifecycle, the tax layer, scenarios + a plan of record, rules, learned
-merchant/memory facts, and notifications. Then it drives the REAL game engine
-(backfill + daily/weekly/monthly ticks) so the game layer is event-sourced and
-consistent with the append-only invariants.
+merchant/memory facts, and notifications. Game mode stays off, and no MCP
+credential/audit or forecast-calibration/evidence history is invented.
 
 All money is integer cents; dates are ISO ``YYYY-MM-DD`` strings; the RNG is
 seeded so the data is deterministic.
 
-The financial portion is idempotent (``reset_user`` wipes the demo user's owned
-rows and reseeds). The game portion is NOT — ``game_events`` / ``runs.map_json``
-are append-only (DB triggers block UPDATE/DELETE), so re-running would stack a
-second history. For a clean re-seed, run on a FRESH database (see docs/DEMO-MODE.md);
-the ``--fresh`` guard refuses the game-layer portion if a demo event stream exists.
+``--bootstrap`` is deployment-safe: it seeds only an absent demo user, no-ops
+when the canonical seed is already ready, and refuses to mutate an incomplete
+existing database. ``--reset-financials`` is the explicit operator-only reset.
 
 Login afterward with  username: demo   password: Demo123!
 """
@@ -50,6 +48,7 @@ from server.src.db.models import (
     Liability as LiabilityORM,
     LiabilityAdjustment as LiabilityAdjustmentORM,
     MerchantCategory as MerchantCategoryORM,
+    MerchantAlias as MerchantAliasORM,
     MerchantLifecycle as MerchantLifecycleORM,
     MerchantTaxBucket as MerchantTaxBucketORM,
     MileageLog as MileageLogORM,
@@ -65,6 +64,20 @@ from server.src.db.models import (
 )
 from server.src.models import NewUser
 from server.src.services.auth_service import AuthService
+from server.src.services.demo_readiness import (
+    DEMO_DATASET_MARKER_REF,
+    DEMO_DATASET_REVISION,
+    assess_demo_readiness,
+)
+from server.src.services.rule_engine import RuleEngine
+from server.src.services.merchant_lifecycle_service import (
+    MerchantLifecycleService,
+    price_creep_pct,
+)
+from server.src.services.recurring_service import RecurringService, next_occurrence
+from server.src.services.categorization_service import normalize_merchant
+from server.src.db.rls import set_tenant
+from server.src.settings import settings
 from server.src.services.scenario_overlay import (
     DiscreteFlow,
     RecurringAdd,
@@ -81,7 +94,7 @@ RNG = random.Random(20260619)  # deterministic data
 DEMO = {
     "username": "demo",
     "email": "demo@example.com",
-    "full_name": "Demo Saver",
+    "full_name": "Maya Chen",
     "password": "Demo123!",
 }
 
@@ -147,6 +160,7 @@ _OWNED_CHILD_FIRST = (
     PlanOfRecordORM,
     ScenarioORM,
     MerchantLifecycleORM,
+    MerchantAliasORM,
     MerchantCategoryORM,
     NotificationORM,
     UserMemoryORM,
@@ -178,7 +192,12 @@ def seed_user_config(user: UserORM) -> None:
     navigation for visitors who want it. This mirrors the product promise that
     game mechanics are optional, not the identity of the app.
     """
-    user.game_mode = "ambient"
+    # Explicit resets must also converge legacy demo identities to the current
+    # canonical persona; otherwise a migrated, previously seeded database can
+    # pass every financial write and then fail verification on its old name.
+    user.full_name = DEMO["full_name"]
+    user.email = DEMO["email"]
+    user.game_mode = "off"
     user.savings_percent = 15
     user.spend_warning = 20
     user.s2s_include_income = 1
@@ -292,7 +311,7 @@ def seed_expenses(db, user: UserORM, accounts: dict, start: date, today: date) -
         if start <= hulu_date <= (today - timedelta(days=100)):
             db.add(ExpenseORM(
                 title="Hulu", amount=cents(17.99), date=hulu_date.isoformat(),
-                category="Entertainment", recurrence="monthly",
+                category="Entertainment", recurrence=None,
                 account_id=credit.id, user_id=user.id,
             ))
             n += 1
@@ -374,8 +393,8 @@ def seed_budgets(db, user: UserORM) -> None:
         ))
 
 
-def seed_goals_and_earmarks(db, user: UserORM, today: date) -> None:
-    """5–6 goals at varied progress + earmarks partitioning the Emergency Fund."""
+def seed_goals_and_earmarks(db, user: UserORM, today: date) -> dict[str, GoalORM]:
+    """Seven coherent goals, including real targets for the demo rules."""
     emergency = GoalORM(
         name="Emergency Fund", description="6 months of essentials",
         amount=cents(15000.00), progress=cents(10500.00),  # 70%
@@ -399,6 +418,16 @@ def seed_goals_and_earmarks(db, user: UserORM, today: date) -> None:
             date=(today + timedelta(days=40)).isoformat(), completed=0, user_id=user.id,
         ),
         GoalORM(
+            name="Tax Reserve", description="Set aside 15% of freelance income",
+            amount=cents(9000.00), progress=cents(1800.00),
+            date=(today + timedelta(days=270)).isoformat(), completed=0, user_id=user.id,
+        ),
+        GoalORM(
+            name="Car Repair Buffer", description="Deductible and major repairs",
+            amount=cents(2500.00), progress=cents(900.00),
+            date=(today + timedelta(days=365)).isoformat(), completed=0, user_id=user.id,
+        ),
+        GoalORM(
             name="Camera Kit", description="Mirrorless + lens",
             amount=cents(1800.00), progress=cents(1800.00),  # completed
             date=(today - timedelta(days=12)).isoformat(), completed=1, user_id=user.id,
@@ -413,19 +442,25 @@ def seed_goals_and_earmarks(db, user: UserORM, today: date) -> None:
             goal_id=emergency.id, user_id=user.id,
             name=name, amount_cents=cents(amt),
         ))
+    return {goal.name: goal for goal in goals}
 
 
-def seed_balance_snapshots(db, user: UserORM, start: date, today: date) -> None:
-    """One net-worth snapshot per day, gentle uptrend with mild noise."""
-    base = 24_500.00  # starting net worth in dollars (≈ liquid assets)
+def seed_balance_snapshots(
+    db, user: UserORM, start: date, today: date, account_total_cents: int
+) -> None:
+    """Daily net worth ending exactly at the currently visible account total."""
+    base_cents = cents(24_500.00)
+    span = max((today - start).days, 1)
     day = start
     i = 0
     while day <= today:
-        drift = i * 11.0  # ~$11/day uptrend
-        noise = RNG.uniform(-120, 120)
-        total = base + drift + noise
+        progress = min(i / span, 1.0)
+        trend = round(base_cents + (account_total_cents - base_cents) * progress)
+        # Noise fades to zero so the latest point exactly reconciles to Accounts.
+        noise = round(RNG.uniform(-12_000, 12_000) * (1.0 - progress))
+        total = account_total_cents if day == today else trend + noise
         db.add(BalanceSnapshotORM(
-            user_id=user.id, date=day.isoformat(), total=cents(total),
+            user_id=user.id, date=day.isoformat(), total=total,
         ))
         day += timedelta(days=1)
         i += 1
@@ -476,32 +511,45 @@ def seed_liabilities(db, user: UserORM, accounts: dict) -> None:
 
 
 def seed_merchant_lifecycle(db, user: UserORM, today: date) -> None:
-    """BG/NBD-style lifecycle snapshots spanning active / lapsing / dormant."""
-    iso = today.isoformat()
-    rows = [
-        # active subscription, steady cadence
-        dict(merchant="netflix", title="Netflix", probability_alive=0.98,
-             expected_purchases=1.0, status="active", cadence="monthly", n_charges=6,
-             last_amount=cents(15.49), prev_amount=cents(15.49), price_change_pct=0.0,
-             last_date=iso),
-        # active with a price hike
-        dict(merchant="adobe creative cloud", title="Adobe Creative Cloud",
-             probability_alive=0.95, expected_purchases=1.0, status="active",
-             cadence="monthly", n_charges=6, last_amount=cents(59.99),
-             prev_amount=cents(52.99), price_change_pct=0.132, last_date=iso),
-        # lapsing — probability dropping
-        dict(merchant="planet fitness", title="Planet Fitness", probability_alive=0.55,
-             expected_purchases=0.4, status="lapsing", cadence="monthly", n_charges=5,
-             last_amount=cents(24.99), prev_amount=cents(24.99), price_change_pct=0.0,
-             last_date=(today - timedelta(days=38)).isoformat()),
-        # dormant — likely cancelled, hasn't charged in 100+ days
-        dict(merchant="hulu", title="Hulu", probability_alive=0.08,
-             expected_purchases=0.02, status="dormant", cadence="monthly", n_charges=4,
-             last_amount=cents(17.99), prev_amount=cents(17.99), price_change_pct=0.0,
-             last_date=(today - timedelta(days=104)).isoformat()),
-    ]
-    for r in rows:
-        db.add(MerchantLifecycleORM(user_id=user.id, fitted_at=iso, **r))
+    """Modeled showcase states whose observable facts come from real seed rows.
+
+    The lifecycle probability is explicitly modeled output. Dates, counts,
+    cadence, amounts, and deterministic price-change arithmetic are all derived
+    from the actual transaction history so the UI cannot contradict the ledger.
+    """
+    summaries = {
+        summary.merchant: summary
+        for summary in MerchantLifecycleService(db)._summaries(user.id, today, 730)
+    }
+    modeled = {
+        "netflix": (0.98, 1.0, "active"),
+        "adobe creative cloud": (0.95, 1.0, "active"),
+        "planet fitness": (0.96, 1.0, "active"),
+        "hulu": (0.08, 0.02, "dormant"),
+    }
+    fitted_at = datetime.now().astimezone().isoformat()
+    for merchant, (probability, expected, state) in modeled.items():
+        summary = summaries.get(merchant)
+        if summary is None:
+            raise RuntimeError(f"demo lifecycle source transactions missing: {merchant}")
+        parsed_last = date.fromisoformat(summary.last_date)
+        next_date = next_occurrence(parsed_last, summary.cadence) if summary.cadence else None
+        db.add(MerchantLifecycleORM(
+            user_id=user.id,
+            merchant=merchant,
+            title=summary.title,
+            probability_alive=probability,
+            expected_purchases=expected,
+            status=state,
+            cadence=summary.cadence,
+            n_charges=summary.n_charges,
+            last_amount=summary.last_amount,
+            prev_amount=summary.prev_amount,
+            price_change_pct=price_creep_pct(summary.last_amount, summary.prev_amount),
+            last_date=summary.last_date,
+            expected_next_date=next_date.isoformat() if next_date else None,
+            fitted_at=fitted_at,
+        ))
 
 
 def seed_tax(db, user: UserORM, tax_refs: dict, today: date) -> None:
@@ -527,7 +575,7 @@ def seed_tax(db, user: UserORM, tax_refs: dict, today: date) -> None:
     _tag("meals", "sch_c_24b_meals")     # 50% deductible by default
     _tag("travel", "sch_c_24a_travel")
 
-    # Tax documents: a confirmed W-2, a pending 1099-NEC, a mortgage 1098.
+    # Tax documents match Maya's actual profile: salaried renter + side work.
     db.add(TaxDocumentORM(
         user_id=user.id, tax_year=year, form_type="W-2",
         issuer_name="Acme Corp", issuer_tin_last4="4821",
@@ -540,12 +588,6 @@ def seed_tax(db, user: UserORM, tax_refs: dict, today: date) -> None:
         user_id=user.id, tax_year=year, form_type="1099-NEC",
         issuer_name="Bright Studio LLC", issuer_tin_last4="3370",
         fields_json=json.dumps({"box1_nonemployee_comp_cents": cents(11500.00)}),
-        status="pending_review", source_kind="pdf",
-    ))
-    db.add(TaxDocumentORM(
-        user_id=user.id, tax_year=year, form_type="1098",
-        issuer_name="Coastal Mortgage", issuer_tin_last4="9912",
-        fields_json=json.dumps({"box1_mortgage_interest_cents": cents(8400.00)}),
         status="pending_review", source_kind="pdf",
     ))
     db.add(TaxDocumentORM(
@@ -596,14 +638,13 @@ def seed_tax(db, user: UserORM, tax_refs: dict, today: date) -> None:
             ))
 
 
-def seed_scenarios(db, user: UserORM, today: date) -> None:
-    """Two valid scenarios + one committed plan of record."""
-    # "Freelance full-time": drop the W-2, add a larger recurring self-employment
-    # stream, and a discrete equipment purchase.
-    freelance = ScenarioOverlay(
+def seed_scenarios(db, user: UserORM, accounts: dict, today: date) -> None:
+    """Two honest additive what-ifs + one committed plan of record."""
+    # Additive by design: the overlay does not remove Maya's existing W-2 job.
+    retainer = ScenarioOverlay(
         added_recurring=(
             RecurringAdd(
-                title="Full-time freelance", amount_cents=cents(5200.00),
+                title="New freelance retainer", amount_cents=cents(2000.00),
                 recurrence="monthly", kind="income", category="Work",
                 anchor_date=today.isoformat(),
             ),
@@ -611,62 +652,74 @@ def seed_scenarios(db, user: UserORM, today: date) -> None:
         discrete_flows=(
             DiscreteFlow(
                 date=(today + timedelta(days=30)).isoformat(),
-                amount_cents=cents(2400.00), kind="expense",
-                title="Workstation upgrade", category="Shops",
+                amount_cents=cents(1200.00), kind="expense",
+                title="Retainer setup equipment", category="Shops",
             ),
         ),
-        config_overrides={"label": "Freelance full-time"},
+        config_overrides={"label": "Add a $2,000 monthly freelance retainer"},
     )
-    # "Emergency-fund boost": nudge the Emergency Fund target up.
-    boost = ScenarioOverlay(
+    studio = ScenarioOverlay(
         added_recurring=(
             RecurringAdd(
-                title="Extra EF transfer", amount_cents=cents(400.00),
-                recurrence="monthly", kind="expense", category="Transfer",
+                title="Shared creative studio", amount_cents=cents(650.00),
+                recurrence="monthly", kind="expense", category="Housing",
                 anchor_date=today.isoformat(),
             ),
         ),
-        config_overrides={"label": "Emergency-fund boost"},
+        config_overrides={"label": "Add a $650 monthly studio lease"},
     )
 
     s1 = ScenarioORM(
-        user_id=user.id, name="Freelance full-time",
-        overlay_json=json.dumps(overlay_to_json(freelance)),
+        user_id=user.id, name="Add freelance retainer",
+        overlay_json=json.dumps(overlay_to_json(retainer)),
     )
     s2 = ScenarioORM(
-        user_id=user.id, name="Emergency-fund boost",
-        overlay_json=json.dumps(overlay_to_json(boost)),
+        user_id=user.id, name="Lease a creative studio",
+        overlay_json=json.dumps(overlay_to_json(studio)),
     )
     db.add_all([s1, s2])
     db.flush()
 
-    # One committed plan of record pinned to the boost scenario.
+    # Baseline is derived from the visible account balances, not a stale constant.
+    liquid_net_cents = sum(int(account.balance) for account in accounts.values())
     db.add(PlanOfRecordORM(
-        user_id=user.id, scenario_id=s2.id,
+        user_id=user.id, scenario_id=s1.id,
         rule_ids_json=json.dumps([]),
         baseline_snapshot_json=json.dumps({
             "as_of": today.isoformat(),
-            "net_worth_cents": cents(13_828.42),
-            "monthly_savings_cents": cents(400.00),
+            "net_worth_cents": liquid_net_cents,
+            "monthly_savings_cents": cents(750.00),
         }),
         status="active",
     ))
 
 
-def seed_rules(db, user: UserORM) -> None:
-    """Three automation rules + a couple of idempotency-log executions."""
+def seed_rules(db, user: UserORM, goals: dict[str, GoalORM]) -> dict[str, RuleORM]:
+    """Four engine-valid rules, exercised against actual seeded transactions."""
     notify_rule = RuleORM(
         user_id=user.id, name="Big purchase heads-up", enabled=1,
-        conditions=json.dumps([{"field": "amount_cents", "op": ">=", "value": cents(200.00)}]),
+        conditions=json.dumps([
+            {"field": "type", "op": "eq", "value": "expense"},
+            {"field": "amount", "op": "gt", "value": 200.00},
+        ]),
         action_type="notify", action_params=json.dumps({"message": "Large purchase posted"}),
         priority=10,
     )
     roundup_rule = RuleORM(
-        user_id=user.id, name="Round-ups to savings", enabled=1,
+        user_id=user.id, name="Round up everyday spending for a home", enabled=1,
         conditions=json.dumps([{"field": "category", "op": "in",
                                 "value": ["Food", "Food and Drink", "Shops"]}]),
-        action_type="roundup", action_params=json.dumps({"to_account": "savings"}),
-        priority=5,
+        action_type="roundup", action_params=json.dumps({"nearest": "1"}),
+        target_kind="goal", target_id=goals["House Down Payment"].id, priority=5,
+    )
+    tax_rule = RuleORM(
+        user_id=user.id, name="Set aside 15% of freelance income", enabled=1,
+        conditions=json.dumps([
+            {"field": "type", "op": "eq", "value": "income"},
+            {"field": "source_type", "op": "eq", "value": "self_employment"},
+        ]),
+        action_type="allocate", action_params=json.dumps({"pct": 15}),
+        target_kind="goal", target_id=goals["Tax Reserve"].id, priority=8,
     )
     categorize_rule = RuleORM(
         user_id=user.id, name="Tag Adobe as a tool", enabled=1,
@@ -674,32 +727,87 @@ def seed_rules(db, user: UserORM) -> None:
         action_type="categorize", action_params=json.dumps({"category": "Service"}),
         priority=1,
     )
-    db.add_all([notify_rule, roundup_rule, categorize_rule])
+    db.add_all([notify_rule, tax_rule, roundup_rule, categorize_rule])
     db.flush()
 
-    # Historical firings (the idempotency/dedup log doubles as the automated-save
-    # game-event source). Round-ups fire often on small buys; the big-purchase
-    # notice fires rarely. Spread over the last ~6 weeks with distinct tx ids.
-    tx_id = 1
-    for days_ago in range(40, 0, -3):  # ~14 round-ups across 6 weeks
-        when = datetime.now() - timedelta(days=days_ago)
-        db.add(RuleExecutionORM(
-            rule_id=roundup_rule.id, user_id=user.id, tx_type="expense", tx_id=tx_id,
-            action_type="roundup", amount_cents=RNG.randint(8, 92), result="ok",
-            fired_at=when,
-        ))
-        tx_id += 1
-    for days_ago, amt in [(34, 342.00), (19, 219.40), (6, 458.10)]:  # rare big-purchase notices
-        db.add(RuleExecutionORM(
-            rule_id=notify_rule.id, user_id=user.id, tx_type="expense", tx_id=tx_id,
-            action_type="notify", amount_cents=cents(amt), result="ok",
-            fired_at=datetime.now() - timedelta(days=days_ago),
-        ))
-        tx_id += 1
+    # Drive the real engine over a small, inspectable slice of real rows. The
+    # execution log and any goal/proposal/notification effects therefore agree
+    # with the transaction IDs, conditions, thresholds, and targets.
+    engine = RuleEngine(db)
+    expenses = db.execute(
+        select(ExpenseORM)
+        .where(ExpenseORM.user_id == user.id)
+        .order_by(ExpenseORM.date.desc(), ExpenseORM.id.desc())
+    ).scalars().all()
+    selected_expenses: list[ExpenseORM] = []
+    for predicate in (
+        lambda row: "adobe" in row.title.casefold(),
+        lambda row: row.amount > cents(200),
+        lambda row: row.category in {"Food", "Food and Drink", "Shops"} and row.amount < cents(200),
+    ):
+        match = next((row for row in expenses if predicate(row)), None)
+        if match is not None and match not in selected_expenses:
+            selected_expenses.append(match)
+    for row in selected_expenses:
+        engine.run_on_transaction(user.id, "expense", row.id, {
+            "id": row.id,
+            "title": row.title,
+            "amount": row.amount / 100,
+            "date": row.date,
+            "category": row.category,
+            "account_id": row.account_id,
+            "type": "expense",
+        })
+
+    freelance_rows = db.execute(
+        select(IncomeORM)
+        .where(
+            IncomeORM.user_id == user.id,
+            IncomeORM.source_type == "self_employment",
+        )
+        .order_by(IncomeORM.amount.asc())
+        .limit(2)
+    ).scalars().all()
+    for row in freelance_rows:
+        engine.run_on_transaction(user.id, "income", row.id, {
+            "id": row.id,
+            "title": row.title,
+            "amount": row.amount / 100,
+            "date": row.date,
+            "category": row.category,
+            "account_id": row.account_id,
+            "type": "income",
+            "source_type": row.source_type,
+        })
+    db.flush()
+    return {
+        "notify": notify_rule,
+        "tax": tax_rule,
+        "roundup": roundup_rule,
+        "categorize": categorize_rule,
+    }
 
 
-def seed_misc(db, user: UserORM) -> None:
-    """Learned merchant categories, durable memory facts, category flags, notices."""
+def seed_merchant_aliases(db, user: UserORM) -> None:
+    """Two reversible aliases grounded in descriptors present in the ledger."""
+    for alias, canonical, label in [
+        ("AMZN Mktp US*8421", "Amazon", "Amazon"),
+        ("UBER *TRIP 9072", "Uber", "Uber"),
+    ]:
+        db.add(MerchantAliasORM(
+            user_id=user.id,
+            alias_key=normalize_merchant(alias),
+            canonical_key=normalize_merchant(canonical),
+            canonical_label=label,
+            source="user",
+            active=1,
+        ))
+
+
+def seed_misc(
+    db, user: UserORM, today: date, goals: dict[str, GoalORM]
+) -> None:
+    """Learned mappings, durable facts, settings, and exact notifications."""
     # Merchant → category learned mappings.
     for merchant, cat in [
         ("blue bottle coffee", "Food and Drink"),
@@ -744,14 +852,60 @@ def seed_misc(db, user: UserORM) -> None:
             existing.essential = essential
             existing.user_confirmed = 1
 
-    # Notifications: a mix of read/unread with stable dedup refs.
+    db.flush()
+    month_prefix = today.strftime("%Y-%m")
+    shops_spend = db.execute(
+        select(func.coalesce(func.sum(ExpenseORM.amount), 0)).where(
+            ExpenseORM.user_id == user.id,
+            ExpenseORM.category == "Shops",
+            ExpenseORM.date.like(f"{month_prefix}%"),
+        )
+    ).scalar_one()
+    shops_limit = db.execute(
+        select(BudgetORM.monthly_limit).where(
+            BudgetORM.user_id == user.id,
+            BudgetORM.category == "Shops",
+        )
+    ).scalar_one()
+    adobe = db.execute(
+        select(MerchantLifecycleORM).where(
+            MerchantLifecycleORM.user_id == user.id,
+            MerchantLifecycleORM.merchant == "adobe creative cloud",
+        )
+    ).scalar_one()
+    hulu = db.execute(
+        select(MerchantLifecycleORM).where(
+            MerchantLifecycleORM.user_id == user.id,
+            MerchantLifecycleORM.merchant == "hulu",
+        )
+    ).scalar_one()
+    hulu_days = (today - date.fromisoformat(hulu.last_date)).days
+    laptop = goals["New Laptop"]
+    laptop_pct = round(100 * laptop.progress / laptop.amount)
+
+    # Every numeric claim below is derived from rows visible in the demo.
     notices = [
-        ("anomaly", "Unusual spend in Travel", "A $342 Travel charge is above your usual.", "anomaly:Travel:flight", 0),
-        ("budget_overrun", "Entertainment over budget", "You're 18% over your Entertainment envelope.", "budget_overrun:Entertainment:this-month", 0),
-        ("price_creep", "Adobe raised its price", "Adobe Creative Cloud went from $52.99 to $59.99.", "price_creep:adobe", 0),
-        ("zombie_sub", "Hulu looks dormant", "No Hulu charge in 100+ days — cancel?", "lifecycle:hulu:dormant", 1),
-        ("overdraft_risk", "Tight week ahead", "Projected balance dips low before payday.", "overdraft:this-week", 0),
-        ("goal", "Laptop goal almost there", "You're 97% to your New Laptop goal.", "goal:new-laptop:97", 1),
+        ("demo_metadata", "Canonical demo dataset", f"Dataset revision {DEMO_DATASET_REVISION}.", DEMO_DATASET_MARKER_REF, 1),
+        ("anomaly", "Unusual spend in Travel", "A $342.00 conference flight is above Maya’s usual Travel charge.", "anomaly:Travel:flight", 0),
+        (
+            "budget_overrun",
+            "Shops envelope needs attention",
+            f"Shops is ${(shops_spend - shops_limit) / 100:,.2f} over its "
+            f"${shops_limit / 100:,.2f} monthly envelope (${shops_spend / 100:,.2f} spent).",
+            f"budget_overrun:Shops:{month_prefix}",
+            0,
+        ),
+        (
+            "price_creep",
+            "Adobe raised its price",
+            f"Adobe Creative Cloud moved from ${adobe.prev_amount / 100:,.2f} to "
+            f"${adobe.last_amount / 100:,.2f} ({adobe.price_change_pct * 100:.1f}%).",
+            "price_creep:adobe",
+            0,
+        ),
+        ("zombie_sub", "Hulu looks dormant", f"The modeled lifecycle state is dormant; the last Hulu charge was {hulu_days} days ago.", "lifecycle:hulu:dormant", 1),
+        ("goal", "Laptop goal almost there", f"New Laptop is {laptop_pct}% funded (${laptop.progress / 100:,.2f} of ${laptop.amount / 100:,.2f}).", f"goal:new-laptop:{laptop_pct}", 1),
+        ("demo_guide", "Automation is configurable", "Four editable rules show alerts, round-ups, categorization, and a Tax Reserve set-aside. Pausing a rule takes effect immediately.", "demo:rules:guide", 0),
     ]
     for typ, title, msg, ref, read in notices:
         db.add(NotificationORM(
@@ -878,10 +1032,24 @@ def seed_current_month_extras(db, user: UserORM, accounts: dict, today: date) ->
         date=(today - timedelta(days=2)).isoformat(), category="Shops",
         account_id=accounts["credit"].id,
     ))
+    # Raw bank descriptors paired with the canonical merchants used by the
+    # reversible alias sidecar.
+    db.add_all([
+        ExpenseORM(
+            user_id=user.id, title="AMZN Mktp US*8421", amount=cents(38.71),
+            date=(today - timedelta(days=5)).isoformat(), category="Shops",
+            account_id=accounts["credit"].id,
+        ),
+        ExpenseORM(
+            user_id=user.id, title="UBER *TRIP 9072", amount=cents(18.42),
+            date=(today - timedelta(days=4)).isoformat(), category="Transportation",
+            account_id=accounts["checking"].id,
+        ),
+    ])
 
 
 # ---------------------------------------------------------------------------
-# Part C — event-sourced game layer (drive the REAL engine)
+# Optional legacy game helpers
 # ---------------------------------------------------------------------------
 
 
@@ -971,11 +1139,83 @@ def seed_game_layer(db, today: date) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Orchestration
+# Verification + orchestration
 # ---------------------------------------------------------------------------
 
 
-def main(fresh: bool = False) -> None:
+def verify_demo_seed(db, user: UserORM) -> None:
+    """Raise when the canonical showcase contradicts its public contract."""
+    db.flush()
+    failures: list[str] = []
+    readiness = assess_demo_readiness(db, enabled=True)
+    if not readiness.ready:
+        failures.append(f"readiness={readiness.reason_code}")
+    if user.full_name != "Maya Chen" or user.game_mode != "off":
+        failures.append("persona/game-mode mismatch")
+
+    mortgage_docs = db.execute(
+        select(func.count(TaxDocumentORM.id)).where(
+            TaxDocumentORM.user_id == user.id,
+            TaxDocumentORM.form_type == "1098",
+        )
+    ).scalar_one()
+    if mortgage_docs:
+        failures.append("renter persona has a mortgage 1098")
+
+    rules = db.execute(select(RuleORM).where(RuleORM.user_id == user.id)).scalars().all()
+    execution_counts = dict(db.execute(
+        select(RuleExecutionORM.rule_id, func.count(RuleExecutionORM.id))
+        .where(RuleExecutionORM.user_id == user.id)
+        .group_by(RuleExecutionORM.rule_id)
+    ).all())
+    for rule in rules:
+        if execution_counts.get(rule.id, 0) < 1:
+            failures.append(f"rule has no real execution: {rule.name}")
+
+    observed = {
+        normalize_merchant(title)
+        for title in db.execute(
+            select(ExpenseORM.title).where(ExpenseORM.user_id == user.id)
+        ).scalars()
+    }
+    aliases = db.execute(
+        select(MerchantAliasORM).where(MerchantAliasORM.user_id == user.id)
+    ).scalars().all()
+    if any(a.alias_key not in observed or a.canonical_key not in observed for a in aliases):
+        failures.append("merchant alias is not grounded in observed descriptors")
+
+    adobe = db.execute(
+        select(MerchantLifecycleORM).where(
+            MerchantLifecycleORM.user_id == user.id,
+            MerchantLifecycleORM.merchant == "adobe creative cloud",
+        )
+    ).scalar_one_or_none()
+    if adobe is None or price_creep_pct(adobe.last_amount, adobe.prev_amount) != adobe.price_change_pct:
+        failures.append("Adobe lifecycle price change is inconsistent")
+
+    visible_total = db.execute(
+        select(func.sum(AccountORM.balance)).where(AccountORM.user_id == user.id)
+    ).scalar_one()
+    latest_snapshot = db.execute(
+        select(BalanceSnapshotORM)
+        .where(BalanceSnapshotORM.user_id == user.id)
+        .order_by(BalanceSnapshotORM.date.desc(), BalanceSnapshotORM.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if latest_snapshot is None or int(latest_snapshot.total) != int(visible_total):
+        failures.append("latest net-worth snapshot does not reconcile to accounts")
+
+    projected = RecurringService(db).project_expenses(
+        user.id, date.today(), date.today() + timedelta(days=62)
+    )
+    if any(row["title"] == "Hulu" for row in projected):
+        failures.append("dormant Hulu is still projected as an active recurring bill")
+
+    if failures:
+        raise RuntimeError("demo seed verification failed: " + "; ".join(failures))
+
+
+def main(*, reset_financials: bool = False, bootstrap: bool = False) -> None:
     db = SessionLocal()
     try:
         auth = AuthService()
@@ -983,18 +1223,39 @@ def main(fresh: bool = False) -> None:
             select(UserORM).where(UserORM.username == DEMO["username"])
         ).scalar_one_or_none()
 
+        if user is not None and bootstrap:
+            readiness = assess_demo_readiness(db, enabled=True)
+            if readiness.ready:
+                logger.info("demo bootstrap: canonical seed is already ready; no changes")
+                return
+            raise SystemExit(
+                "Demo user exists but is incomplete. Bootstrap will not reset an "
+                "existing database. Point the demo service at a fresh database, or "
+                "run explicitly with --reset-financials after reviewing the runbook."
+            )
+
         if user is None:
             auth.create_user(db, NewUser(**DEMO))
             db.flush()
             user = db.execute(
                 select(UserORM).where(UserORM.username == DEMO["username"])
             ).scalar_one()
+            if settings.enable_rls:
+                set_tenant(db, user.id)
             logger.info("created user '%s'", DEMO["username"])
-        else:
+        elif reset_financials:
+            if settings.enable_rls:
+                set_tenant(db, user.id)
             reset_user(db, user.id)
             logger.info("reset existing user '%s' (financial rows)", DEMO["username"])
+        else:
+            raise SystemExit(
+                "Demo user already exists; refusing an implicit destructive reset. "
+                "Use --bootstrap for deployment or --reset-financials explicitly."
+            )
 
         today = date.today()
+        RNG.seed(20260619)  # deterministic even across two runs in one process
         start = today - timedelta(days=365)  # ~12 months of income history
         exp_start = today - timedelta(days=185)  # ~6 months of spending
 
@@ -1004,38 +1265,27 @@ def main(fresh: bool = False) -> None:
         n_inc = seed_income(db, user, accounts, start, today)
         n_exp, tax_refs = seed_expenses(db, user, accounts, exp_start, today)
         seed_budgets(db, user)
-        seed_goals_and_earmarks(db, user, today)
-        seed_balance_snapshots(db, user, exp_start, today)
+        goals = seed_goals_and_earmarks(db, user, today)
+        account_total_cents = sum(int(account.balance) for account in accounts.values())
+        seed_balance_snapshots(db, user, exp_start, today, account_total_cents)
         seed_liabilities(db, user, accounts)
+        db.flush()  # lifecycle facts are derived from these actual transactions
         seed_merchant_lifecycle(db, user, today)
         seed_tax(db, user, tax_refs, today)
-        seed_scenarios(db, user, today)
-        seed_rules(db, user)
-        seed_misc(db, user)
+        seed_scenarios(db, user, accounts, today)
         seed_imports(db, user, accounts, today)
         seed_detangle(db, user, accounts, today)
         seed_current_month_extras(db, user, accounts, today)
+        db.flush()
+        seed_merchant_aliases(db, user)
+        seed_rules(db, user, goals)
+        seed_misc(db, user, today, goals)
+        verify_demo_seed(db, user)
         db.commit()
         logger.info(
             "seeded financials: 3 accounts, %d expenses, %d income, goals/budgets/"
             "liabilities/tax/scenarios/rules/notifications", n_exp, n_inc,
         )
-
-        # --- Part C: event-sourced game layer ------------------------------
-        if demo_game_stream_exists(db):
-            if fresh:
-                raise SystemExit(
-                    "Refusing --fresh game seed: a demo game_events stream already "
-                    "exists and is append-only. Re-seed on a FRESH database "
-                    "(see docs/DEMO-MODE.md)."
-                )
-            logger.info(
-                "game: a demo event stream already exists — skipping the game layer "
-                "(append-only). Financials were reseeded. Use a fresh DB for a clean "
-                "game history."
-            )
-        else:
-            seed_game_layer(db, today)
 
         logger.info("done. login →  username: demo   password: Demo123!")
     finally:
@@ -1045,8 +1295,12 @@ def main(fresh: bool = False) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Seed the demo showcase account.")
     parser.add_argument(
-        "--fresh", action="store_true",
-        help="Require a clean game history; refuse if a demo event stream exists.",
+        "--bootstrap", action="store_true",
+        help="Seed only when the demo user is absent; otherwise verify/no-op or fail.",
+    )
+    parser.add_argument(
+        "--reset-financials", action="store_true",
+        help="Explicitly replace the existing demo user's financial showcase rows.",
     )
     args = parser.parse_args()
-    main(fresh=args.fresh)
+    main(reset_financials=args.reset_financials, bootstrap=args.bootstrap)

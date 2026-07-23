@@ -300,6 +300,63 @@ class TestRecurringSeriesDedup:
         )
         assert sorted(r["title"] for r in out) == ["Netflix", "Spotify"]
 
+    def test_price_change_uses_only_latest_series_interpretation(
+        self, db_session, seeded_user
+    ):
+        user, account = seeded_user
+        db_session.add_all([
+            Expense(title="Adobe", amount=5299, date="2026-03-05", category="Service",
+                    recurrence="monthly", account_id=account.id),
+            Expense(title="Adobe", amount=5999, date="2026-04-05", category="Service",
+                    recurrence="monthly", account_id=account.id),
+        ])
+        db_session.flush()
+
+        out = RecurringService(db_session).project_expenses(
+            user.id, date(2026, 5, 1), date(2026, 6, 30)
+        )
+        assert [(r["date"], r["amount"]) for r in out] == [
+            ("2026-05-05", 59.99),
+            ("2026-06-05", 59.99),
+        ]
+
+    def test_same_title_distinct_cadences_remain_separate(self, db_session, seeded_user):
+        user, account = seeded_user
+        db_session.add_all([
+            Expense(title="Membership", amount=5000, date="2026-03-01", category="Service",
+                    recurrence="monthly", account_id=account.id),
+            Expense(title="Membership", amount=12000, date="2026-04-01", category="Service",
+                    recurrence="annually", account_id=account.id),
+        ])
+        db_session.flush()
+        out = RecurringService(db_session).project_expenses(
+            user.id, date(2026, 4, 2), date(2027, 4, 2)
+        )
+        monthly = [r for r in out if r["recurrence"] == "monthly"]
+        annual = [r for r in out if r["recurrence"] == "annually"]
+        assert len(monthly) == 12
+        assert [(r["date"], r["amount"]) for r in annual] == [("2027-04-01", 120.0)]
+
+    def test_fixed_per_month_uses_latest_price_and_cadence(
+        self, db_session, seeded_user
+    ):
+        from server.src.services.transaction_service import TransactionService
+
+        user, account = seeded_user
+        db_session.add_all([
+            Expense(title="Adobe", amount=5299, date="2026-03-05", category="Service",
+                    recurrence="monthly", account_id=account.id),
+            Expense(title="Adobe", amount=5999, date="2026-04-05", category="Service",
+                    recurrence="monthly", account_id=account.id),
+            Expense(title="Membership", amount=1000, date="2026-03-01", category="Service",
+                    recurrence="monthly", account_id=account.id),
+            Expense(title="Membership", amount=12000, date="2026-04-01", category="Service",
+                    recurrence="annually", account_id=account.id),
+        ])
+        db_session.flush()
+        # Adobe $59.99/mo + monthly $10 + annual $120 monthlyized at 30/365.
+        assert TransactionService(db_session).fixed_per_month(user.id) == 79.85
+
 
 class TestProjectWithOverlay:
     """The scenario overlay threaded through ``_project_rows`` (doc 01)."""

@@ -14,6 +14,7 @@ vi.mock("@/lib/api", () => ({
 
 import { useStore } from "@/store/store";
 import { resetGameMode } from "@/store/gameMode";
+import api from "@/lib/api";
 
 afterEach(() => {
   // Reset selectedAccountId between tests
@@ -122,6 +123,7 @@ describe("logout resets financial + game state", () => {
           s2s_buffer: 100,
         },
         isLoggedIn: true,
+        isDemoSession: true,
         user: { id: 1, username: "x", full_name: null },
       });
     });
@@ -141,6 +143,7 @@ describe("logout resets financial + game state", () => {
       s2s_buffer: 0,
     });
     expect(s.isLoggedIn).toBe(false);
+    expect(s.isDemoSession).toBe(false);
     expect(s.user).toBeNull();
   });
 
@@ -209,6 +212,55 @@ describe("logout resets financial + game state", () => {
   it("exposes a callable resetGameMode bridge", () => {
     expect(typeof resetGameMode).toBe("function");
     expect(() => resetGameMode()).not.toThrow();
+  });
+
+  it("never requests a Plaid token for a server-confirmed demo user", async () => {
+    vi.mocked(api.get).mockClear();
+    act(() => {
+      useStore.setState({
+        user: {
+          id: 1,
+          username: "demo",
+          full_name: "Jordan Rivera",
+          is_demo: true,
+        },
+        isLoggedIn: true,
+        isDemoSession: true,
+      });
+    });
+
+    await act(async () => {
+      await useStore.getState().fetchLinkToken();
+    });
+
+    expect(api.get).not.toHaveBeenCalledWith("/plaid/link-token/");
+  });
+
+  it("starts a new authenticated session without revoking its fresh cookie", () => {
+    vi.mocked(api.post).mockClear();
+    act(() => {
+      useStore.setState({
+        user: { id: 1, username: "demo", full_name: null, is_demo: true },
+        userLoaded: true,
+        isLoggedIn: true,
+        isDemoSession: true,
+        budgets: [{ id: 1 }] as never,
+        settingsLoaded: true,
+        mcpEnabled: true,
+      });
+      useStore.getState().beginAuthenticatedSession();
+    });
+
+    expect(useStore.getState()).toMatchObject({
+      user: null,
+      userLoaded: false,
+      isLoggedIn: true,
+      isDemoSession: false,
+      budgets: [],
+      settingsLoaded: false,
+      mcpEnabled: false,
+    });
+    expect(api.post).not.toHaveBeenCalledWith("/logout/");
   });
 });
 
