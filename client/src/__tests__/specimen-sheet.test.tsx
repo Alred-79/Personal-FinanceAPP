@@ -276,6 +276,9 @@ describe("The claims the Specimen Sheet has to be able to stand behind", () => {
         <AgentReadingRoom />
       </MemoryRouter>
     );
-    expect(screen.getByText(/inspect every request your key makes/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Availability and issuance are confirmed only after sign-in/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/every request/i)).not.toBeInTheDocument();
   });
 });

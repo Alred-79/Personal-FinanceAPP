@@ -16,7 +16,7 @@ const TabsList = React.forwardRef<
       // Scrolls horizontally rather than clipping when the triggers exceed the
       // viewport (e.g. Settings' six tabs at 375px). Scrollbar hidden for a
       // clean ruled baseline; triggers keep whitespace-nowrap + shrink-0.
-      "flex h-10 max-w-full items-center justify-start gap-1 overflow-x-auto border-b border-rule-strong/40 text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+      "flex h-11 max-w-full items-center justify-start gap-1 overflow-x-auto border-b border-rule-strong/40 text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
       className
     )}
     {...props}
@@ -31,7 +31,7 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "relative -mb-px inline-flex shrink-0 items-center justify-center whitespace-nowrap border-b-2 border-transparent px-3 py-2 font-sans text-[11px] font-semibold uppercase tracking-[0.18em] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:border-gold data-[state=active]:text-foreground",
+      "relative -mb-px inline-flex min-h-11 shrink-0 items-center justify-center whitespace-nowrap border-b-2 border-transparent px-3 py-2 font-sans text-[11px] font-semibold uppercase tracking-[0.18em] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:border-gold data-[state=active]:text-foreground",
       className
     )}
     {...props}

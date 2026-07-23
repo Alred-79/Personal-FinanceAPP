@@ -23,10 +23,26 @@ const FORECAST = {
   lowest_date: "2026-03-15",
   total_projected_expenses: 200,
   will_go_negative: false,
+  first_negative_date: null,
+  paths_below_zero: 12,
+  paths_total: 300,
+  trough_band: { low: 500, median: 750, high: 950 },
+  events: [{ date: "2026-03-15", income: 1000, expenses: 200, net: 800, label: "Paycheck, Rent" }],
   timeline: TIMELINE,
 };
 
 const ACTIVE_RESULT = {
+  horizon_start: "2026-03-01",
+  horizon_end: "2026-03-31",
+  baseline_timeline: TIMELINE,
+  scenario_timeline: [
+    { date: "2026-03-01", balance: 1000, change: 0, label: "" },
+    { date: "2026-03-31", balance: 1700, change: 700, label: "" },
+  ],
+  baseline_events: [],
+  scenario_events: [],
+  applied_changes: [{ id: "discrete_flow:0", kind: "expense", detail: "Purchase on 2026-03-10" }],
+  ignored_changes: [],
   baseline: { name: "Baseline", result: { ending_balance: 1200, safe_to_spend: 300 } },
   scenario: {
     name: "What-If",
@@ -34,14 +50,13 @@ const ACTIVE_RESULT = {
     result: {
       ending_balance: 1700,
       safe_to_spend: 450,
-      overdraft_probability: 0.1,
+      lowest_balance: 600,
+      first_negative_date: null,
+      paths_below_zero: 10,
+      paths_total: 300,
       trough_band: { low: 600, median: 900, high: 1100 },
-      timeline: [
-        { date: "2026-03-01", balance: 1000, change: 0, label: "" },
-        { date: "2026-03-31", balance: 1700, change: 700, label: "" },
-      ],
     },
-    delta: { ending_balance: 500, safe_to_spend: 150 },
+    delta: { ending_balance: 500, safe_to_spend: 150, lowest_balance: -200 },
   },
 };
 
@@ -65,6 +80,7 @@ const { state, fetchForecast, fetchScenarios } = vi.hoisted(() => {
       runScenario: vi.fn(),
       createScenario: vi.fn(),
       updateScenario: vi.fn(),
+      clearActiveScenarioResult: vi.fn(),
       fetchGoals: vi.fn(),
       goals: [],
     },
@@ -135,13 +151,18 @@ function renderAt(path = "/forecast") {
 
 describe("Forecast page", () => {
   it("fetches the forecast on mount and shows the projection", () => {
-    renderAt();
+    const { container } = renderAt();
     expect(fetchForecast).toHaveBeenCalled();
-    expect(screen.getByText("Running Balance")).toBeInTheDocument();
+    expect(screen.getByText("Daily central path")).toBeInTheDocument();
     // The three tabs are present.
-    expect(screen.getByRole("tab", { name: "Projection" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "What-If" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Compare" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Current outlook" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Test a decision" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Compare saved" })).toBeInTheDocument();
+    expect(screen.getByText("−$200.00")).toBeInTheDocument();
+    expect(screen.getByText(/Lower modeled bound/)).toBeInTheDocument();
+    expect(container.textContent ?? "").not.toMatch(/5th percentile|95th percentile/i);
+    expect(state.clearActiveScenarioResult).toHaveBeenCalled();
+    expect(container.textContent ?? "").not.toMatch(/confidence|chance|calibrated|probability/i);
   });
 
   it("renders the baseline-vs-scenario overlay (two series) when a run exists", () => {
@@ -149,12 +170,10 @@ describe("Forecast page", () => {
     // ?goal deep-links straight to the What-If tab (avoids Radix pointer quirks
     // in jsdom), where the overlay card renders.
     renderAt("/forecast?goal=1");
-    // The overlay card titles the two series and stamps the overdraft prob.
-    expect(screen.getByText("Baseline vs What-If")).toBeInTheDocument();
-    expect(screen.getByText(/Overdraft 10%/)).toBeInTheDocument();
-    // Both delta figures rendered (a credit gain).
-    expect(screen.getByText("Δ ending")).toBeInTheDocument();
-    expect(screen.getByText("$500.00")).toBeInTheDocument();
+    expect(screen.getByText("Decision answer")).toBeInTheDocument();
+    expect(screen.getByText(/10 of 300/)).toBeInTheDocument();
+    expect(screen.getByText("Change vs current")).toBeInTheDocument();
+    expect(screen.getAllByText(/200\.00/).length).toBeGreaterThan(0);
   });
 
   it("has a real commit affordance (replacing the dead banner) once a scenario is picked", async () => {

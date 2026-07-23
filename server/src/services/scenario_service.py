@@ -29,7 +29,10 @@ from sqlalchemy.orm import Session
 
 from server.src.dates import parse_iso_date
 from server.src.db.models import (
+    Account as AccountORM,
+    Expense as ExpenseORM,
     Goal as GoalORM,
+    Income as IncomeORM,
     PlanOfRecord as PlanOfRecordORM,
     Scenario as ScenarioORM,
 )
@@ -43,6 +46,7 @@ from server.src.models import (
 from server.src.money import cents_to_dollars, dollars_to_cents
 from server.src.services.goal_math import add_months, months_to_reach
 from server.src.services.read_queries import query_user
+from server.src.services.recurring_service import project_occurrences
 from server.src.services.scenario_overlay import (
     EMPTY,
     DiscreteFlow,
@@ -128,18 +132,11 @@ def _diff(baseline: dict, scenario: dict) -> dict:
 
 
 def _runway_days(forecast: dict, as_of: date, horizon_days: int) -> int:
-    """Days of runway: to the trough if the balance dips below zero, else the
-    full horizon.
-
-    Derived deterministically from the forecast result (no second walk): when
-    ``will_go_negative`` the runway ends at ``lowest_date`` (the trough day);
-    otherwise the balance never goes negative over the horizon, so runway is the
-    whole horizon.
-    """
-    if not forecast.get("will_go_negative"):
+    """Days to the first modeled negative balance, else the full horizon."""
+    first_negative = forecast.get("first_negative_date")
+    if not first_negative:
         return horizon_days
-    lowest_date = date.fromisoformat(forecast["lowest_date"])
-    return max((lowest_date - as_of).days, 0)
+    return max((date.fromisoformat(first_negative) - as_of).days, 0)
 
 
 def _months_between(start: date, end: date) -> int:
@@ -360,6 +357,7 @@ class ScenarioService:
         rng: Optional[random.Random] = None,
         name: str = "Scenario",
         scenario_id: Optional[int] = None,
+        include_series: bool = False,
     ) -> dict:
         """Baseline-vs-scenario diff over ``[as_of, as_of+horizon_days]``.
 
@@ -374,9 +372,13 @@ class ScenarioService:
         """
         as_of = as_of or date.today()
         seed = _seed_of(rng)
-        baseline = self._column_result(user_id, EMPTY, as_of, horizon_days, seed)
-        scenario = self._column_result(user_id, overlay, as_of, horizon_days, seed)
-        return {
+        baseline, baseline_forecast = self._column_evaluation(
+            user_id, EMPTY, as_of, horizon_days, seed
+        )
+        scenario, scenario_forecast = self._column_evaluation(
+            user_id, overlay, as_of, horizon_days, seed
+        )
+        response = {
             "baseline": {"name": "Baseline", "result": baseline},
             "scenario": {
                 "name": name,
@@ -385,6 +387,24 @@ class ScenarioService:
                 "delta": _diff(baseline, scenario),
             },
         }
+        if include_series:
+            horizon_end = as_of + timedelta(days=horizon_days)
+            applied, ignored = self._classify_changes(
+                user_id, overlay, as_of, horizon_end
+            )
+            response.update(
+                {
+                    "horizon_start": as_of.isoformat(),
+                    "horizon_end": horizon_end.isoformat(),
+                    "baseline_timeline": baseline_forecast["timeline"],
+                    "scenario_timeline": scenario_forecast["timeline"],
+                    "baseline_events": baseline_forecast["events"],
+                    "scenario_events": scenario_forecast["events"],
+                    "applied_changes": applied,
+                    "ignored_changes": ignored,
+                }
+            )
+        return response
 
     def compare(
         self,
@@ -549,6 +569,19 @@ class ScenarioService:
         horizon_days: int,
         seed: int,
     ) -> dict:
+        result, _ = self._column_evaluation(
+            user_id, overlay, as_of, horizon_days, seed
+        )
+        return result
+
+    def _column_evaluation(
+        self,
+        user_id: int,
+        overlay: ScenarioOverlay,
+        as_of: date,
+        horizon_days: int,
+        seed: int,
+    ) -> tuple[dict, dict]:
         """Compute the metric set for one overlay over the horizon.
 
         Engines speak dollars; we keep their dollar outputs here and let
@@ -578,14 +611,20 @@ class ScenarioService:
             include_outlook=False,
             rng=random.Random(seed),
             overlay=overlay,
+            horizon_end_override=as_of + timedelta(days=horizon_days),
         )
 
-        return {
+        result = {
             "overdraft_probability": fc["overdraft_probability"],
+            "paths_below_zero": fc["paths_below_zero"],
+            "paths_total": fc["paths_total"],
             "lowest_balance": fc["lowest_balance"],
             "ending_balance": fc["ending_balance"],
             "safe_to_spend": s2s["available"],
+            "safe_to_spend_horizon_end": s2s["horizon_end"],
+            "safe_to_spend_horizon_source": s2s["horizon_source"],
             "runway_days": _runway_days(fc, as_of, horizon_days),
+            "first_negative_date": fc.get("first_negative_date"),
             "goal_reach": self._goal_reach(user_id, overlay, as_of),
             # F1: the calibrated trough band + its nominal coverage target ride
             # along so a scenario column can render the same engraved confidence
@@ -593,6 +632,132 @@ class ScenarioService:
             "trough_band": fc.get("trough_band"),
             "coverage_level": fc.get("coverage_level"),
         }
+        return result, fc
+
+    def _classify_changes(
+        self,
+        user_id: int,
+        overlay: ScenarioOverlay,
+        horizon_start: date,
+        horizon_end: date,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Partition every submitted overlay item into applied or ignored.
+
+        This is response metadata only; the stored overlay schema stays stable.
+        Reason codes are intentionally small and machine-readable so the client
+        can offer an Extend horizon action without parsing prose.
+        """
+        applied: list[dict[str, Any]] = []
+        ignored: list[dict[str, Any]] = []
+
+        def accept(identifier: str, kind: str, detail: str) -> None:
+            applied.append({"id": identifier, "kind": kind, "detail": detail})
+
+        def reject(
+            identifier: str, kind: str, reason_code: str, detail: str
+        ) -> None:
+            ignored.append(
+                {
+                    "id": identifier,
+                    "kind": kind,
+                    "reason_code": reason_code,
+                    "detail": detail,
+                }
+            )
+
+        for i, add in enumerate(overlay.added_recurring):
+            identifier = f"added_recurring:{i}"
+            anchor = parse_iso_date(add.anchor_date) if add.anchor_date else horizon_start
+            occurrences = (
+                project_occurrences(
+                    anchor, add.recurrence, horizon_start, horizon_end
+                )
+                if anchor is not None
+                else []
+            )
+            if occurrences:
+                accept(identifier, add.kind, f"{add.title} occurs inside this horizon")
+            else:
+                reject(
+                    identifier,
+                    add.kind,
+                    "no_occurrence_in_horizon",
+                    f"{add.title} has no occurrence inside this horizon",
+                )
+
+        for i, flow in enumerate(overlay.discrete_flows):
+            identifier = f"discrete_flow:{i}"
+            flow_date = parse_iso_date(flow.date)
+            if flow_date is not None and horizon_start <= flow_date <= horizon_end:
+                accept(identifier, flow.kind, f"{flow.title or 'One-time flow'} on {flow.date}")
+            else:
+                reject(
+                    identifier,
+                    flow.kind,
+                    "outside_horizon",
+                    f"{flow.title or 'One-time flow'} falls outside this horizon",
+                )
+
+        for i, (kind, source_id) in enumerate(sorted(overlay.excluded_source_ids)):
+            identifier = f"excluded_source:{i}"
+            if self._source_exists(user_id, kind, source_id):
+                accept(identifier, kind, f"Excluded {kind} source {source_id}")
+            else:
+                reject(identifier, kind, "source_not_found", f"Source {source_id} was not found")
+
+        for i, override in enumerate(overlay.overridden_recurring):
+            identifier = f"overridden_recurring:{i}"
+            if self._source_exists(user_id, override.kind, override.source_id):
+                accept(identifier, override.kind, f"Changed source {override.source_id}")
+            else:
+                reject(
+                    identifier,
+                    override.kind,
+                    "source_not_found",
+                    f"Source {override.source_id} was not found",
+                )
+
+        owned_goal_ids = set(
+            self.db.execute(
+                select(GoalORM.id).where(GoalORM.user_id == user_id)
+            ).scalars()
+        )
+        for i, mutation in enumerate(overlay.goal_mutations):
+            identifier = f"goal_mutation:{i}"
+            if mutation.goal_id in owned_goal_ids:
+                accept(identifier, "goal", f"Changed goal {mutation.goal_id}")
+            else:
+                reject(
+                    identifier,
+                    "goal",
+                    "goal_not_found",
+                    f"Goal {mutation.goal_id} was not found",
+                )
+
+        if overlay.balance_override_cents is not None:
+            accept("balance_override", "balance", "Changed the starting balance")
+
+        for key in sorted(overlay.config_overrides):
+            reject(
+                f"config_override:{key}",
+                "config",
+                "unsupported_config",
+                f"Setting {key} is not supported by decision evaluation",
+            )
+        return applied, ignored
+
+    def _source_exists(self, user_id: int, kind: str, source_id: int) -> bool:
+        model = IncomeORM if kind == "income" else ExpenseORM if kind == "expense" else None
+        if model is None:
+            return False
+        return (
+            self.db.execute(
+                select(model.id)
+                .join(AccountORM, model.account_id == AccountORM.id)
+                .where(model.id == source_id, AccountORM.user_id == user_id)
+            ).scalar_one_or_none()
+            is not None
+        )
 
     def _goal_reach(
         self, user_id: int, overlay: ScenarioOverlay, as_of: date

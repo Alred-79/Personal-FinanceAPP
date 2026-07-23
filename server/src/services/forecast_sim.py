@@ -238,8 +238,14 @@ def bootstrap_overdraft(
     byte-identical to the uncalibrated path under the same seed.
     """
     if num_days <= 0 or num_sims <= 0:
+        paths_total = max(num_sims, 0)
+        paths_below_zero = paths_total if starting_cents < 0 else 0
         return {
-            "overdraft_probability": 0.0,
+            "overdraft_probability": (
+                paths_below_zero / paths_total if paths_total else 0.0
+            ),
+            "paths_below_zero": paths_below_zero,
+            "paths_total": paths_total,
             "trough_low": starting_cents,
             "trough_median": starting_cents,
             "trough_high": starting_cents,
@@ -256,7 +262,11 @@ def bootstrap_overdraft(
     raw_high = _percentile_sorted(troughs, 0.95)
 
     result: dict[str, Any] = {
-        "overdraft_probability": round(overdraft_runs / num_sims, 4),
+        # Keep the exact model fraction. Presentation layers may round it, but
+        # the wire contract preserves paths_below_zero / paths_total exactly.
+        "overdraft_probability": overdraft_runs / num_sims,
+        "paths_below_zero": overdraft_runs,
+        "paths_total": num_sims,
         "trough_low": raw_low,
         "trough_median": raw_median,
         "trough_high": raw_high,

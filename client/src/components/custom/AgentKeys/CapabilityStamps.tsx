@@ -1,12 +1,16 @@
 import { Stamp } from "@/components/engraving/Stamp";
 
-const GRANTED = [
-  "Accounts — names & balances",
-  "Transactions — every debit & credit",
-  "Budgets — envelopes, limits & pace",
-  "Goals — targets & progress",
-  "Context — a read-only snapshot",
-];
+const SCOPE_LABELS: Record<string, string> = {
+  "read:accounts": "Accounts — names & balances",
+  "read:transactions": "Transactions — posted debits & credits",
+  "read:budgets": "Budgets — limits & pace",
+  "read:goals": "Goals — targets & progress",
+  "read:forecast": "Decisions — modeled cash outlook",
+  "read:networth": "Net worth — totals & trend",
+  "read:subscriptions": "Upcoming — recurring charges",
+  "read:scenarios": "Saved decisions — uncommitted scenarios",
+  "read:context": "Context — a read-only snapshot",
+};
 
 const NEVER = ["Write a transaction", "Move or transfer money", "Change a setting"];
 
@@ -16,7 +20,8 @@ const NEVER = ["Write a transaction", "Move or transfer money", "Change a settin
  * narrows the key's scopes, and the read session always rolls back — so this
  * panel is a true statement, not a promise.
  */
-export function CapabilityStamps() {
+export function CapabilityStamps({ grantedScopes }: { grantedScopes: string[] }) {
+  const granted = grantedScopes.map((scope) => SCOPE_LABELS[scope] ?? scope);
   return (
     <div className="plate relative bg-card p-5">
       <div className="section-rule mb-4">
@@ -32,7 +37,7 @@ export function CapabilityStamps() {
             <span className="dept-label">read-only</span>
           </div>
           <ul className="space-y-1.5">
-            {GRANTED.map((g) => (
+            {granted.map((g) => (
               <li key={g} className="flex items-start gap-2 text-sm">
                 <span className="mt-0.5 shrink-0 text-credit" aria-hidden>
                   ✓
@@ -40,6 +45,9 @@ export function CapabilityStamps() {
                 <span>{g}</span>
               </li>
             ))}
+            {granted.length === 0 && (
+              <li className="text-sm text-muted-foreground">No permissions selected.</li>
+            )}
           </ul>
         </div>
 
@@ -67,9 +75,9 @@ export function CapabilityStamps() {
       </div>
 
       <p className="mt-4 border-t border-rule/60 pt-3 font-sans text-[12px] leading-relaxed text-muted-foreground">
-        A capability can only <span className="text-foreground">narrow</span> a
-        key's scopes — never widen them. The door an agent reaches opens read-only
-        and rolls back every time, so a read cannot become a write.
+        These are the permissions selected for the next key. A connected provider
+        may copy data returned under them. Revocation prevents future access, but
+        cannot delete copies the provider already received.
       </p>
     </div>
   );

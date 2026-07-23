@@ -19,23 +19,26 @@ export default function ScenarioCompare({
   horizonDays?: number;
 }) {
   const compareResult = useStore((s) => s.compareResult);
+  const compareResultKey = useStore((s) => s.compareResultKey);
+  const compareLoading = useStore((s) => s.compareLoading);
   const compareScenarios = useStore((s) => s.compareScenarios);
+  const requestKey = `${horizonDays}:${scenarioIds.join(",")}`;
 
   useEffect(() => {
     if (scenarioIds.length > 0) compareScenarios(scenarioIds, horizonDays);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scenarioIds.join(","), horizonDays]);
 
-  const columns = compareResult?.columns ?? [];
+  const columns = compareResultKey === requestKey ? compareResult?.columns ?? [] : [];
 
   if (scenarioIds.length === 0) {
     return (
       <p className="py-8 text-center font-sans text-sm italic text-muted-foreground">
-        Pick two or more saved scenarios to compare.
+        Pick saved decisions to compare.
       </p>
     );
   }
-  if (columns.length === 0) {
+  if (compareLoading || columns.length === 0) {
     return (
       <p className="py-8 text-center font-sans italic text-muted-foreground">
         Lining up the columns…
@@ -72,12 +75,7 @@ export default function ScenarioCompare({
             <tbody>
               <MetricRow label="Ending balance" columns={columns} pick={(r) => formatCurrency(r.ending_balance)} />
               <MetricRow label="Lowest point" columns={columns} pick={(r) => formatCurrency(r.lowest_balance)} />
-              <MetricRow label="Safe to spend" columns={columns} pick={(r) => formatCurrency(r.safe_to_spend)} />
-              <MetricRow
-                label="Overdraft risk"
-                columns={columns}
-                pick={(r) => `${Math.round(r.overdraft_probability * 100)}%`}
-              />
+              <MetricRow label="Modeled paths below zero" columns={columns} pick={(r) => `${r.paths_below_zero} of ${r.paths_total}`} />
               <MetricRow label="Runway (days)" columns={columns} pick={(r) => String(r.runway_days)} />
             </tbody>
           </table>
@@ -91,7 +89,7 @@ export default function ScenarioCompare({
             key={i}
             label={c.name}
             value={formatCurrency(c.result.ending_balance)}
-            accent={c.result.overdraft_probability > 0.5 ? "debit" : "credit"}
+            accent={c.result.first_negative_date ? "debit" : "credit"}
           />
         ))}
       </div>

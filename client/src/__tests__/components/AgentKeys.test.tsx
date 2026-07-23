@@ -17,6 +17,7 @@ vi.mock("@/hooks/useToast", () => ({
 }));
 
 import { AgentKeys } from "@/components/custom/AgentKeys/AgentKeys";
+import { useStore } from "@/store/store";
 
 const KEY = {
   id: 1,
@@ -34,6 +35,7 @@ beforeEach(() => {
   apiPost.mockReset();
   apiDelete.mockReset();
   toastSpy.mockReset();
+  useStore.setState({ settingsLoaded: true, settingsError: false, mcpEnabled: true });
 });
 afterEach(cleanup);
 
@@ -69,7 +71,7 @@ describe("AgentKeys", () => {
     render(<AgentKeys />);
     await screen.findByText("No writs on file");
 
-    fireEvent.change(screen.getByPlaceholderText("e.g. Claude Desktop"), {
+    fireEvent.change(screen.getByPlaceholderText("e.g. Claude Code on my laptop"), {
       target: { value: "My Agent" },
     });
     fireEvent.click(screen.getByRole("button", { name: /Seal & Issue/i }));
@@ -85,6 +87,8 @@ describe("AgentKeys", () => {
         scopes: expect.arrayContaining(["read:accounts", "read:transactions"]),
       })
     );
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Seal & Issue/i })).toHaveFocus());
   });
 
   it("offers every read scope the MCP surface accepts", async () => {
@@ -108,6 +112,8 @@ describe("AgentKeys", () => {
     }
     // The propose door ships dark and is never offered as a clause.
     expect(screen.queryByText("propose:actions")).not.toBeInTheDocument();
+    expect(screen.queryByText("No expiry")).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "90 days" })).toBeChecked();
   });
 
   it("grants a newly-added scope when its clause is toggled on", async () => {
@@ -125,10 +131,10 @@ describe("AgentKeys", () => {
     render(<AgentKeys />);
     await screen.findByText("No writs on file");
 
-    fireEvent.change(screen.getByPlaceholderText("e.g. Claude Desktop"), {
+    fireEvent.change(screen.getByPlaceholderText("e.g. Claude Code on my laptop"), {
       target: { value: "Forecaster" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Forecast/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Forecast/ }));
     fireEvent.click(screen.getByRole("button", { name: /Seal & Issue/i }));
 
     await waitFor(() =>
@@ -155,7 +161,7 @@ describe("AgentKeys", () => {
     });
     render(<AgentKeys />);
     await screen.findByText("No writs on file");
-    fireEvent.change(screen.getByPlaceholderText("e.g. Claude Desktop"), {
+    fireEvent.change(screen.getByPlaceholderText("e.g. Claude Code on my laptop"), {
       target: { value: "My Agent" },
     });
     fireEvent.click(screen.getByRole("button", { name: /Seal & Issue/i }));
@@ -165,7 +171,37 @@ describe("AgentKeys", () => {
     const snippet = screen.getByText(/mcpServers/);
     // The trailing slash matters — the bare path falls through to the SPA.
     expect(snippet.textContent).toContain(`"${window.location.origin}/mcp/"`);
+    expect(snippet.textContent).toContain('"type": "http"');
     expect(snippet.textContent).toContain("Bearer bdgt_live_THE_SECRET_VALUE");
+  });
+
+  it("fails closed while connection issuance is disabled", async () => {
+    useStore.setState({ settingsLoaded: true, mcpEnabled: false });
+    apiGet.mockResolvedValue({ data: [] });
+    render(<AgentKeys />);
+    expect(await screen.findByText("New connections are disabled")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Seal & Issue/i })).not.toBeInTheDocument();
+  });
+
+  it("shows an explicit fail-closed settings error instead of checking forever", async () => {
+    useStore.setState({ settingsLoaded: false, settingsError: true, mcpEnabled: false });
+    apiGet.mockResolvedValue({ data: [] });
+    render(<AgentKeys />);
+    expect(await screen.findByText("Could not check connection availability")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry availability check" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Seal & Issue/i })).not.toBeInTheDocument();
+  });
+
+  it("distinguishes an activity error from an empty ledger and retries", async () => {
+    apiGet.mockImplementation((path: string) =>
+      path.includes("audit") ? Promise.reject(new Error("offline")) : Promise.resolve({ data: [] })
+    );
+    render(<AgentKeys />);
+    expect(await screen.findByText("Could not load activity")).toBeInTheDocument();
+    expect(screen.queryByText("No reads recorded")).not.toBeInTheDocument();
+    apiGet.mockResolvedValue({ data: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("No reads recorded")).toBeInTheDocument();
   });
 
   it("revokes a live key", async () => {

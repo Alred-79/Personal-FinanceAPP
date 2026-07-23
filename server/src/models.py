@@ -24,13 +24,26 @@ follow whichever side of the seam they sit on.
 """
 
 from datetime import date, datetime
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from pydantic import BaseModel, EmailStr, Field, field_validator
+from typing import Literal, Optional
 
 # Money fields are dollar floats at the API boundary. Reject NaN/Infinity and
 # absurd magnitudes (messy/garbage input) while still allowing negative amounts,
 # which the app uses for refunds/credits. ~1e12 dollars is a generous ceiling.
 _MONEY = dict(allow_inf_nan=False, ge=-1_000_000_000_000, le=1_000_000_000_000)
+_POSITIVE_MONEY = dict(allow_inf_nan=False, gt=0, le=1_000_000_000_000)
+_NONNEGATIVE_MONEY = dict(allow_inf_nan=False, ge=0, le=1_000_000_000_000)
+_RECURRENCE_PATTERN = "^(daily|weekly|bi-weekly|monthly|quarterly|annually)$"
+
+
+def _valid_iso_date(value: Optional[str]) -> Optional[str]:
+    """Return a canonical ISO date string or raise a Pydantic validation error."""
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(value).isoformat()
+    except (TypeError, ValueError) as exc:
+        raise ValueError("must be a valid ISO date (YYYY-MM-DD)") from exc
 
 
 class Account(BaseModel):
@@ -175,11 +188,13 @@ class RecurringAddIn(BaseModel):
     """A brand-new recurring stream the scenario injects (dollar ``amount``)."""
 
     title: str = Field(min_length=1, max_length=200)
-    amount: float = Field(**_MONEY)
-    recurrence: str = Field(min_length=1, max_length=50)
+    amount: float = Field(**_POSITIVE_MONEY)
+    recurrence: str = Field(pattern=_RECURRENCE_PATTERN)
     kind: str = Field(pattern="^(expense|income)$")
     category: str = Field(default="", max_length=100)
     anchor_date: Optional[str] = None
+
+    _validate_anchor_date = field_validator("anchor_date")(_valid_iso_date)
 
 
 class RecurringOverrideIn(BaseModel):
@@ -187,28 +202,32 @@ class RecurringOverrideIn(BaseModel):
 
     source_id: int
     kind: str = Field(pattern="^(expense|income)$")
-    amount: Optional[float] = Field(default=None, **_MONEY)
-    recurrence: Optional[str] = Field(default=None, max_length=50)
+    amount: Optional[float] = Field(default=None, **_POSITIVE_MONEY)
+    recurrence: Optional[str] = Field(default=None, pattern=_RECURRENCE_PATTERN)
 
 
 class DiscreteFlowIn(BaseModel):
     """A one-off dated flow inside the scenario (dollar ``amount``)."""
 
     date: str
-    amount: float = Field(**_MONEY)
+    amount: float = Field(**_POSITIVE_MONEY)
     kind: str = Field(pattern="^(expense|income)$")
     title: str = Field(default="", max_length=200)
     category: str = Field(default="", max_length=100)
+
+    _validate_date = field_validator("date")(_valid_iso_date)
 
 
 class GoalMutationIn(BaseModel):
     """A hypothetical change to a savings goal (dollar amounts)."""
 
     goal_id: int
-    amount: Optional[float] = Field(default=None, **_MONEY)
+    amount: Optional[float] = Field(default=None, **_POSITIVE_MONEY)
     target_date: Optional[str] = None
-    progress: Optional[float] = Field(default=None, **_MONEY)
+    progress: Optional[float] = Field(default=None, **_NONNEGATIVE_MONEY)
     name: Optional[str] = Field(default=None, max_length=200)
+
+    _validate_target_date = field_validator("target_date")(_valid_iso_date)
 
 
 class ScenarioOverlayIn(BaseModel):
@@ -216,7 +235,7 @@ class ScenarioOverlayIn(BaseModel):
     the cents-only :class:`ScenarioOverlay` before it touches storage."""
 
     added_recurring: list[RecurringAddIn] = []
-    excluded_source_ids: list[tuple[str, int]] = []
+    excluded_source_ids: list[tuple[Literal["expense", "income"], int]] = []
     overridden_recurring: list[RecurringOverrideIn] = []
     discrete_flows: list[DiscreteFlowIn] = []
     goal_mutations: list[GoalMutationIn] = []
@@ -239,7 +258,7 @@ class ScenarioOut(BaseModel):
 
 class ScenarioCompareIn(BaseModel):
     scenario_ids: list[int] = Field(min_length=1)
-    horizon_days: int = Field(default=90, gt=0, le=3650)
+    horizon_days: int = Field(default=90, gt=0, le=365)
 
 
 class ScenarioEvaluateIn(BaseModel):
@@ -251,7 +270,7 @@ class ScenarioEvaluateIn(BaseModel):
 
     overlay: ScenarioOverlayIn = ScenarioOverlayIn()
     name: str = Field(default="Scenario", max_length=200)
-    horizon_days: int = Field(default=90, gt=0, le=3650)
+    horizon_days: int = Field(default=90, gt=0, le=365)
 
 
 class PlanComposerPreviewIn(BaseModel):

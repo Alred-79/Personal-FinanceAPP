@@ -49,13 +49,14 @@ beforeEach(() => setReducedMotion(true));
 afterEach(cleanup);
 
 describe("The Agent Reading Room", () => {
-  it("states the offer, its availability, and who receives the data", () => {
+  it("states the offer without promising public availability", () => {
     renderRoom();
     expect(
       screen.getByRole("heading", { name: /Your AI can understand the whole ledger/i })
     ).toBeInTheDocument();
-    // Available, not "beta".
-    expect(screen.getByText(/Available now via MCP/i)).toBeInTheDocument();
+    expect(screen.getByText(/Advanced MCP integration/i)).toBeInTheDocument();
+    expect(screen.getByText(/confirmed only after sign-in/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Available now/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/beta/i)).not.toBeInTheDocument();
     // The disclosure is never buried.
     expect(
@@ -65,10 +66,10 @@ describe("The Agent Reading Room", () => {
     expect(screen.getByText(/not a live API call/i)).toBeInTheDocument();
   });
 
-  it("sends the visitor to the Agent Keys bureau, through login", () => {
+  it("keeps public issuance out of the landing section", () => {
     renderRoom();
-    const cta = screen.getByRole("link", { name: /Connect your AI/i });
-    expect(cta).toHaveAttribute("href", "/login?next=%2Fsettings%3Ftab%3Dagent-keys");
+    expect(screen.queryByRole("link", { name: /Connect your AI/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /See how access works/i })).toBeInTheDocument();
   });
 
   it("answers a fully-scoped request and files an allow receipt", async () => {

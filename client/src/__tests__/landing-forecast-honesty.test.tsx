@@ -20,6 +20,8 @@ describe("landing forecast honesty", () => {
     expect(text).toMatch(/5th–95th percentiles of the modeled paths/i);
     expect(text).not.toMatch(/contains the real outcome/i);
     expect(text).not.toMatch(/calibrated\s*~?90%/i);
+    expect(text).toMatch(/modeled paths below \$0/i);
+    expect(text).not.toMatch(/chance|probability/i);
   });
 
   it("gives the chart an accessible description without a calibration claim", () => {
@@ -27,5 +29,7 @@ describe("landing forecast honesty", () => {
     const chart = container.querySelector("svg[role='img']");
     expect(chart).toHaveAttribute("aria-label", expect.stringMatching(/cash-flow forecast/i));
     expect(chart?.getAttribute("aria-label")).not.toMatch(/calibrat|real outcome/i);
+    expect(chart?.getAttribute("aria-label")).toMatch(/modeled paths fall below zero/i);
+    expect(chart?.getAttribute("aria-label")).not.toMatch(/chance|probability/i);
   });
 });

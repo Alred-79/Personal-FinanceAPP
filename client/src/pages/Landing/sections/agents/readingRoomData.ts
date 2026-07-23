@@ -135,7 +135,7 @@ export const REQUESTS: Request[] = [
       { label: "Low point", value: "$412.00" },
       { label: "When", value: "the 14th" },
       { label: "Change since last week", value: "−$180.00", ink: "debit" },
-      { label: "Chance of overdraft", value: "under 5%" },
+      { label: "Modeled paths below zero", value: "fewer than 12 of 240" },
     ],
     basis:
       "Annual insurance of $180 now posts on the 12th, two days before the trough. Income timing is unchanged, and the forecast still clears every scheduled bill.",
@@ -210,7 +210,7 @@ export const STATIONS: Station[] = [
   {
     id: "receipt",
     name: "The Receipt",
-    plain: "Every request is written down where you can read it.",
+    plain: "Authorized and scope-denied calls are recorded for review.",
     stamp: "Entered",
     mechanism:
       "Each call writes a row: resource, allow or deny, latency, and a truncated hash of the parameters. Inputs are fingerprinted, never stored raw, and the ledger is scoped to its owner.",

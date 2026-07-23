@@ -20,7 +20,7 @@ export function Forecast() {
         <p className="mt-3 text-[1.02rem] text-muted-foreground">
           A bank balance cannot account for everything already spoken for. The Ledger
           combines scheduled cash flow with the variation in how you actually spend, then
-          shows a modeled low, a range, and the chance of falling below zero. Drag the chart
+          shows a modeled low, a range, and how many modeled paths fall below zero. Drag the chart
           or add a what-if to see the answer change.
         </p>
       </Rise>

@@ -123,11 +123,11 @@ describe("off-mode shell", () => {
     for (const label of [
       "Overview",
       "Accounts",
-      "Ledger",
+      "Transactions",
       "Budgets",
       "Goals",
-      "Forecast",
-      "Standing Orders",
+      "Decisions",
+      "Upcoming",
       "Settings",
     ]) {
       expect(getByText(label)).toBeInTheDocument();

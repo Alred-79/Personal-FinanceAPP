@@ -1,28 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  render,
-  screen,
-  fireEvent,
-  cleanup,
-  waitFor,
-  act,
-} from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import React from "react";
 
 // Store mock supporting selector-style useStore((s) => s.x).
-const { runScenario, createScenario, updateScenario, state } = vi.hoisted(() => {
+const { runScenario, createScenario, updateScenario, clearActiveScenarioResult, state } = vi.hoisted(() => {
   const runScenario = vi.fn().mockResolvedValue(undefined);
   const createScenario = vi.fn().mockResolvedValue({ id: 99 });
   const updateScenario = vi.fn().mockResolvedValue(undefined);
+  const clearActiveScenarioResult = vi.fn();
   return {
     runScenario,
     createScenario,
     updateScenario,
+    clearActiveScenarioResult,
     state: {
       goals: [{ id: 3, name: "Emergency Fund" }],
       runScenario,
       createScenario,
       updateScenario,
+      clearActiveScenarioResult,
     },
   };
 });
@@ -76,51 +72,48 @@ vi.mock("@/components/ui/select", () => {
 import ScenarioBuilder from "@/components/custom/ScenarioBuilder/ScenarioBuilder";
 
 beforeEach(() => {
-  vi.useFakeTimers();
   runScenario.mockClear();
   createScenario.mockClear();
   updateScenario.mockClear();
+  clearActiveScenarioResult.mockClear();
 });
-afterEach(() => {
-  vi.useRealTimers();
-  cleanup();
-});
+afterEach(cleanup);
 
 describe("ScenarioBuilder", () => {
   it("renders the kind buttons and an empty state", () => {
     render(<ScenarioBuilder />);
-    expect(screen.getByText(/Stack a change/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Recurring income/i })).toBeInTheDocument();
+    expect(screen.getByText(/Choose a decision above/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /New recurring income/i })).toBeInTheDocument();
   });
 
-  it("adds a row and debounce-runs the live evaluate", async () => {
+  it("evaluates only after valid explicit input", async () => {
     render(<ScenarioBuilder />);
-    fireEvent.click(screen.getByRole("button", { name: /Recurring income/i }));
+    fireEvent.click(screen.getByRole("button", { name: /New recurring income/i }));
     expect(screen.getAllByTestId("scenario-row")).toHaveLength(1);
-
-    // The debounced run fires only after the timer elapses.
     expect(runScenario).not.toHaveBeenCalled();
-    act(() => {
-      vi.advanceTimersByTime(450);
-    });
-    expect(runScenario).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Side income" } });
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "500" } });
+    fireEvent.click(screen.getByRole("button", { name: /Evaluate decision/i }));
+    await waitFor(() => expect(runScenario).toHaveBeenCalledTimes(1));
     const [overlay] = runScenario.mock.calls[0];
     expect(overlay.added_recurring).toHaveLength(1);
     expect(overlay.added_recurring[0].kind).toBe("income");
   });
 
   it("Save creates a scenario with the built overlay", async () => {
-    vi.useRealTimers(); // the save path awaits a real promise
     render(<ScenarioBuilder />);
-    fireEvent.click(screen.getByRole("button", { name: /Recurring expense/i }));
-    fireEvent.change(screen.getByLabelText("Scenario name"), {
+    fireEvent.click(screen.getByRole("button", { name: /New recurring expense/i }));
+    fireEvent.change(screen.getByLabelText("Decision name"), {
       target: { value: "Belt tightening" },
     });
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Gym" } });
     fireEvent.change(screen.getByLabelText("Amount"), {
       target: { value: "120" },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Save scenario/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Evaluate decision/i }));
+    await waitFor(() => expect(runScenario).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: /Save decision/i }));
     await waitFor(() => expect(createScenario).toHaveBeenCalledTimes(1));
     const [name, overlay] = createScenario.mock.calls[0];
     expect(name).toBe("Belt tightening");
@@ -130,9 +123,22 @@ describe("ScenarioBuilder", () => {
 
   it("removing a row clears it from the list", () => {
     render(<ScenarioBuilder />);
-    fireEvent.click(screen.getByRole("button", { name: /One-off flow/i }));
+    fireEvent.click(screen.getByRole("button", { name: /One-time purchase/i }));
     expect(screen.getAllByTestId("scenario-row")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: /Remove row/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Remove assumption/i }));
     expect(screen.queryAllByTestId("scenario-row")).toHaveLength(0);
+  });
+
+  it("rejects duplicate starting-balance assumptions instead of silently using the last one", () => {
+    render(
+      <ScenarioBuilder
+        initialMutations={[
+          { id: "balance-a", kind: "balance", amount: 100 },
+          { id: "balance-b", kind: "balance", amount: 200 },
+        ]}
+      />
+    );
+    expect(screen.getAllByText("Use only one starting-balance assumption.")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: /Evaluate decision/i })).toBeDisabled();
   });
 });

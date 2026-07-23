@@ -8,6 +8,15 @@ Coverage:
 * Rate limiting — excessive creates → 429.
 """
 
+import pytest
+
+from server.src.settings import settings
+
+
+@pytest.fixture(autouse=True)
+def _enable_mcp_key_issuance(monkeypatch):
+    monkeypatch.setattr(settings, "mcp_enabled", True)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -43,6 +52,13 @@ def _create_key(client, headers, name="mykey", scopes=None):
 # ---------------------------------------------------------------------------
 
 class TestCreateKey:
+    def test_disabled_instance_refuses_creation(self, client, monkeypatch):
+        headers = _signup_and_auth(client, "disabled", "disabled@example.com")
+        monkeypatch.setattr(settings, "mcp_enabled", False)
+        response = _create_key(client, headers)
+        assert response.status_code == 503
+        assert "disabled" in response.json()["detail"].lower()
+
     def test_returns_raw_key_once(self, client):
         headers = _signup_and_auth(client)
         r = _create_key(client, headers)
@@ -88,6 +104,26 @@ class TestCreateKey:
         headers = _signup_and_auth(client)
         r = _create_key(client, headers, scopes=["read:transactions", "read:budgets"])
         assert r.status_code == 200
+
+    @pytest.mark.parametrize("ttl", [None, 0, -1, 1.5, 366])
+    def test_invalid_ttl_rejected(self, client, ttl):
+        headers = _signup_and_auth(client, f"ttl{str(ttl).replace('.', '')}", f"ttl{str(ttl).replace('.', '')}@example.com")
+        response = client.post(
+            "/api/mcp-keys/",
+            json={"name": "ttl", "scopes": ["read:accounts"], "ttl_days": ttl},
+            headers=headers,
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("ttl", [1, 365])
+    def test_ttl_boundaries_accepted(self, client, ttl):
+        headers = _signup_and_auth(client, f"ttl{ttl}", f"ttl{ttl}@example.com")
+        response = client.post(
+            "/api/mcp-keys/",
+            json={"name": "ttl", "scopes": ["read:accounts"], "ttl_days": ttl},
+            headers=headers,
+        )
+        assert response.status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +173,15 @@ class TestListKeys:
 # ---------------------------------------------------------------------------
 
 class TestRevokeKey:
+    def test_existing_keys_stay_listable_and_revocable_when_disabled(self, client, monkeypatch):
+        headers = _signup_and_auth(client, "disabledowner", "disabledowner@example.com")
+        key_id = _create_key(client, headers, name="existing").json()["id"]
+        monkeypatch.setattr(settings, "mcp_enabled", False)
+        listed = client.get("/api/mcp-keys/", headers=headers)
+        revoked = client.delete(f"/api/mcp-keys/{key_id}/", headers=headers)
+        assert listed.status_code == 200 and listed.json()[0]["id"] == key_id
+        assert revoked.status_code == 200
+
     def test_revoke_marks_key_revoked(self, client):
         headers = _signup_and_auth(client)
         r = _create_key(client, headers, name="to-revoke")

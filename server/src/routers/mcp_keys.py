@@ -10,7 +10,7 @@ UI copy: connecting an MCP client ships the user's full read data to that client
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from server.src.db.session import get_db
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/mcp-keys", tags=["mcp-keys"])
 class CreateKeyRequest(BaseModel):
     name: str
     scopes: list[str]
-    ttl_days: Optional[int] = None
+    ttl_days: int = Field(default=90, ge=1, le=365, strict=True)
 
 
 class KeyMeta(BaseModel):
@@ -76,6 +76,11 @@ async def create_key(
     db: Session = Depends(get_db),
 ):
     """Create a new MCP API key.  The raw key is returned **once** — store it now."""
+    if not settings.mcp_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI connections are disabled on this instance.",
+        )
     try:
         raw, row = MCPKeyService.create(
             db, current_user.id, body.name, body.scopes, body.ttl_days

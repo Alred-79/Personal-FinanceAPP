@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { Building2, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NAV_ITEMS } from "./nav";
+import { NAV_ITEMS, NAV_GROUPS } from "./nav";
 import { Brandmark } from "./Brandmark";
 import { Term } from "@/components/custom/Term/Term";
 import { useStore } from "@/store/store";
@@ -61,27 +61,38 @@ export default function Sidebar({
 
       {/* Folio index */}
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
-        {navItems.map(({ to, termKey, icon: Icon, folio }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === "/"}
-            onClick={onNavigate}
-            className={({ isActive }) =>
-              cn(
-                "group flex items-center gap-3 border-l-2 border-transparent px-3 py-2.5 font-sans text-[12px] font-semibold uppercase tracking-[0.14em] transition-colors",
-                "text-sidebar-foreground/60 hover:bg-white/5 hover:text-sidebar-foreground",
-                isActive && "border-gold bg-white/[0.04] text-gold"
-              )
-            }
-          >
-            <span className="w-6 shrink-0 font-mono text-[10px] tracking-normal text-sidebar-foreground/40 group-hover:text-sidebar-foreground/60">
-              {folio}
-            </span>
-            <Icon className="h-[16px] w-[16px] shrink-0" />
-            <Term k={termKey} />
-          </NavLink>
-        ))}
+        {NAV_GROUPS.map(({ key, label }) => {
+          const groupItems = navItems.filter((item) => item.group === key);
+          if (groupItems.length === 0) return null;
+          return (
+            <div key={key} className="mb-3">
+              <p className="px-3 pb-1 pt-2 text-[9px] font-semibold uppercase tracking-[0.2em] text-sidebar-foreground/40">
+                {label}
+              </p>
+              {groupItems.map(({ to, termKey, icon: Icon, folio }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={to === "/"}
+                  onClick={onNavigate}
+                  className={({ isActive }) =>
+                    cn(
+                      "group flex min-h-11 items-center gap-3 border-l-2 border-transparent px-3 py-2.5 font-sans text-[12px] font-semibold uppercase tracking-[0.1em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gold",
+                      "text-sidebar-foreground/60 hover:bg-white/5 hover:text-sidebar-foreground",
+                      isActive && "border-gold bg-white/[0.04] text-gold"
+                    )
+                  }
+                >
+                  <span className="w-6 shrink-0 font-mono text-[10px] tracking-normal text-sidebar-foreground/40 group-hover:text-sidebar-foreground/60">
+                    {folio}
+                  </span>
+                  <Icon className="h-[16px] w-[16px] shrink-0" />
+                  <Term k={termKey} />
+                </NavLink>
+              ))}
+            </div>
+          );
+        })}
       </nav>
 
       {/* Footer */}

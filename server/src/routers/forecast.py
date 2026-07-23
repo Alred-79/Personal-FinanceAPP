@@ -37,6 +37,14 @@ async def get_forecast(
     """Return a projected balance timeline plus a summary over the horizon."""
     horizon_start = start or date.today()
     horizon_end = end or (horizon_start + timedelta(days=days))
+    span_days = (horizon_end - horizon_start).days
+    if span_days < 0:
+        raise HTTPException(status_code=422, detail="end must be on or after start")
+    if span_days > _MAX_HORIZON_DAYS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"forecast horizon cannot exceed {_MAX_HORIZON_DAYS} days",
+        )
     return ForecastService(db).forecast(
         current_user.id, horizon_start, horizon_end, include_burn=True
     )

@@ -1,151 +1,62 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { TiltCard, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { useStore } from "@/store/store";
 import { formatCurrency } from "@/lib/format";
-import { Stamp } from "@/components/engraving/Stamp";
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceDot,
-  CartesianGrid,
-} from "recharts";
-import { AXIS_TICK, ink, tooltipStyle } from "@/lib/chart";
 
-/**
- * Cashflow forecast: projects the running balance forward over 30 days from
- * recurring expenses, and flags the lowest point. Surfaces the previously
- * unused `/forecast/` endpoint on the dashboard as a "promissory" plate.
- */
+/** The next evidence behind Safe to Spend, plus the product's primary action. */
 export default function ForecastCard() {
   const { forecast, forecastLoaded, fetchForecast } = useStore();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!forecastLoaded) fetchForecast(30);
+    if (!forecastLoaded) void fetchForecast(30);
   }, [forecastLoaded, fetchForecast]);
 
-  const timeline = forecast?.timeline ?? [];
+  const events = [...(forecast?.events ?? [])]
+    .filter((event) => event.income > 0 || event.expenses > 0)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 3);
 
   return (
-    <TiltCard>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle>30-Day Cashflow Forecast</CardTitle>
-        <button
-          onClick={() => navigate("/forecast")}
-          className="font-sans text-[10px] uppercase tracking-[0.18em] text-muted-foreground transition-colors hover:text-gold"
-        >
-          Full forecast →
-        </button>
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+        <div>
+          <CardTitle>Next cash events</CardTitle>
+          <p className="mt-1 font-sans text-xs text-muted-foreground">
+            The first obligations and income shaping your current answer.
+          </p>
+        </div>
+        <Button onClick={() => navigate("/forecast?tab=whatif")} className="min-h-11 shrink-0">
+          Test a decision
+        </Button>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {timeline.length <= 1 ? (
-          <p className="py-8 text-center font-sans text-sm italic text-muted-foreground">
-            {forecastLoaded
-              ? "No recurring expenses to project. Mark expenses as recurring to see your runway."
-              : "Casting the forecast…"}
+      <CardContent>
+        {!forecastLoaded ? (
+          <div className="h-24 animate-pulse bg-muted/40" aria-label="Loading upcoming cash events" />
+        ) : events.length === 0 ? (
+          <p className="py-5 text-sm text-muted-foreground">
+            Connect or import accounts and mark recurring items to estimate upcoming
+            obligations, then test how a purchase changes the outcome.
           </p>
         ) : (
-          <>
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <p className="dept-label mb-1">Projected ending balance</p>
-                <p className="intaglio text-3xl text-foreground">
-                  {formatCurrency(forecast!.ending_balance)}
-                </p>
-              </div>
-              {forecast!.will_go_negative ? (
-                <Stamp variant="debit">Goes Negative</Stamp>
-              ) : (
-                <Stamp variant="credit">Stays Solvent</Stamp>
-              )}
-            </div>
-
-            <ResponsiveContainer width="100%" height={170}>
-              <AreaChart data={timeline} margin={{ left: 0, right: 8, top: 6, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="forecastFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={ink("--chart-3")} stopOpacity={0.26} />
-                    <stop offset="100%" stopColor={ink("--chart-3")} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke={ink("--rule", 0.6)} strokeDasharray="2 4" vertical={false} />
-                <XAxis
-                  dataKey="date"
-                  tick={{ ...AXIS_TICK, fill: ink("--muted-foreground") }}
-                  tickFormatter={(d: string) => d.slice(5)}
-                  axisLine={false}
-                  tickLine={false}
-                  minTickGap={28}
-                />
-                <YAxis
-                  tick={{ ...AXIS_TICK, fill: ink("--muted-foreground") }}
-                  tickFormatter={(v: number) => `$${Math.round(v)}`}
-                  axisLine={false}
-                  tickLine={false}
-                  width={56}
-                />
-                <Tooltip
-                  contentStyle={tooltipStyle()}
-                  formatter={(v: number) => [formatCurrency(v), "Balance"]}
-                  cursor={{ stroke: ink("--gold"), strokeWidth: 1, strokeDasharray: "4 4" }}
-                />
-                <Area
-                  type="stepAfter"
-                  dataKey="balance"
-                  stroke={ink("--chart-3")}
-                  strokeWidth={1.8}
-                  fill="url(#forecastFill)"
-                  dot={false}
-                />
-                <ReferenceDot
-                  x={forecast!.lowest_date}
-                  y={forecast!.lowest_balance}
-                  r={4}
-                  fill={ink("--debit")}
-                  stroke={ink("--background")}
-                  strokeWidth={1.5}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-
-            <div className="grid grid-cols-3 gap-3 border-t border-rule pt-3 text-center">
-              <Stat label="Lowest point" value={formatCurrency(forecast!.lowest_balance)} accent={forecast!.will_go_negative ? "debit" : undefined} />
-              <Stat label="On" value={forecast!.lowest_date.slice(5)} />
-              <Stat label="Outflows" value={formatCurrency(forecast!.total_projected_expenses)} />
-            </div>
-          </>
+          <ol className="divide-y divide-rule" aria-label="Next three projected cash events">
+            {events.map((event) => (
+              <li key={`${event.date}-${event.label}`} className="flex min-h-11 items-center gap-4 py-2">
+                <time className="w-20 shrink-0 font-mono text-xs text-muted-foreground" dateTime={event.date}>
+                  {event.date.slice(5)}
+                </time>
+                <span className="min-w-0 flex-1 truncate font-sans text-sm">{event.label}</span>
+                <span className="flex shrink-0 flex-col items-end font-mono text-xs tabular-nums">
+                  {event.income > 0 && <span className="text-credit">+{formatCurrency(event.income)} in</span>}
+                  {event.expenses > 0 && <span className="text-debit">−{formatCurrency(event.expenses)} out</span>}
+                </span>
+              </li>
+            ))}
+          </ol>
         )}
       </CardContent>
-    </TiltCard>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: "debit";
-}) {
-  return (
-    <div>
-      <p className="font-sans text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
-        {label}
-      </p>
-      <p
-        className={`ledger-figures mt-0.5 text-sm ${
-          accent === "debit" ? "ink-debit" : "text-foreground"
-        }`}
-      >
-        {value}
-      </p>
-    </div>
+    </Card>
   );
 }

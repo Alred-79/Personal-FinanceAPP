@@ -118,7 +118,7 @@ def test_revoked_key_resolves_to_none(db_session):
 def test_expired_key_resolves_to_none(db_session):
     uid = _make_user(db_session)
     raw, row = MCPKeyService.create(
-        db_session, uid, "expired", ["transactions:read"], ttl_days=0
+        db_session, uid, "expired", ["transactions:read"], ttl_days=1
     )
     # Force expires_at into the past.
     row.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)

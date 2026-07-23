@@ -1,7 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { Rise } from "../shared";
-import { Magnetic } from "../effects/Magnetic";
 import { landingScrollTo } from "../hooks/useLenis";
 import { ReadingRoomDesk } from "./agents/ReadingRoomDesk";
 
@@ -41,30 +39,20 @@ export function AgentReadingRoom() {
         >
           Your AI can understand the whole ledger.
         </h2>
-        {/* "every request your key makes" — not "every request". Anonymous
-            denials are never persisted (mcp_audit_store.persist returns early
-            when user_id is None, because an unknown-key flood has nobody to
-            attribute it to), so an unresolvable key exists only in process
-            logs. The qualified wording is the exact one. */}
         <p className="mx-auto mt-3 max-w-[38rem] text-pretty text-[1.02rem] leading-relaxed text-muted-foreground">
-          Connect an MCP-compatible assistant to your accounts, transactions, budgets,
-          goals, forecasts, and scenarios. Choose what it can read, inspect every
-          request your key makes, and revoke access anytime.
+          A signed-in workspace can expose selected accounts, transactions, budgets,
+          goals, decisions, and scenarios through a scoped developer MCP connection.
+          Availability and issuance are confirmed only after sign-in.
         </p>
 
         <div className="mt-5 flex justify-center">
-          <AvailabilityChip />
+          <span className="rr-chip">
+            <span className="rr-chip__pip" aria-hidden />
+            Advanced MCP integration
+          </span>
         </div>
 
         <div className="mt-6 flex flex-wrap justify-center gap-3">
-          <Magnetic>
-            <Link
-              to="/login?next=%2Fsettings%3Ftab%3Dagent-keys"
-              className="press inline-block bg-primary px-7 py-3.5 text-[0.9rem] font-semibold uppercase tracking-[0.04em] text-primary-foreground"
-            >
-              Connect your AI
-            </Link>
-          </Magnetic>
           <button
             type="button"
             onClick={showWorkings}
@@ -85,18 +73,5 @@ export function AgentReadingRoom() {
         </div>
       </Rise>
     </section>
-  );
-}
-
-/**
- * The availability seal — a struck brass token, not a "beta" pill. MCP access is
- * shipped and mounted; the chip should read as a stamped fact.
- */
-function AvailabilityChip() {
-  return (
-    <span className="rr-chip">
-      <span className="rr-chip__pip" aria-hidden />
-      Available now via MCP
-    </span>
   );
 }

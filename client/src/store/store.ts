@@ -8,6 +8,7 @@ import {
   Frequency,
   ReceiptDraft,
   ForecastPoint,
+  ForecastEvent,
   Scenario,
   ScenarioDiff,
   ScenarioCompareResult,
@@ -102,6 +103,10 @@ export interface Forecast {
   total_projected_income?: number;
   will_go_negative: boolean;
   timeline: ForecastPoint[];
+  events?: ForecastEvent[];
+  first_negative_date?: string | null;
+  paths_below_zero?: number;
+  paths_total?: number;
   // F1: probabilistic outlook (present when the backend ran the burn-aware sim).
   overdraft_probability?: number;
   trough_band?: { low: number; median: number; high: number };
@@ -199,6 +204,7 @@ interface StoreState {
   linkToken: string | null;
   isLoggedIn: boolean;
   settingsLoaded: boolean;
+  settingsError: boolean;
   /** Pillar 3: server-side feature flag for the tax layer (read-only; gates the
    * tax nav entry). False until settings load. */
   taxFeaturesEnabled: boolean;
@@ -215,7 +221,9 @@ interface StoreState {
   /** Self-employed / 1099 fork (§3). null = not asked yet; drives the first-run
    *  question and foregrounds the freelancer surfaces. Frontend-only preference. */
   selfEmployed: boolean | null;
+  selfEmployedPromptDismissed: boolean;
   setSelfEmployed: (value: boolean) => void;
+  dismissSelfEmployedPrompt: () => void;
   budgets: Budget[];
   budgetsLoaded: boolean;
   netWorth: NetWorthPoint[];
@@ -364,6 +372,8 @@ interface StoreState {
   scenariosLoaded: boolean;
   activeScenarioResult: ScenarioDiff | null;
   compareResult: ScenarioCompareResult | null;
+  compareResultKey: string | null;
+  compareLoading: boolean;
   committedPlan: CommittedPlan | null;
   fetchScenarios: () => Promise<void>;
   createScenario: (name: string, overlay: ScenarioMutationPayload) => Promise<Scenario>;
@@ -378,6 +388,7 @@ interface StoreState {
     overlay: ScenarioMutationPayload,
     opts?: { name?: string; horizonDays?: number }
   ) => Promise<void>;
+  clearActiveScenarioResult: () => void;
   compareScenarios: (scenarioIds: number[], horizonDays?: number) => Promise<void>;
   /** Propose→confirm a saved scenario into a standing plan; refetches on success. */
   commitScenario: (scenarioId: number, name: string) => Promise<CommittedPlan>;
@@ -397,6 +408,7 @@ interface StoreState {
  * question); true/false is the user's answer.
  */
 const SELF_EMPLOYED_KEY = "self_employed";
+const SELF_EMPLOYED_DISMISSED_KEY = "self_employed_prompt_dismissed";
 function getStoredSelfEmployed(): boolean | null {
   try {
     const v = localStorage.getItem(SELF_EMPLOYED_KEY);
@@ -405,9 +417,17 @@ function getStoredSelfEmployed(): boolean | null {
     return null;
   }
 }
+function getStoredSelfEmployedDismissal(): boolean {
+  try {
+    return localStorage.getItem(SELF_EMPLOYED_DISMISSED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 
 const initialState = {
   selfEmployed: getStoredSelfEmployed() as boolean | null,
+  selfEmployedPromptDismissed: getStoredSelfEmployedDismissal(),
   transactions: [] as Transaction[],
   recentTransactions: [] as Transaction[],
   expenses: [] as Expense[],
@@ -438,6 +458,7 @@ const initialState = {
   linkToken: null as string | null,
   isLoggedIn: false,
   settingsLoaded: false,
+  settingsError: false,
   taxFeaturesEnabled: false,
   mcpEnabled: false,
   freelancerModeEnabled: false,
@@ -472,6 +493,8 @@ const initialState = {
   scenariosLoaded: false,
   activeScenarioResult: null as ScenarioDiff | null,
   compareResult: null as ScenarioCompareResult | null,
+  compareResultKey: null as string | null,
+  compareLoading: false,
   committedPlan: null as CommittedPlan | null,
 };
 
@@ -494,7 +517,15 @@ export const useStore = create<StoreState>((set, get) => ({
     } catch {
       /* storage unavailable — keep it in memory for this session */
     }
-    set({ selfEmployed: value });
+    set({ selfEmployed: value, selfEmployedPromptDismissed: true });
+  },
+  dismissSelfEmployedPrompt: () => {
+    try {
+      localStorage.setItem(SELF_EMPLOYED_DISMISSED_KEY, "true");
+    } catch {
+      /* storage unavailable — keep it in memory for this session */
+    }
+    set({ selfEmployedPromptDismissed: true });
   },
 
   setSelectedAccountId: (accountId: string) => {
@@ -973,6 +1004,7 @@ export const useStore = create<StoreState>((set, get) => ({
   fetchUserSettings: async () => {
     if (get().settingsLoaded) return;
 
+    set({ settingsError: false });
     try {
       const response = await api.get("/settings/");
       const prefs = response.data.preferences;
@@ -996,9 +1028,11 @@ export const useStore = create<StoreState>((set, get) => ({
         planComposerEnabled:
           response.data.features?.plan_composer_enabled ?? false,
         settingsLoaded: true,
+        settingsError: false,
       });
     } catch (error) {
       console.error("Error fetching user settings:", error);
+      set({ settingsError: true, settingsLoaded: false, mcpEnabled: false });
     }
   },
 
@@ -1356,25 +1390,45 @@ export const useStore = create<StoreState>((set, get) => ({
         title: "Could not run the scenario",
         description: "Please try again in a moment.",
       });
+      throw error;
     } finally {
       if (inflight.scenarioRun === controller) inflight.scenarioRun = undefined;
     }
   },
 
+  clearActiveScenarioResult: () => set({ activeScenarioResult: null }),
+
   compareScenarios: async (scenarioIds, horizonDays = 90) => {
+    inflight.scenarioCompare?.abort();
+    const controller = new AbortController();
+    inflight.scenarioCompare = controller;
+    const key = `${horizonDays}:${scenarioIds.join(",")}`;
+    set({ compareResult: null, compareResultKey: key, compareLoading: true });
     try {
-      const response = await api.post("/scenarios/compare/", {
-        scenario_ids: scenarioIds,
-        horizon_days: horizonDays,
-      });
-      set({ compareResult: response.data });
+      const response = await api.post(
+        "/scenarios/compare/",
+        {
+          scenario_ids: scenarioIds,
+          horizon_days: horizonDays,
+        },
+        { signal: controller.signal }
+      );
+      if (inflight.scenarioCompare === controller && get().compareResultKey === key) {
+        set({ compareResult: response.data });
+      }
     } catch (error) {
+      if (isAbort(error)) return;
       console.error("Error comparing scenarios:", error);
       toast({
         variant: "destructive",
         title: "Could not compare scenarios",
         description: "Please try again in a moment.",
       });
+    } finally {
+      if (inflight.scenarioCompare === controller) {
+        inflight.scenarioCompare = undefined;
+        set({ compareLoading: false });
+      }
     }
   },
 

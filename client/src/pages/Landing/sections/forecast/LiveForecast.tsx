@@ -155,7 +155,7 @@ export function LiveForecast() {
         role="img"
         aria-label={`Cash-flow forecast you can drag to model spending. Spending ${dollars(
           Math.round(burn * 30)
-        )} per month. Overdraft probability ${Math.round(shown.prob * 100)} percent.`}
+        )} per month. ${shown.pathsBelowZero} of ${shown.pathsTotal} modeled paths fall below zero.`}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
@@ -356,11 +356,11 @@ export function LiveForecast() {
       {/* live metrics */}
       <div className="mt-4 grid grid-cols-3 gap-px border border-rule-strong/30 bg-rule-strong/25">
         <div className="bg-card px-4 py-3">
-          <div className="dept-label">Chance below $0</div>
+          <div className="dept-label">Modeled paths below $0</div>
           <div className={cn("figure mt-1 text-[1.12rem]", probClass(shown.prob))}>
-            {Math.round(shown.prob * 100)}%
+            {shown.pathsBelowZero} of {shown.pathsTotal}
             {scenario && (
-              <span className="ml-1.5 text-[0.74rem] text-muted-foreground">from {Math.round(base.prob * 100)}%</span>
+              <span className="ml-1.5 text-[0.74rem] text-muted-foreground">from {base.pathsBelowZero} of {base.pathsTotal}</span>
             )}
           </div>
         </div>

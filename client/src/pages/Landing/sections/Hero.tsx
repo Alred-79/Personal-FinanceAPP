@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { GuillocheBand } from "@/components/engraving/Guilloche";
-import { useReducedMotion } from "@/hooks/useEnvironment";
 import { cn } from "@/lib/utils";
 import { AnchorLink, EASE, Rise } from "../shared";
 import { CoinStage } from "../coin/CoinSceneLazy";
@@ -21,20 +20,18 @@ const METRICS = [
 
 /** The hero — department label, headline, lede, CTAs, assurances, specimen note. */
 export function Hero() {
-  const reduce = useReducedMotion();
-
   return (
     <header
       className="grid content-start gap-6 pt-[clamp(5.5rem,12vh,8rem)] text-center"
       style={{ minHeight: "92vh" }}
     >
       {/* the struck sovereign — the hero's interactive centrepiece */}
-      <div className="pointer-events-auto mx-auto h-[clamp(190px,32vh,330px)] w-full max-w-[440px]">
+      <div className="pointer-events-auto order-5 mx-auto h-[150px] w-full max-w-[440px] sm:h-[220px] md:order-none md:h-[clamp(190px,32vh,330px)]">
         <CoinStage />
       </div>
       <motion.p
         className="dept-label"
-        initial={reduce ? false : { opacity: 0, y: 12 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: EASE }}
       >
@@ -43,7 +40,7 @@ export function Hero() {
       <motion.h1
         className="mx-auto font-display font-semibold leading-[1.04] tracking-tight"
         style={{ fontSize: "clamp(2.6rem,7vw,5.2rem)" }}
-        initial={reduce ? false : { opacity: 0, y: 16 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.08 }}
       >
@@ -54,7 +51,7 @@ export function Hero() {
       <motion.p
         className="mx-auto max-w-[40rem] text-muted-foreground"
         style={{ fontSize: "clamp(1rem,2.2vw,1.22rem)", lineHeight: 1.55 }}
-        initial={reduce ? false : { opacity: 0, y: 16 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.16 }}
       >
@@ -64,7 +61,7 @@ export function Hero() {
       </motion.p>
       <motion.div
         className="mt-1 flex flex-wrap justify-center gap-3"
-        initial={reduce ? false : { opacity: 0, y: 16 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.24 }}
       >
@@ -86,7 +83,7 @@ export function Hero() {
       {/* persistent trust chip under the CTA — our most-distrusted surface, stated as a strength */}
       <motion.div
         className="mt-3 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[0.72rem] tracking-[0.04em] text-muted-foreground"
-        initial={reduce ? false : { opacity: 0 }}
+        initial={false}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.32 }}
       >
@@ -102,7 +99,7 @@ export function Hero() {
       </motion.div>
 
       {/* specimen note — the product shot, as a polymer "security window" */}
-      <Rise className="mx-auto mt-12 w-full max-w-[760px]" delay={0.1}>
+      <Rise className="order-6 mx-auto mt-8 w-full max-w-[760px] md:order-none md:mt-12" delay={0.1}>
         <SecurityWindow className="p-6 text-left shadow-plate-lg">
           {/* holographic security strip */}
           <Foil className="mb-4 text-gold/60">

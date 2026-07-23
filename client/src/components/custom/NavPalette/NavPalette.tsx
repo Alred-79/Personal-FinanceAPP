@@ -27,6 +27,7 @@ export function NavPalette({
   const navigate = useNavigate();
   const { gameLayer } = useFlags();
   const taxEnabled = useStore((s) => s.taxFeaturesEnabled);
+  const freelancerEnabled = useStore((s) => s.freelancerModeEnabled);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -34,9 +35,12 @@ export function NavPalette({
   const items = useMemo(
     () =>
       NAV_ITEMS.filter(
-        (i) => (!i.gameOnly || gameLayer) && (!i.taxOnly || taxEnabled)
+        (i) =>
+          (!i.gameOnly || gameLayer) &&
+          (!i.taxOnly || taxEnabled) &&
+          (!i.freelancerOnly || freelancerEnabled)
       ),
-    [gameLayer, taxEnabled]
+    [gameLayer, taxEnabled, freelancerEnabled]
   );
 
   const results = useMemo(() => {

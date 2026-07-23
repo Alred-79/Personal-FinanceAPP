@@ -58,6 +58,8 @@ function percentile(sorted: number[], p: number): number {
 
 export type SimResult = {
   prob: number; // overdraft probability, 0..1
+  pathsBelowZero: number;
+  pathsTotal: number;
   troughLow: number; // 5th pct of simulated troughs
   troughMed: number; // 50th
   troughHigh: number; // 95th
@@ -121,6 +123,8 @@ export function simulate(opts: SimOptions = {}): SimResult {
 
   return {
     prob: overdrafts / sims,
+    pathsBelowZero: overdrafts,
+    pathsTotal: sims,
     troughLow: percentile(sortedTr, 0.05),
     troughMed: percentile(sortedTr, 0.5),
     troughHigh: percentile(sortedTr, 0.95),

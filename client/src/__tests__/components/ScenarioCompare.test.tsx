@@ -15,6 +15,9 @@ const { compareScenarios, state } = vi.hoisted(() => {
               lowest_balance: 200,
               safe_to_spend: 300,
               overdraft_probability: 0.1,
+              paths_below_zero: 30,
+              paths_total: 300,
+              first_negative_date: null,
               runway_days: 90,
               goal_reach: {},
             },
@@ -26,12 +29,17 @@ const { compareScenarios, state } = vi.hoisted(() => {
               lowest_balance: 400,
               safe_to_spend: 450,
               overdraft_probability: 0.6,
+              paths_below_zero: 180,
+              paths_total: 300,
+              first_negative_date: "2026-09-21",
               runway_days: 60,
               goal_reach: {},
             },
           },
         ],
       },
+      compareResultKey: "60:1,2",
+      compareLoading: false,
       compareScenarios,
     },
   };
@@ -49,7 +57,7 @@ afterEach(() => cleanup());
 describe("ScenarioCompare", () => {
   it("prompts when no scenarios are selected", () => {
     render(<ScenarioCompare scenarioIds={[]} />);
-    expect(screen.getByText(/Pick two or more/i)).toBeInTheDocument();
+    expect(screen.getByText(/Pick saved decisions to compare/i)).toBeInTheDocument();
     expect(compareScenarios).not.toHaveBeenCalled();
   });
 
@@ -65,7 +73,8 @@ describe("ScenarioCompare", () => {
     // echoed in the per-column figure plates, so there are 2 of each).
     expect(screen.getAllByText("$1,000.00").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$1,500.00").length).toBeGreaterThan(0);
-    // Overdraft risk rendered as a percentage.
-    expect(screen.getByText("60%")).toBeInTheDocument();
+    // Simulation frequency is rendered as an auditable path count, not a
+    // probability or confidence claim.
+    expect(screen.getByText("180 of 300")).toBeInTheDocument();
   });
 });

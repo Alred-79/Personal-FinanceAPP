@@ -56,6 +56,7 @@ export function CommandDeck({
   const navigate = useNavigate();
   const { gameLayer } = useFlags();
   const taxEnabled = useStore((s) => s.taxFeaturesEnabled);
+  const freelancerEnabled = useStore((s) => s.freelancerModeEnabled);
   const requestAddTransaction = useStore((s) => s.requestAddTransaction);
   const reduced = useReducedMotion();
   const chat = useAssistantChat();
@@ -73,8 +74,8 @@ export function CommandDeck({
   const close = () => onOpenChange(false);
 
   const destinations = useMemo(
-    () => buildDestinations(gameLayer, taxEnabled),
-    [gameLayer, taxEnabled]
+    () => buildDestinations(gameLayer, taxEnabled, freelancerEnabled),
+    [gameLayer, taxEnabled, freelancerEnabled]
   );
 
   // Quick actions close over the live handlers; money never moves from here —
@@ -110,8 +111,8 @@ export function CommandDeck({
       {
         kind: "action",
         id: "act:whatif",
-        label: "Plan a what-if",
-        hint: "open Forecast scenarios",
+        label: "Test a decision",
+        hint: "open Decisions",
         icon: LineChart,
         group: "actions",
         run: () => {

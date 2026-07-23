@@ -8,6 +8,12 @@ import { Stamp } from "@/components/engraving/Stamp";
 import { GuillocheBand, CornerRosette } from "@/components/engraving/Guilloche";
 import { CapabilityStamps } from "./CapabilityStamps";
 import { AuditLedger } from "./AuditLedger";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 /* ──────────────────────────────────────────────────────────────────────────
  * THE BUREAU OF SEALED AUTHORIZATIONS
@@ -58,7 +64,6 @@ const TTL_OPTIONS = [
   { label: "30 days", value: 30 },
   { label: "90 days", value: 90 },
   { label: "1 year", value: 365 },
-  { label: "No expiry", value: 0 },
 ];
 
 type Status = "live" | "revoked" | "expired";
@@ -92,15 +97,24 @@ export function AgentKeys() {
   const { toast } = useToast();
   const mcpEnabled = useStore((s) => s.mcpEnabled);
   const settingsLoaded = useStore((s) => s.settingsLoaded);
+  const settingsError = useStore((s) => s.settingsError);
+  const fetchUserSettings = useStore((s) => s.fetchUserSettings);
   const [keys, setKeys] = useState<KeyMeta[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [keysFailed, setKeysFailed] = useState(false);
   const [minted, setMinted] = useState<MintedKey | null>(null);
+  const [selectedScopes, setSelectedScopes] = useState<Set<string>>(
+    () => new Set(["read:accounts", "read:transactions"])
+  );
+  const createButtonRef = useRef<HTMLButtonElement>(null);
 
   const refresh = useCallback(async () => {
+    setKeysFailed(false);
     try {
       const res = await api.get<KeyMeta[]>("/mcp-keys/");
       setKeys(Array.isArray(res.data) ? res.data : []);
     } catch {
+      setKeysFailed(true);
       toast({ title: "Could not load keys", variant: "destructive" });
     } finally {
       setLoaded(true);
@@ -116,33 +130,63 @@ export function AgentKeys() {
     [keys]
   );
 
-  // The MCP surface ships dark: when it's not enabled server-side, no key can be
-  // issued or used, so the whole Bureau is sealed shut rather than misleadingly live.
-  if (settingsLoaded && !mcpEnabled) {
-    return <ShipsDark />;
-  }
-
   return (
     <section className="relative">
       <BureauMasthead liveCount={liveCount} />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]">
-        <IssueWrit onIssued={(m) => { setMinted(m); refresh(); }} />
-        <KeyRegister keys={keys} loaded={loaded} onRevoke={refresh} />
+        {settingsLoaded && mcpEnabled ? (
+          <IssueWrit
+            scopes={selectedScopes}
+            setScopes={setSelectedScopes}
+            createButtonRef={createButtonRef}
+            onIssued={(m) => { setMinted(m); refresh(); }}
+          />
+        ) : (
+          <ConnectionUnavailable
+            known={settingsLoaded}
+            failed={settingsError}
+            onRetry={() => void fetchUserSettings()}
+          />
+        )}
+        <KeyRegister
+          keys={keys}
+          loaded={loaded}
+          failed={keysFailed}
+          onRetry={refresh}
+          onRevoke={refresh}
+        />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <CapabilityStamps />
+        <CapabilityStamps grantedScopes={[...selectedScopes]} />
         <AuditLedger />
       </div>
 
-      {minted && <RevealNote minted={minted} onClose={() => setMinted(null)} />}
+      {minted && (
+        <RevealNote
+          minted={minted}
+          returnFocusRef={createButtonRef}
+          onClose={() => {
+            setMinted(null);
+            window.setTimeout(() => createButtonRef.current?.focus(), 0);
+          }}
+        />
+      )}
     </section>
   );
 }
 
 /* ── Sealed shut: the MCP surface is not enabled on this instance ──────────── */
-function ShipsDark() {
+function ConnectionUnavailable({
+  known,
+  failed,
+  onRetry,
+}: {
+  known: boolean;
+  failed: boolean;
+  onRetry: () => void;
+}) {
   return (
     <div className="plate relative overflow-hidden bg-card px-6 py-12 text-center">
       <div className="pointer-events-none absolute -right-6 -top-8 text-gold/10">
@@ -152,13 +196,29 @@ function ShipsDark() {
         <div className="text-rule-strong/40">
           <CornerRosette size={72} seed={5} />
         </div>
-        <p className="mt-3 font-display text-xl">The Bureau is sealed shut</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Agent access ships dark on this instance — the MCP vault isn't mounted,
-          so no key can be issued or used. Enable it server-side
-          (<code className="font-mono text-[12px]">mcp_enabled</code>) to let an AI
-          agent read your ledger through the scoped, audited door.
+        <p className="mt-3 font-display text-xl">
+          {failed
+            ? "Could not check connection availability"
+            : known
+              ? "New connections are disabled"
+              : "Checking connection availability"}
         </p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {failed
+            ? "Key creation remains unavailable until the signed-in settings check succeeds. Existing keys and recorded activity remain available."
+            : known
+            ? "You cannot create a new key on this instance. Existing keys and recorded activity remain available to review or revoke."
+            : "Key creation stays unavailable until the signed-in settings check finishes."}
+        </p>
+        {failed && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="press mt-4 min-h-11 border border-rule px-4 font-sans text-sm font-semibold"
+          >
+            Retry availability check
+          </button>
+        )}
       </div>
     </div>
   );
@@ -173,14 +233,13 @@ function BureauMasthead({ liveCount }: { liveCount: number }) {
       </div>
       <div className="relative flex items-center justify-between gap-4">
         <div>
-          <p className="dept-label">Bureau of Sealed Authorizations</p>
+          <p className="dept-label">AI connections · advanced integration</p>
           <h3 className="mt-1 font-display text-2xl leading-tight tracking-tight">
-            Letters of Marque
+            Claude Code / developer connection
           </h3>
           <p className="mt-1 max-w-md text-sm text-muted-foreground">
-            Issue a scoped, revocable key so an AI agent can{" "}
-            <span className="text-foreground">read</span> your ledger over MCP —
-            never widen it, never write to it.
+            Create a scoped, revocable bearer key for an HTTP MCP client. This
+            connection can read only the permissions you select; it cannot move money.
           </p>
         </div>
         <div className="hidden shrink-0 text-right sm:block">
@@ -196,12 +255,19 @@ function BureauMasthead({ liveCount }: { liveCount: number }) {
 }
 
 /* ── The issuance writ: name, scope clauses, term ─────────────────────────── */
-function IssueWrit({ onIssued }: { onIssued: (m: MintedKey) => void }) {
+function IssueWrit({
+  onIssued,
+  scopes,
+  setScopes,
+  createButtonRef,
+}: {
+  onIssued: (m: MintedKey) => void;
+  scopes: Set<string>;
+  setScopes: React.Dispatch<React.SetStateAction<Set<string>>>;
+  createButtonRef: React.RefObject<HTMLButtonElement>;
+}) {
   const { toast } = useToast();
   const [name, setName] = useState("");
-  const [scopes, setScopes] = useState<Set<string>>(
-    () => new Set(["read:accounts", "read:transactions"])
-  );
   const [ttl, setTtl] = useState(90);
   const [issuing, setIssuing] = useState(false);
 
@@ -231,7 +297,7 @@ function IssueWrit({ onIssued }: { onIssued: (m: MintedKey) => void }) {
       const res = await api.post<MintedKey>("/mcp-keys/", {
         name: name.trim(),
         scopes: [...scopes],
-        ttl_days: ttl === 0 ? null : ttl,
+        ttl_days: ttl,
       });
       onIssued(res.data);
       setName("");
@@ -258,7 +324,7 @@ function IssueWrit({ onIssued }: { onIssued: (m: MintedKey) => void }) {
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Claude Desktop"
+          placeholder="e.g. Claude Code on my laptop"
           maxLength={64}
           className={cn(
             "mt-1.5 w-full border-b border-rule bg-transparent px-0 py-1.5",
@@ -275,32 +341,29 @@ function IssueWrit({ onIssued }: { onIssued: (m: MintedKey) => void }) {
           {SCOPES.map((s) => {
             const on = scopes.has(s.id);
             return (
-              <button
+              <label
                 key={s.id}
-                type="button"
-                onClick={() => toggle(s.id)}
-                aria-pressed={on}
                 className={cn(
-                  "group flex w-full items-center gap-3 border border-transparent px-2 py-2 text-left transition-colors",
+                  "group flex min-h-11 w-full cursor-pointer items-center gap-3 border border-transparent px-2 py-2 text-left transition-colors",
                   on ? "bg-gold-soft/60" : "hover:bg-ink-wash"
                 )}
               >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={() => toggle(s.id)}
+                  className="h-5 w-5 shrink-0 accent-[hsl(var(--gold))]"
+                />
                 <span
-                  className={cn(
-                    "grid h-5 w-5 shrink-0 place-items-center border text-[11px] transition-colors",
-                    on ? "border-gold bg-gold text-primary-foreground" : "border-rule-strong/60 text-transparent"
-                  )}
+                  className="min-w-0 flex-1"
                 >
-                  ✓
-                </span>
-                <span className="min-w-0 flex-1">
                   <span className="block font-sans text-sm font-semibold">{s.label}</span>
                   <span className="block truncate text-xs text-muted-foreground">{s.clause}</span>
                 </span>
                 <code className="hidden shrink-0 font-mono text-[10px] text-muted-foreground/70 sm:block">
                   {s.id}
                 </code>
-              </button>
+              </label>
             );
           })}
         </div>
@@ -309,26 +372,33 @@ function IssueWrit({ onIssued }: { onIssued: (m: MintedKey) => void }) {
       {/* term */}
       <div className="mt-5">
         <span className="dept-label">Term of validity</span>
-        <div className="mt-1.5 grid grid-cols-4 gap-1">
+        <div className="mt-1.5 grid grid-cols-3 gap-1" role="radiogroup" aria-label="Key duration">
           {TTL_OPTIONS.map((opt) => (
-            <button
+            <label
               key={opt.value}
-              type="button"
-              onClick={() => setTtl(opt.value)}
               className={cn(
-                "press border py-1.5 font-mono text-[11px] uppercase tracking-wide transition-colors",
+                "press flex min-h-11 cursor-pointer items-center justify-center gap-1.5 border px-2 py-1.5 font-mono text-[11px] uppercase tracking-wide transition-colors",
                 ttl === opt.value
                   ? "border-rule-strong bg-primary text-primary-foreground"
                   : "border-rule text-muted-foreground hover:border-rule-strong hover:text-foreground"
               )}
             >
+              <input
+                type="radio"
+                name="key-duration"
+                value={opt.value}
+                checked={ttl === opt.value}
+                onChange={() => setTtl(opt.value)}
+                className="sr-only"
+              />
               {opt.label}
-            </button>
+            </label>
           ))}
         </div>
       </div>
 
       <button
+        ref={createButtonRef}
         type="submit"
         disabled={issuing}
         className={cn(
@@ -341,7 +411,8 @@ function IssueWrit({ onIssued }: { onIssued: (m: MintedKey) => void }) {
         {!issuing && <span aria-hidden className="text-gold">✦</span>}
       </button>
       <p className="mt-2 text-center text-[11px] text-muted-foreground">
-        Connecting a client ships your full read data to it.
+        A connected provider may copy data returned under selected permissions.
+        Revocation stops future access, but cannot delete copies already received.
       </p>
     </form>
   );
@@ -351,10 +422,14 @@ function IssueWrit({ onIssued }: { onIssued: (m: MintedKey) => void }) {
 function KeyRegister({
   keys,
   loaded,
+  failed,
+  onRetry,
   onRevoke,
 }: {
   keys: KeyMeta[];
   loaded: boolean;
+  failed: boolean;
+  onRetry: () => void;
   onRevoke: () => void;
 }) {
   return (
@@ -365,6 +440,17 @@ function KeyRegister({
 
       {!loaded ? (
         <RegisterSkeleton />
+      ) : failed ? (
+        <div className="grid place-items-center py-12 text-center" role="alert">
+          <p className="font-display text-base">Could not load existing keys</p>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="press mt-4 min-h-11 border border-rule px-4 font-sans text-sm font-semibold"
+          >
+            Retry
+          </button>
+        </div>
       ) : keys.length === 0 ? (
         <EmptyRegister />
       ) : (
@@ -505,11 +591,19 @@ function RegisterSkeleton() {
 }
 
 /* ── The one-time reveal: a perforated bearer note you copy once ──────────── */
-function RevealNote({ minted, onClose }: { minted: MintedKey; onClose: () => void }) {
+function RevealNote({
+  minted,
+  onClose,
+  returnFocusRef,
+}: {
+  minted: MintedKey;
+  onClose: () => void;
+  returnFocusRef: React.RefObject<HTMLButtonElement>;
+}) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
   const [copiedSetup, setCopiedSetup] = useState(false);
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const secretRef = useRef<HTMLElement>(null);
 
   // The client-side half of the connection: the mounted MCP endpoint plus the
   // bearer header. Written out once, alongside the key, because this is the only
@@ -525,6 +619,7 @@ function RevealNote({ minted, onClose }: { minted: MintedKey; onClose: () => voi
         {
           mcpServers: {
             ledger: {
+              type: "http",
               url: `${window.location.origin}/mcp/`,
               headers: { Authorization: `Bearer ${minted.raw_key}` },
             },
@@ -535,13 +630,6 @@ function RevealNote({ minted, onClose }: { minted: MintedKey; onClose: () => voi
       ),
     [minted.raw_key]
   );
-
-  useEffect(() => {
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   const copy = async () => {
     try {
@@ -566,17 +654,25 @@ function RevealNote({ minted, onClose }: { minted: MintedKey; onClose: () => voi
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-[2px]"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Your new key"
-    >
-      <div
-        className="plate animate-rise-in relative w-full max-w-lg overflow-hidden bg-card"
-        onClick={(e) => e.stopPropagation()}
+    <Dialog open>
+      <DialogContent
+        className="plate max-h-[92vh] w-[calc(100vw-2rem)] max-w-lg overflow-y-auto bg-card p-0"
+        hideClose
+        onPointerDownOutside={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => event.preventDefault()}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          secretRef.current?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          returnFocusRef.current?.focus();
+        }}
       >
+        <DialogTitle className="sr-only">Your new AI connection key</DialogTitle>
+        <DialogDescription className="sr-only">
+          Copy the one-time key and Claude Code HTTP configuration before closing.
+        </DialogDescription>
         {/* guilloché security strip */}
         <div className="text-gold/50">
           <GuillocheBand height={26} waves={6} seed={minted.id + 3} />
@@ -595,7 +691,11 @@ function RevealNote({ minted, onClose }: { minted: MintedKey; onClose: () => voi
           <div className="mt-5 border border-rule-strong/60 bg-paper-high/60 p-px">
             <div className="border border-dashed border-rule-strong/40 p-3">
               <p className="dept-label mb-1.5">The Key — copy it now</p>
-              <code className="block break-all font-mono text-[13px] leading-relaxed text-foreground selection:bg-gold/40">
+              <code
+                ref={secretRef}
+                tabIndex={-1}
+                className="block break-all font-mono text-[13px] leading-relaxed text-foreground outline-none selection:bg-gold/40"
+              >
                 {minted.raw_key}
               </code>
             </div>
@@ -625,9 +725,9 @@ function RevealNote({ minted, onClose }: { minted: MintedKey; onClose: () => voi
               {setup}
             </pre>
             <p className="mt-1.5 text-[11px] text-muted-foreground">
-              Paste into your MCP client (Claude Desktop's{" "}
-              <code className="font-mono">claude_desktop_config.json</code>, say). The
-              door it opens is read-only and scoped to the clauses above.
+              Use this HTTP transport configuration with Claude Code or another
+              developer MCP client that accepts bearer headers. Consumer Claude
+              and ChatGPT connectors require a separate OAuth connection.
             </p>
           </div>
 
@@ -642,7 +742,6 @@ function RevealNote({ minted, onClose }: { minted: MintedKey; onClose: () => voi
               {copied ? "✓ Copied" : "Copy key"}
             </button>
             <button
-              ref={closeRef}
               onClick={onClose}
               className="press border border-rule px-4 py-2.5 font-sans text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground"
             >
@@ -655,7 +754,7 @@ function RevealNote({ minted, onClose }: { minted: MintedKey; onClose: () => voi
         <div className="microprint border-t border-rule/60 px-6 py-1.5">
           {`SEALED·AUTHORIZATION·${minted.key_prefix}·READ·ONLY·`.repeat(12)}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

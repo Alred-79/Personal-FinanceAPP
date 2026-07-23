@@ -240,6 +240,59 @@ def test_forecast_exposes_trough_band_shape(db_session):
     assert "lowest_date" in out and "lowest_balance" in out
 
 
+def test_daily_contract_handles_horizon_start_and_first_shortfall(db_session):
+    user, _ = _seed_user(db_session, 10_000)  # $100
+    start, end = date(2026, 3, 1), date(2026, 3, 3)
+    overlay = ScenarioOverlay(
+        discrete_flows=(
+            DiscreteFlow(date=start.isoformat(), amount_cents=15_000, kind="expense", title="Deposit"),
+            DiscreteFlow(date="2026-03-02", amount_cents=10_000, kind="income", title="Refund"),
+            DiscreteFlow(date=end.isoformat(), amount_cents=30_000, kind="expense", title="Balance due"),
+        )
+    )
+    out = ForecastService(db_session).forecast(
+        user.id, start, end, include_burn=True, overlay=overlay
+    )
+    assert len(out["timeline"]) == 3
+    assert out["timeline"][0]["balance"] == -50.0
+    assert out["first_negative_date"] == start.isoformat()
+    assert out["lowest_date"] == end.isoformat()
+    assert len(out["events"]) == 3
+    assert out["paths_below_zero"] / out["paths_total"] == out["overdraft_probability"]
+
+
+def test_consumer_forecast_is_deterministic_without_injected_rng(db_session):
+    user, _ = _seed_user(db_session, 10_000)
+    svc = ForecastService(db_session)
+    first = svc.forecast(user.id, date(2026, 3, 1), date(2026, 3, 31), include_burn=True)
+    second = svc.forecast(user.id, date(2026, 3, 1), date(2026, 3, 31), include_burn=True)
+    assert first["trough_band"] == second["trough_band"]
+    assert first["paths_below_zero"] == second["paths_below_zero"]
+
+
+def test_same_day_event_preserves_income_and_expense_instead_of_hiding_obligation(db_session):
+    user, _ = _seed_user(db_session, 10_000)
+    start = date(2026, 3, 1)
+    overlay = ScenarioOverlay(
+        discrete_flows=(
+            DiscreteFlow(date="2026-03-02", amount_cents=20_000, kind="income", title="Paycheck"),
+            DiscreteFlow(date="2026-03-02", amount_cents=15_000, kind="expense", title="Rent"),
+        )
+    )
+    out = ForecastService(db_session).forecast(
+        user.id, start, date(2026, 3, 3), include_burn=True, overlay=overlay
+    )
+    assert out["events"] == [
+        {
+            "date": "2026-03-02",
+            "income": 200.0,
+            "expenses": 150.0,
+            "net": 50.0,
+            "label": "Rent, Paycheck",
+        }
+    ]
+
+
 # ── A1: residual pool is chronological + day-grouped ────────────────────────
 
 

@@ -14,6 +14,10 @@ const forecast: Forecast = {
   total_projected_expenses: 400,
   total_projected_income: 1000,
   will_go_negative: false,
+  events: [
+    { date: "2026-03-05", income: 0, expenses: 100, net: -100, label: "Rent" },
+    { date: "2026-03-15", income: 1000, expenses: 0, net: 1000, label: "Paycheck" },
+  ],
   timeline: [
     { date: "2026-03-01", balance: 1000, change: 0, label: "Starting balance" },
     {

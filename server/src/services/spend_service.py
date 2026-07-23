@@ -164,6 +164,7 @@ class SpendService:
         include_outlook: bool = True,
         rng=None,
         overlay=None,
+        horizon_end_override: Optional[date] = None,
     ) -> dict:
         """The single source of truth for the Safe-to-Spend number (v1 F3).
 
@@ -180,6 +181,10 @@ class SpendService:
                       − buffer
 
         All math in integer cents; dollars only at the output boundary.
+
+        ``horizon_end_override`` is reserved for a caller that presents an
+        explicit decision horizon. It bypasses the user's week/month/paycheck
+        preference so every metric in that comparison covers the same dates.
 
         An optional ``overlay`` (:class:`ScenarioOverlay`) makes the number
         hypothetical-aware with ZERO change when omitted (R1). It threads through
@@ -228,7 +233,13 @@ class SpendService:
         # bound (``occ <= horizon_end`` in ``project_occurrences``), so without
         # this guard the anchor paycheck inflates spendable by a full pay period.
         anchored_on_paycheck = False
-        if horizon_mode == "week":
+        if horizon_end_override is not None:
+            if horizon_end_override < as_of:
+                raise ValueError("horizon_end_override must be on or after as_of")
+            horizon_end = horizon_end_override
+            horizon_source = "decision_horizon"
+            horizon_mode = "decision_horizon"
+        elif horizon_mode == "week":
             horizon_end = as_of + timedelta(days=7)
         elif horizon_mode == "month":
             horizon_end = _end_of_month(as_of)

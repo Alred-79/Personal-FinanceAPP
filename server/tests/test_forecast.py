@@ -45,7 +45,10 @@ def test_forecast_no_recurring_is_flat(client):
     assert body["ending_balance"] == 1000.0
     assert body["total_projected_expenses"] == 0.0
     assert body["will_go_negative"] is False
-    assert len(body["timeline"]) == 1  # just the starting point
+    assert len(body["timeline"]) == 92  # inclusive daily series
+    assert body["timeline"][0]["date"] == "2026-03-01"
+    assert body["timeline"][-1]["date"] == "2026-05-31"
+    assert body["events"] == []
 
 
 def test_forecast_projects_recurring_expenses(client):
@@ -79,7 +82,10 @@ def test_forecast_projects_recurring_expenses(client):
     assert body["lowest_balance"] == 600.0
     assert body["lowest_date"] == "2026-05-15"
     assert body["will_go_negative"] is False
-    assert len(body["timeline"]) == 4  # start + 3 projected charges
+    assert len(body["timeline"]) == 92
+    assert [event["date"] for event in body["events"]] == [
+        "2026-03-15", "2026-04-15", "2026-05-15"
+    ]
 
 
 def test_forecast_flags_negative_balance(client):
@@ -110,6 +116,18 @@ def test_forecast_flags_negative_balance(client):
 def test_forecast_requires_auth(client):
     resp = client.get("/api/forecast/")
     assert resp.status_code == 401
+
+
+def test_forecast_rejects_reversed_or_oversized_explicit_horizon(client):
+    headers = _auth_header(client, username="fcspan", email="fcspan@example.com")
+    reversed_response = client.get(
+        "/api/forecast/?start=2026-03-02&end=2026-03-01", headers=headers
+    )
+    oversized_response = client.get(
+        "/api/forecast/?start=2026-01-01&end=2027-01-02", headers=headers
+    )
+    assert reversed_response.status_code == 422
+    assert oversized_response.status_code == 422
 
 
 # ---------------------------------------------------------------------------

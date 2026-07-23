@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from server.src.db.session import get_db
@@ -33,7 +33,7 @@ from server.src.settings import settings
 router = APIRouter(prefix="/scenarios", tags=["scenarios"])
 
 _DEFAULT_HORIZON_DAYS = 90
-_MAX_HORIZON_DAYS = 3650
+_MAX_HORIZON_DAYS = 365
 
 
 @router.post("/compose-preview/")
@@ -129,7 +129,7 @@ async def compare_scenarios(
     boundary, deltas computed in cents server-side. A scenario id the caller
     does not own is a 404 (no cross-user leak).
     """
-    horizon = min(payload.horizon_days, _MAX_HORIZON_DAYS)
+    horizon = payload.horizon_days
     try:
         return ScenarioService(db).compare(
             current_user.id, payload.scenario_ids, horizon_days=horizon
@@ -150,10 +150,14 @@ async def evaluate_overlay(
     so it is never shadowed by the parameterized route. Money is dollars on the
     wire; the service owns the dollar↔cents seam.
     """
-    horizon = min(max(payload.horizon_days, 1), _MAX_HORIZON_DAYS)
+    horizon = payload.horizon_days
     overlay = overlay_in_to_overlay(payload.overlay)
     return ScenarioService(db).evaluate(
-        current_user.id, overlay, horizon_days=horizon, name=payload.name
+        current_user.id,
+        overlay,
+        horizon_days=horizon,
+        name=payload.name,
+        include_series=True,
     )
 
 
@@ -161,11 +165,11 @@ async def evaluate_overlay(
 async def evaluate_scenario(
     scenario_id: int,
     current_user: Annotated[UserInDB, Depends(AuthService.get_current_active_user)],
-    horizon_days: int = _DEFAULT_HORIZON_DAYS,
+    horizon_days: int = Query(_DEFAULT_HORIZON_DAYS, ge=1, le=_MAX_HORIZON_DAYS),
     db: Session = Depends(get_db),
 ):
     """Baseline-vs-scenario diff for one saved scenario over the horizon."""
-    horizon = min(max(horizon_days, 1), _MAX_HORIZON_DAYS)
+    horizon = horizon_days
     svc = ScenarioService(db)
     overlay = svc.load_overlay(current_user.id, scenario_id)
     row = svc.get(current_user.id, scenario_id)
@@ -177,4 +181,5 @@ async def evaluate_scenario(
         horizon_days=horizon,
         name=row.name,
         scenario_id=row.id,
+        include_series=True,
     )

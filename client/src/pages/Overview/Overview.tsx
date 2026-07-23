@@ -11,6 +11,7 @@ import ForecastCard from "@/components/custom/Overview/ForecastCard";
 import { DailySurface } from "@/components/custom/DailySurface/DailySurface";
 import { SagaChapter } from "@/components/custom/SagaChapter/SagaChapter";
 import { FreelancerLeadStrip } from "@/components/custom/Overview/FreelancerLeadStrip";
+import { SelfEmployedFork } from "@/components/custom/Onboarding/SelfEmployedFork";
 
 const today = new Date().toLocaleDateString("en-US", {
   year: "numeric",
@@ -52,52 +53,30 @@ function Overview() {
         reference={`Form 1040-A · ${today}`}
       />
 
-      {/* The freelancer wedge, led first for self-employed users: tax reserve,
-          typical month, quarterly estimate — above generic charts. The app
-          estimates/recommends/tracks; it never moves money (frontend re-eval). */}
-      <FreelancerLeadStrip />
-
-      {/* The glanceable hero: Safe-to-Spend, drawn as the pressure-gauge plate
-          (it also drives the browser tab title). First thing the eye lands on. */}
+      {/* The first useful loop: answer, evidence, action. */}
       <div className="mb-6 animate-rise-in">
         <SpendCard />
       </div>
-
-      {/* The daily surface: today's one verb + collect (hidden in off mode).
-          NEVER more than those two elements. The Expedition home (08) will
-          replace this card as the daily surface. */}
-      <div className="mb-6">
-        <DailySurface />
+      <div className="mb-6 animate-rise-in delay-1">
+        <ForecastCard />
       </div>
 
-      {/* The weekly saga chapter (Sunday; hidden in off). Ends in one action. */}
-      <div className="mb-6">
-        <SagaChapter />
-      </div>
-
-      {/* The banknote hero */}
-      <div className="mb-6">
-        <NetWorthNote />
-      </div>
-
-      {/* Document body: a deliberate two-column ledger spread */}
+      {/* Recent records and spending context follow the decision loop. */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Left rail: the running ledger, spanning the full height */}
         <div className="lg:row-span-2 [&>*]:h-full animate-rise-in delay-1">
           <TransactionsCard />
         </div>
-
-        {/* Right two-thirds: the analytical plates, stacked beside the ledger */}
         <div className="lg:col-span-2 animate-rise-in delay-2">
           <ExpensesCard />
         </div>
-
-        <div className="lg:col-span-2 animate-rise-in delay-3">
-          <ForecastCard />
-        </div>
       </div>
 
-      {/* Lower spread: trend plates */}
+      <SelfEmployedFork />
+
+      {/* Account, goal, and trend context. */}
+      <div className="mt-6">
+        <NetWorthNote />
+      </div>
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="animate-rise-in delay-5">
           <NetWorthCard />
@@ -105,6 +84,17 @@ function Overview() {
         <div className="animate-rise-in delay-6">
           <TimelineCard />
         </div>
+      </div>
+
+      {/* Optional work-money and game narrative stay available below core tasks. */}
+      <div className="mt-6">
+        <FreelancerLeadStrip />
+      </div>
+      <div className="mt-6">
+        <DailySurface />
+      </div>
+      <div className="mt-6">
+        <SagaChapter />
       </div>
     </>
   );

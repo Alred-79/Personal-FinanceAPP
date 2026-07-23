@@ -48,7 +48,7 @@ class MCPKeyService:
         user_id: int,
         name: str,
         scopes: list[str],
-        ttl_days: Optional[int] = None,
+        ttl_days: int = 90,
     ) -> tuple[str, MCPKey]:
         """Mint a new MCP API key.
 
@@ -57,6 +57,11 @@ class MCPKeyService:
 
         Raises ``ValueError`` for empty or invalid scopes.
         """
+        if isinstance(ttl_days, bool) or not isinstance(ttl_days, int):
+            raise ValueError("ttl_days must be a whole number from 1 through 365.")
+        if ttl_days < 1 or ttl_days > 365:
+            raise ValueError("ttl_days must be from 1 through 365.")
+
         # -- validate scopes --
         if not scopes:
             raise ValueError("At least one scope is required.")
@@ -88,8 +93,6 @@ class MCPKeyService:
         key_hash = _hash_key(raw)
         key_prefix = raw[:_KEY_PREFIX_LEN]
 
-        if ttl_days is None:
-            ttl_days = settings.mcp_key_default_ttl_days
         expires_at = _utcnow() + timedelta(days=ttl_days)
 
         row = MCPKey(

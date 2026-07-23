@@ -4,9 +4,9 @@ import { afterEach, beforeEach, vi } from "vitest";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 /**
- * The path the landing page's "Connect your AI" promises: a signed-out visitor
- * lands on login carrying a destination, and arrives at the Agent Keys bureau.
- * These two hops are easy to break silently, so they're pinned here.
+ * The developer-connection path: a signed-out visitor lands on login carrying
+ * a destination, and arrives at the AI connections settings area. These two
+ * hops are easy to break silently, so they're pinned here.
  */
 
 const { apiGet, apiPost } = vi.hoisted(() => ({ apiGet: vi.fn(), apiPost: vi.fn() }));
@@ -15,6 +15,8 @@ vi.mock("@/lib/api", () => ({
   default: { get: apiGet, post: apiPost, delete: vi.fn(), put: vi.fn(), patch: vi.fn() },
 }));
 vi.mock("@/hooks/useToast", () => ({ useToast: () => ({ toast: vi.fn() }), toast: vi.fn() }));
+
+import Settings from "@/pages/Settings/Settings";
 
 beforeEach(() => {
   apiGet.mockReset();
@@ -31,7 +33,6 @@ function Here() {
 
 describe("the agent-access path", () => {
   it("opens Settings on the Agent Keys folio when the tab is named", async () => {
-    const { default: Settings } = await import("@/pages/Settings/Settings");
     render(
       <MemoryRouter initialEntries={["/settings?tab=agent-keys"]}>
         <Routes>
@@ -39,12 +40,13 @@ describe("the agent-access path", () => {
         </Routes>
       </MemoryRouter>
     );
-    // The Bureau's own heading, not merely the tab trigger.
-    expect(await screen.findByText(/Letters of Marque|Bureau is sealed shut/i)).toBeInTheDocument();
+    // The connection area's own heading, not merely the tab trigger.
+    expect(
+      await screen.findByRole("heading", { name: "Claude Code / developer connection" })
+    ).toBeInTheDocument();
   });
 
   it("opens the default folio when no tab is named", async () => {
-    const { default: Settings } = await import("@/pages/Settings/Settings");
     render(
       <MemoryRouter initialEntries={["/settings"]}>
         <Routes>
@@ -53,11 +55,10 @@ describe("the agent-access path", () => {
       </MemoryRouter>
     );
     expect(await screen.findByText(/Thresholds/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Letters of Marque/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Claude Code \/ developer connection/i)).not.toBeInTheDocument();
   });
 
   it("ignores a tab name that isn't a folio", async () => {
-    const { default: Settings } = await import("@/pages/Settings/Settings");
     render(
       <MemoryRouter initialEntries={["/settings?tab=../../etc/passwd"]}>
         <Routes>

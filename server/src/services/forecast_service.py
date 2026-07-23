@@ -55,6 +55,10 @@ _CHANGEPOINT_MIN_NONZERO_DAYS = 10
 # post-shift data would wreck the burn estimate and the calibration split.
 _CHANGEPOINT_MIN_REGIME_DAYS = 7
 
+# Versioned, privacy-safe seed for consumer forecast/evaluate calls. It is a
+# product/model constant rather than a fingerprint of a user's financial data.
+_CONSUMER_SIM_SEED_V1 = 20260723
+
 
 def hist_avg_daily_burn_cents(
     amounts_cents: list[int],
@@ -275,15 +279,14 @@ class ForecastService:
         daily discretionary burn (non-recurring spend) on every day, so the
         trough reflects ordinary day-to-day spending and not just scheduled
         bills — a more honest "will I dip below zero?" answer. Game-mode callers
-        pass False to keep their existing scheduled-only behavior. The emitted
-        ``timeline`` still carries one point per *activity* day; ``lowest`` and
-        ``ending`` are computed over the full daily walk so the burn is felt
-        even on days with no scheduled flow.
+        pass False to keep their existing scheduled-only behavior. ``timeline``
+        contains one balance point per calendar day, including both endpoints;
+        scheduled cashflow metadata is returned separately in ``events``.
 
         With ``include_burn`` the result also carries an ``overdraft_probability``
         and a ``trough_band`` (low/median/high dollars) from a residual-bootstrap
-        simulation. Pass an ``rng`` (``random.Random(seed)``) for reproducible
-        output in tests; production leaves it None for a fresh, unseeded run.
+        simulation. Pass an ``rng`` (``random.Random(seed)``) to override the
+        versioned deterministic consumer seed in tests.
 
         An optional ``overlay`` (:class:`ScenarioOverlay`) makes the forecast
         hypothetical-aware: it is threaded down to ``project_cashflows`` (so
@@ -298,37 +301,32 @@ class ForecastService:
         if overlay is not None and overlay.balance_override_cents is not None:
             starting_cents = overlay.balance_override_cents
 
-        # Projected recurring income + expense instances over the horizon
-        # (dollar amounts, each tagged ``type``). The overlay reshapes these.
         projected = RecurringService(self.db).project_cashflows(
             user_id, horizon_start, horizon_end, overlay=overlay
         )
-
-        # Net flows per date so the timeline has one point per day with any
-        # activity: income positive, expenses negative.
         net_by_date: dict[str, int] = {}
         income_by_date: dict[str, int] = {}
         expense_by_date: dict[str, int] = {}
+        labels_by_date: dict[str, list[str]] = {}
         for item in projected:
             cents = dollars_to_cents(item["amount"])
-            day = item["date"]
+            iso = item["date"]
             if item["type"] == "income":
-                income_by_date[day] = income_by_date.get(day, 0) + cents
-                net_by_date[day] = net_by_date.get(day, 0) + cents
+                income_by_date[iso] = income_by_date.get(iso, 0) + cents
+                net_by_date[iso] = net_by_date.get(iso, 0) + cents
             else:
-                expense_by_date[day] = expense_by_date.get(day, 0) + cents
-                net_by_date[day] = net_by_date.get(day, 0) - cents
+                expense_by_date[iso] = expense_by_date.get(iso, 0) + cents
+                net_by_date[iso] = net_by_date.get(iso, 0) - cents
+            title = str(item.get("title") or "Projected recurring cashflow")
+            if title not in labels_by_date.setdefault(iso, []):
+                labels_by_date[iso].append(title)
 
-        # F1 change-point router: when a recent level shift is detected, truncate
-        # the burn window to the current regime so burn + residual pool reflect
-        # the level the user is actually living in (and surface the shift).
         burn_window = _BURN_WINDOW_DAYS
         regime_shift: Optional[dict[str, Any]] = None
         if include_burn:
             burn_window, regime_shift = self._regime_router(
                 user_id, horizon_start, _BURN_WINDOW_DAYS
             )
-
         burn_cents = (
             self._discretionary_burn_cents(
                 user_id, horizon_start, window_days=burn_window
@@ -337,99 +335,102 @@ class ForecastService:
             else 0
         )
 
-        running = starting_cents
-        lowest = starting_cents
-        lowest_date = horizon_start.isoformat()
-
-        timeline: list[dict[str, Any]] = [
-            {
-                "date": horizon_start.isoformat(),
-                "balance": cents_to_dollars(running),
-                "change": 0.0,
-                "income": 0.0,
-                "expenses": 0.0,
-                "label": "Starting balance",
-            }
-        ]
-
+        start_iso = horizon_start.isoformat()
+        start_net = net_by_date.get(start_iso, 0)
+        running = starting_cents + start_net
+        lowest = running
+        lowest_date = start_iso
+        first_negative_date: Optional[str] = start_iso if running < 0 else None
+        timeline: list[dict[str, Any]] = []
+        events: list[dict[str, Any]] = []
         total_expenses_cents = 0
         total_income_cents = 0
         total_burn_cents = 0
-        # Walk EVERY day so the burn is applied continuously; emit a timeline
-        # point only on days with scheduled activity (keeps the payload compact
-        # and the existing point-count contract intact).
-        day = horizon_start + timedelta(days=1)
+
+        day = horizon_start
         while day <= horizon_end:
             iso = day.isoformat()
             net_cents = net_by_date.get(iso, 0)
-            running += net_cents - burn_cents
-            total_burn_cents += burn_cents
+            day_burn = 0 if day == horizon_start else burn_cents
+            if day != horizon_start:
+                running += net_cents - day_burn
+                total_burn_cents += day_burn
             total_income_cents += income_by_date.get(iso, 0)
             total_expenses_cents += expense_by_date.get(iso, 0)
             if running < lowest:
                 lowest = running
                 lowest_date = iso
+            if first_negative_date is None and running < 0:
+                first_negative_date = iso
+            timeline.append(
+                {
+                    "date": iso,
+                    "balance": cents_to_dollars(running),
+                    "change": cents_to_dollars(net_cents - day_burn),
+                    "income": cents_to_dollars(income_by_date.get(iso, 0)),
+                    "expenses": cents_to_dollars(expense_by_date.get(iso, 0)),
+                    "label": "Starting balance" if day == horizon_start else "Central path",
+                }
+            )
             if iso in net_by_date:
-                timeline.append(
+                events.append(
                     {
                         "date": iso,
-                        "balance": cents_to_dollars(running),
-                        "change": cents_to_dollars(net_cents),
                         "income": cents_to_dollars(income_by_date.get(iso, 0)),
                         "expenses": cents_to_dollars(expense_by_date.get(iso, 0)),
-                        "label": "Projected recurring cashflow",
+                        "net": cents_to_dollars(net_cents),
+                        "label": ", ".join(labels_by_date.get(iso, [])),
                     }
                 )
             day += timedelta(days=1)
 
         result: dict[str, Any] = {
-            "horizon_start": horizon_start.isoformat(),
+            "horizon_start": start_iso,
             "horizon_end": horizon_end.isoformat(),
             "starting_balance": cents_to_dollars(starting_cents),
             "ending_balance": cents_to_dollars(running),
             "lowest_balance": cents_to_dollars(lowest),
             "lowest_date": lowest_date,
+            "first_negative_date": first_negative_date,
             "total_projected_expenses": cents_to_dollars(total_expenses_cents),
             "total_projected_income": cents_to_dollars(total_income_cents),
             "will_go_negative": lowest < 0,
             "timeline": timeline,
+            "events": events,
         }
         if include_burn:
             result["daily_discretionary_burn"] = cents_to_dollars(burn_cents)
             result["total_projected_discretionary"] = cents_to_dollars(
                 total_burn_cents
             )
-            # F1: a recent spend-level shift (or None when stationary). Narration
-            # and the Auditor read this; the burn above is already regime-aware.
             result["regime_shift"] = regime_shift
             num_days = (horizon_end - horizon_start).days
-            # Scheduled net flow keyed by 1-based day offset from horizon_start.
             net_by_offset: dict[int, int] = {}
             for iso, net_cents in net_by_date.items():
-                d = date.fromisoformat(iso)
-                net_by_offset[(d - horizon_start).days] = net_cents
+                offset = (date.fromisoformat(iso) - horizon_start).days
+                if offset > 0:
+                    net_by_offset[offset] = net_cents
             pool = self._burn_residual_pool_cents(
                 user_id, horizon_start, burn_cents, window_days=burn_window
             )
             sim = bootstrap_overdraft(
-                starting_cents,
+                starting_cents + start_net,
                 net_by_offset,
                 burn_cents,
                 num_days,
                 pool,
-                rng=rng or random.Random(),
+                rng=rng or random.Random(_CONSUMER_SIM_SEED_V1),
                 block_days=settings.sim_block_days,
                 coverage_level=settings.forecast_coverage_level or None,
             )
             result["overdraft_probability"] = sim["overdraft_probability"]
+            result["paths_below_zero"] = sim["paths_below_zero"]
+            result["paths_total"] = sim["paths_total"]
             result["trough_band"] = {
                 "low": cents_to_dollars(sim["trough_low"]),
                 "median": cents_to_dollars(sim["trough_median"]),
                 "high": cents_to_dollars(sim["trough_high"]),
             }
-            # F1: the calibrated band's nominal coverage target and whether the
-            # conformal step actually ran (False when the residual pool was too
-            # thin to split). The UI labels the band with this level.
             result["coverage_level"] = sim.get("coverage_level")
             result["band_calibrated"] = sim.get("calibrated", False)
         return result

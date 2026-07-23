@@ -168,15 +168,33 @@ def test_find_pairings_classifies_and_claims_each_row_once():
     assert {refund.a.ref, refund.b.ref} == {3, 4}
 
 
-def test_find_pairings_prefers_transfer_over_refund():
-    # Same merchant AND cross-account opposite-sign → transfer wins (more specific).
+def test_find_pairings_prefers_refund_without_transfer_marker():
+    # Same merchant alone is refund evidence; cross-account coincidence is not enough.
     rows = [
         _row(1, "Acme Bank", -30000, "2026-03-01", account_id=1),
         _row(2, "Acme Bank", 30000, "2026-03-01", account_id=2),
     ]
     pairings = find_pairings(rows)
     assert len(pairings) == 1
-    assert pairings[0].kind == "transfer"
+    assert pairings[0].kind == "refund"
+
+
+def test_find_pairings_prefers_explicit_refund_even_with_transfer_word():
+    rows = [
+        _row(1, "Acme Transfer Refund", -30000, "2026-03-01", account_id=1),
+        _row(2, "Acme Transfer Refund", 30000, "2026-03-02", account_id=2),
+    ]
+    pairings = find_pairings(rows)
+    assert len(pairings) == 1
+    assert pairings[0].kind == "refund"
+
+
+def test_equal_opposite_unrelated_merchants_are_not_a_transfer():
+    rows = [
+        _row(1, "Comcast", -8000, "2026-03-01", account_id=1),
+        _row(2, "Amazon refund", 8000, "2026-03-02", account_id=2),
+    ]
+    assert find_pairings(rows) == []
 
 
 def test_find_pairings_empty_when_nothing_relates():

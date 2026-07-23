@@ -11,11 +11,10 @@ const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
  * debit ink). Pure pivot of data the page already holds; nothing refetched.
  */
 export default function CashflowCalendar({ forecast }: { forecast: Forecast }) {
-  // Net change per date from the projected timeline (skip the synthetic
-  // starting-balance point, which has change 0).
+  // Scheduled events are separate from the daily central-path balance series.
   const changeByDate: Record<string, number> = {};
-  forecast.timeline.forEach((pt) => {
-    if (pt.change !== 0) changeByDate[pt.date] = pt.change;
+  (forecast.events ?? []).forEach((event) => {
+    if (event.net !== 0) changeByDate[event.date] = event.net;
   });
 
   // Build the grid for the month containing horizon_start.
@@ -89,7 +88,7 @@ export default function CashflowCalendar({ forecast }: { forecast: Forecast }) {
           )}
         </div>
         <p className="mt-2 text-right font-sans text-[10px] text-muted-foreground/70">
-          Projected recurring pay (+) and bills (−) by day
+          Projected net recurring cash flow by day (+ in / − out)
         </p>
       </CardContent>
     </Card>

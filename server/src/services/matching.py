@@ -73,6 +73,7 @@ class MatchRow:
     amount_cents: int  # signed: +in / -out
     date: str | date | datetime
     account_id: Optional[int] = None
+    category: str = ""
 
     @property
     def merchant_key(self) -> str:
@@ -127,7 +128,33 @@ def is_transfer_pair(a: MatchRow, b: MatchRow, window_days: int = DEFAULT_WINDOW
         return False
     if a.amount_cents == 0:
         return False
-    return within_window(a, b, window_days)
+    if not within_window(a, b, window_days):
+        return False
+    return _has_explicit_transfer_marker(a) or _has_explicit_transfer_marker(b)
+
+
+_TRANSFER_MARKERS = (
+    "transfer",
+    "xfer",
+    "own account",
+    "account to account",
+    "ach transfer",
+)
+_PURCHASE_MARKERS = ("purchase", "point of sale", "pos debit", "card purchase")
+_REFUND_MARKERS = ("refund", "reversal", "reversed", "returned item")
+
+
+def _has_explicit_transfer_marker(row: MatchRow) -> bool:
+    """True only when title/category explicitly describes a money transfer."""
+    text = f"{row.title} {row.category}".strip().lower()
+    if any(marker in text for marker in _PURCHASE_MARKERS):
+        return False
+    return any(marker in text for marker in _TRANSFER_MARKERS)
+
+
+def _has_explicit_refund_marker(row: MatchRow) -> bool:
+    text = f"{row.title} {row.category}".strip().lower()
+    return any(marker in text for marker in _REFUND_MARKERS)
 
 
 def is_refund_pair(a: MatchRow, b: MatchRow, window_days: int = DEFAULT_WINDOW_DAYS) -> bool:
@@ -182,9 +209,9 @@ def find_pairings(
     """Detect transfer / refund / duplicate pairs within one set of rows.
 
     The Detangler's workhorse. Each unordered pair is considered once. A pair is
-    classified at most once, most-specific first: a transfer (crosses accounts)
-    takes precedence over a refund (same merchant), which takes precedence over a
-    plain duplicate. Each row participates in at most one pairing so a single
+    classified at most once, strongest evidence first: an explicit refund marker
+    beats a transfer marker; otherwise a conservatively marked transfer beats
+    same-merchant refund inference, then a plain duplicate. Each row participates in at most one pairing so a single
     transaction can't be claimed by two conflicting suggestions.
     """
     pairings: list[Pairing] = []
@@ -197,9 +224,15 @@ def find_pairings(
                 continue
             a, b = rows[i], rows[j]
             kind: Optional[str] = None
-            if is_transfer_pair(a, b, window_days):
+            transfer = is_transfer_pair(a, b, window_days)
+            refund = is_refund_pair(a, b, window_days)
+            if refund and (
+                _has_explicit_refund_marker(a) or _has_explicit_refund_marker(b)
+            ):
+                kind = "refund"
+            elif transfer:
                 kind = "transfer"
-            elif is_refund_pair(a, b, window_days):
+            elif refund:
                 kind = "refund"
             elif is_duplicate(a, b, window_days):
                 kind = "duplicate"

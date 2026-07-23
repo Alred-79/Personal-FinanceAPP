@@ -258,6 +258,14 @@ export interface ForecastPoint {
   label: string;
 }
 
+export interface ForecastEvent {
+  date: string;
+  income: number;
+  expenses: number;
+  net: number;
+  label: string;
+}
+
 /** The kinds of hypothetical a scenario can stack. */
 export type ScenarioMutationKind =
   | "income"
@@ -362,11 +370,21 @@ export interface ScenarioResult {
   lowest_balance: number;
   ending_balance: number;
   safe_to_spend: number;
+  safe_to_spend_horizon_end: string;
+  safe_to_spend_horizon_source: "decision_horizon" | string;
   runway_days: number;
+  first_negative_date: string | null;
+  paths_below_zero: number;
+  paths_total: number;
   goal_reach: Record<string, { reaches_on: string | null }>;
-  /** Present on the forecast-backed columns; reused for the chart overlay. */
-  timeline?: ForecastPoint[];
   trough_band?: { low: number; median: number; high: number };
+}
+
+export interface ScenarioChangeStatus {
+  id: string;
+  kind: string;
+  detail: string;
+  reason_code?: string;
 }
 
 /** Scenario − baseline, the shape `_diff` emits server-side (dollars / raw). */
@@ -381,6 +399,14 @@ export interface ScenarioDelta {
 
 /** A baseline-vs-scenario evaluate run (`POST /scenarios/{id}/evaluate/`). */
 export interface ScenarioDiff {
+  horizon_start: string;
+  horizon_end: string;
+  baseline_timeline: ForecastPoint[];
+  scenario_timeline: ForecastPoint[];
+  baseline_events: ForecastEvent[];
+  scenario_events: ForecastEvent[];
+  applied_changes: ScenarioChangeStatus[];
+  ignored_changes: ScenarioChangeStatus[];
   baseline: { name: string; result: ScenarioResult };
   scenario: {
     name: string;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import api from "@/lib/api";
 import { Stamp } from "@/components/engraving/Stamp";
 import { CornerRosette } from "@/components/engraving/Guilloche";
@@ -50,16 +50,25 @@ function rel(iso: string | null): string {
 export function AuditLedger() {
   const [rows, setRows] = useState<AuditEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    api
+  const load = useCallback(() => {
+    setLoaded(false);
+    setFailed(false);
+    void api
       .get<AuditEntry[]>("/mcp-keys/audit/")
       .then((r) => setRows(Array.isArray(r.data) ? r.data : []))
-      .catch(() => {})
+      .catch(() => setFailed(true))
       .finally(() => setLoaded(true));
   }, []);
 
-  if (!loaded) return null;
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (!loaded) {
+    return <div className="plate min-h-48 animate-pulse bg-card" aria-label="Loading connection activity" />;
+  }
 
   return (
     <div className="plate relative bg-card p-5">
@@ -67,15 +76,29 @@ export function AuditLedger() {
         <span className="dept-label whitespace-nowrap">The Audit Ledger</span>
       </div>
 
-      {rows.length === 0 ? (
+      {failed ? (
+        <div className="grid place-items-center py-12 text-center" role="alert">
+          <p className="font-display text-base">Could not load activity</p>
+          <p className="mt-1 max-w-xs text-sm text-muted-foreground">
+            Recorded authorized and scope-denied calls are temporarily unavailable.
+          </p>
+          <button
+            type="button"
+            onClick={load}
+            className="press mt-4 min-h-11 border border-rule px-4 font-sans text-sm font-semibold"
+          >
+            Retry
+          </button>
+        </div>
+      ) : rows.length === 0 ? (
         <div className="grid place-items-center py-12 text-center">
           <div className="text-rule-strong/40">
             <CornerRosette size={64} seed={19} />
           </div>
           <p className="mt-3 font-display text-base">No reads recorded</p>
           <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-            When an agent opens your ledger, every read is stamped here — what it
-            touched, when, and that it could only read.
+            Recorded authorized and scope-denied calls will appear here with the
+            resource, time, and decision.
           </p>
         </div>
       ) : (
@@ -115,8 +138,7 @@ export function AuditLedger() {
       )}
 
       <p className="mt-4 border-t border-rule/60 pt-3 text-center font-mono text-[10px] text-muted-foreground">
-        Inputs are hashed, never stored raw · the vault opens read-only and always
-        rolls back
+        Recorded inputs are hashed, never stored raw · authorized reads roll back
       </p>
     </div>
   );

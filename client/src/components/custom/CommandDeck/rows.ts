@@ -51,9 +51,16 @@ export const DECK_GROUPS: { key: DeckGroup; label: string }[] = [
  * never regresses nav gating: a game entry only appears with the game layer on,
  * the tax entry only with the server tax flag on.
  */
-export function buildDestinations(gameLayer: boolean, taxEnabled: boolean): DestinationRow[] {
+export function buildDestinations(
+  gameLayer: boolean,
+  taxEnabled: boolean,
+  freelancerEnabled = false
+): DestinationRow[] {
   return NAV_ITEMS.filter(
-    (i) => (!i.gameOnly || gameLayer) && (!i.taxOnly || taxEnabled)
+    (i) =>
+      (!i.gameOnly || gameLayer) &&
+      (!i.taxOnly || taxEnabled) &&
+      (!i.freelancerOnly || freelancerEnabled)
   ).map((i) => ({
     kind: "destination",
     id: `dest:${i.to}`,

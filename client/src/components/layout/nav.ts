@@ -20,7 +20,7 @@ import {
 
 /** Which section of the index an entry belongs to — drives grouped nav
  * surfaces (the Tools overflow, the sidebar rail sections, the ⌘K palette). */
-export type NavGroup = "ledger" | "tools" | "game";
+export type NavGroup = "primary" | "plan" | "review" | "more";
 
 export interface NavItem {
   to: string;
@@ -47,29 +47,30 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { to: "/", label: "Overview", termKey: "nav.overview", icon: LayoutDashboard, folio: "I", group: "ledger" },
-  { to: "/accounts", label: "Accounts", termKey: "nav.accounts", icon: Wallet, folio: "II", group: "ledger" },
-  { to: "/transactions", label: "Ledger", termKey: "nav.transactions", icon: ArrowLeftRight, folio: "III", group: "ledger" },
-  { to: "/budgets", label: "Budgets", termKey: "nav.budgets", icon: PieChart, folio: "IV", group: "ledger" },
-  { to: "/goals", label: "Goals", termKey: "nav.goals", icon: Target, folio: "V", group: "ledger" },
-  { to: "/forecast", label: "Forecast", termKey: "nav.forecast", icon: TrendingUp, folio: "VI", group: "ledger" },
-  { to: "/almanac", label: "Almanac", termKey: "nav.almanac", icon: BookOpen, folio: "XV", group: "tools" },
-  { to: "/subscriptions", label: "Standing Orders", termKey: "nav.subscriptions", icon: Repeat, folio: "VII", group: "tools" },
-  { to: "/rules", label: "Rule Book", termKey: "nav.rules", icon: ScrollText, folio: "XIV", group: "tools" },
-  { to: "/reconcile", label: "Reconciliation Desk", termKey: "nav.reconcile", icon: FileUp, folio: "XII", group: "tools" },
-  { to: "/income", label: "Income", termKey: "nav.income", icon: Activity, folio: "XVI", freelancerOnly: true, group: "tools" },
-  { to: "/tax", label: "Tax Organizer", termKey: "nav.tax", icon: Receipt, folio: "XIII", taxOnly: true, group: "tools" },
-  { to: "/keeper", label: "Profile & Progress", termKey: "nav.keeper", icon: Shield, folio: "IX", gameOnly: true, group: "game" },
-  { to: "/debts", label: "Debts", termKey: "nav.debts", icon: Swords, folio: "X", gameOnly: true, group: "game" },
-  { to: "/campaigns", label: "Quarterly Review", termKey: "nav.campaigns", icon: Map, folio: "XI", gameOnly: true, group: "game" },
-  { to: "/settings", label: "Settings", termKey: "nav.settings", icon: Settings, folio: "VIII", group: "tools" },
+  { to: "/", label: "Overview", termKey: "nav.overview", icon: LayoutDashboard, folio: "I", group: "primary" },
+  { to: "/forecast", label: "Decisions", termKey: "nav.forecast", icon: TrendingUp, folio: "VI", group: "primary" },
+  { to: "/subscriptions", label: "Upcoming", termKey: "nav.subscriptions", icon: Repeat, folio: "VII", group: "primary" },
+  { to: "/transactions", label: "Transactions", termKey: "nav.transactions", icon: ArrowLeftRight, folio: "III", group: "primary" },
+  { to: "/accounts", label: "Accounts", termKey: "nav.accounts", icon: Wallet, folio: "II", group: "plan" },
+  { to: "/budgets", label: "Budgets", termKey: "nav.budgets", icon: PieChart, folio: "IV", group: "plan" },
+  { to: "/goals", label: "Goals", termKey: "nav.goals", icon: Target, folio: "V", group: "plan" },
+  { to: "/income", label: "Income", termKey: "nav.income", icon: Activity, folio: "XVI", freelancerOnly: true, group: "plan" },
+  { to: "/tax", label: "Tax Organizer", termKey: "nav.tax", icon: Receipt, folio: "XIII", taxOnly: true, group: "plan" },
+  { to: "/almanac", label: "Insights", termKey: "nav.almanac", icon: BookOpen, folio: "XV", group: "review" },
+  { to: "/reconcile", label: "Import & reconcile", termKey: "nav.reconcile", icon: FileUp, folio: "XII", group: "review" },
+  { to: "/rules", label: "Rule Book", termKey: "nav.rules", icon: ScrollText, folio: "XIV", group: "review" },
+  { to: "/keeper", label: "Profile & Progress", termKey: "nav.keeper", icon: Shield, folio: "IX", gameOnly: true, group: "more" },
+  { to: "/debts", label: "Debts", termKey: "nav.debts", icon: Swords, folio: "X", gameOnly: true, group: "more" },
+  { to: "/campaigns", label: "Quarterly Review", termKey: "nav.campaigns", icon: Map, folio: "XI", gameOnly: true, group: "more" },
+  { to: "/settings", label: "Settings", termKey: "nav.settings", icon: Settings, folio: "VIII", group: "more" },
 ];
 
 /** Section order + headings for grouped nav surfaces. */
 export const NAV_GROUPS: { key: NavGroup; label: string }[] = [
-  { key: "ledger", label: "Ledger" },
-  { key: "tools", label: "Tools" },
-  { key: "game", label: "Game" },
+  { key: "primary", label: "Daily" },
+  { key: "plan", label: "Plan" },
+  { key: "review", label: "Review" },
+  { key: "more", label: "More" },
 ];
 
 /** A readable page title for the header, keyed by pathname. */

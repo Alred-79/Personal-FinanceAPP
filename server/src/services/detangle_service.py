@@ -41,8 +41,9 @@ DETANGLE_WINDOW_DAYS = 5
 _KIND_COPY = {
     "transfer": (
         "Possible transfer",
-        "“{a}” and “{b}” look like a transfer between your accounts "
-        "(${amount:.2f}). Linking them keeps it out of your spending totals.",
+        "A ${amount:.2f} debit and credit — “{a}” and “{b}” — posted {gap} "
+        "across different accounts. A description or category includes a transfer "
+        "marker. Review the pair.",
     ),
     "refund": (
         "Possible refund",
@@ -118,6 +119,7 @@ class DetangleService:
                     amount_cents=-abs(e.amount),  # money out
                     date=e.date,
                     account_id=e.account_id,
+                    category=e.category or "",
                 )
             )
         for i in self.db.execute(_income_q()).scalars():
@@ -128,6 +130,7 @@ class DetangleService:
                     amount_cents=abs(i.amount),  # money in
                     date=i.date,
                     account_id=i.account_id,
+                    category=i.category or "",
                 )
             )
         return rows
@@ -187,6 +190,7 @@ class DetangleService:
             a=p.a.title,
             b=p.b.title,
             amount=cents_to_dollars(p.a.magnitude),
+            gap=self._date_gap(p),
         )
         notif = NotificationORM(
             user_id=user_id,
@@ -197,6 +201,18 @@ class DetangleService:
         )
         self.db.add(notif)
         return notif
+
+    @staticmethod
+    def _date_gap(p: Pairing) -> str:
+        from datetime import date
+
+        try:
+            a = p.a.date if isinstance(p.a.date, date) else date.fromisoformat(str(p.a.date))
+            b = p.b.date if isinstance(p.b.date, date) else date.fromisoformat(str(p.b.date))
+            days = abs((a - b).days)
+        except (TypeError, ValueError):
+            return "within the review window"
+        return "the same day" if days == 0 else f"{days} day{'s' if days != 1 else ''} apart"
 
     @staticmethod
     def _ref_for(p: Pairing) -> str:

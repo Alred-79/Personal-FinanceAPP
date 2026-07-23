@@ -71,6 +71,22 @@ def test_zero_days_guard():
     assert out["trough_median"] == 5_000
 
 
+def test_zero_days_negative_start_counts_every_modeled_path_below_zero():
+    out = bootstrap_overdraft(
+        starting_cents=-100,
+        net_by_day_cents={},
+        daily_burn_cents=0,
+        num_days=0,
+        residual_pool_cents=[],
+        rng=random.Random(0),
+        num_sims=300,
+    )
+    assert out["paths_below_zero"] == 300
+    assert out["paths_total"] == 300
+    assert out["overdraft_probability"] == 1.0
+    assert out["trough_median"] == -100
+
+
 # ── moving-block bootstrap (preserves spending autocorrelation) ─────────────
 
 
@@ -135,6 +151,8 @@ def test_coverage_level_none_is_byte_identical_legacy():
     assert "calibrated" not in out
     assert set(out) == {
         "overdraft_probability",
+        "paths_below_zero",
+        "paths_total",
         "trough_low",
         "trough_median",
         "trough_high",

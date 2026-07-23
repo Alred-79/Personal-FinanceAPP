@@ -206,7 +206,9 @@ class TestEvaluateEndpoint:
         resp = client.post(f"/api/scenarios/{sid}/evaluate/", headers=headers)
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        assert set(body) == {"baseline", "scenario"}
+        assert {"baseline", "scenario", "horizon_start", "horizon_end"} <= set(body)
+        assert len(body["baseline_timeline"]) == 91
+        assert len(body["scenario_timeline"]) == 91
         assert body["scenario"]["scenario_id"] == sid
         for col in (body["baseline"], body["scenario"]):
             assert {
@@ -214,6 +216,8 @@ class TestEvaluateEndpoint:
                 "lowest_balance",
                 "ending_balance",
                 "safe_to_spend",
+                "safe_to_spend_horizon_end",
+                "safe_to_spend_horizon_source",
                 "runway_days",
                 "goal_reach",
             } <= set(col["result"])
@@ -318,3 +322,34 @@ class TestAdHocEvaluate:
 
     def test_evaluate_requires_auth(self, client):
         assert client.post("/api/scenarios/evaluate/", json={"overlay": {}}).status_code == 401
+
+    def test_applied_and_ignored_changes_partition_request(self, client):
+        headers = _auth_header(client, "partition", "partition@t.com")
+        response = client.post(
+            "/api/scenarios/evaluate/",
+            json={
+                "horizon_days": 30,
+                "overlay": {
+                    "discrete_flows": [
+                        {"date": "2027-08-01", "amount": 100, "kind": "expense", "title": "Future purchase"}
+                    ],
+                    "balance_override": -25,
+                },
+            },
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        ids = {item["id"] for item in body["applied_changes"] + body["ignored_changes"]}
+        assert ids == {"discrete_flow:0", "balance_override"}
+        assert body["ignored_changes"][0]["reason_code"] == "outside_horizon"
+
+    def test_malformed_changes_return_422(self, client):
+        headers = _auth_header(client, "invalid", "invalid@t.com")
+        for overlay in (
+            {"discrete_flows": [{"date": "bad", "amount": 10, "kind": "expense"}]},
+            {"added_recurring": [{"title": "Gym", "amount": 0, "recurrence": "monthly", "kind": "expense"}]},
+            {"added_recurring": [{"title": "Gym", "amount": 10, "recurrence": "sometimes", "kind": "expense"}]},
+        ):
+            response = client.post("/api/scenarios/evaluate/", json={"overlay": overlay}, headers=headers)
+            assert response.status_code == 422

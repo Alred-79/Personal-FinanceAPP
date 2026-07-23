@@ -103,6 +103,8 @@ class TestEvaluate:
         )
         for col in (out["baseline"], out["scenario"]):
             assert METRIC_KEYS <= set(col["result"].keys())
+            assert col["result"]["safe_to_spend_horizon_end"] == "2026-06-08"
+            assert col["result"]["safe_to_spend_horizon_source"] == "decision_horizon"
         # goal_reach is keyed per goal.
         gr = out["baseline"]["result"]["goal_reach"]
         assert isinstance(gr, dict)

@@ -303,7 +303,7 @@ export default function Settings() {
           <TabsTrigger value="automation">Automation</TabsTrigger>
           <TabsTrigger value="memory">Memory</TabsTrigger>
           <TabsTrigger value="accounts">Accounts</TabsTrigger>
-          <TabsTrigger value="agent-keys">Agent Keys</TabsTrigger>
+          <TabsTrigger value="agent-keys">AI connections</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
         </TabsList>
 

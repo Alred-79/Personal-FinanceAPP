@@ -33,6 +33,8 @@ beforeEach(() => {
       scenariosLoaded: false,
       activeScenarioResult: null,
       compareResult: null,
+      compareResultKey: null,
+      compareLoading: false,
       committedPlan: null,
     });
   });
@@ -48,6 +50,8 @@ describe("scenario store defaults + logout reset", () => {
     expect(s.scenariosLoaded).toBe(false);
     expect(s.activeScenarioResult).toBeNull();
     expect(s.compareResult).toBeNull();
+    expect(s.compareResultKey).toBeNull();
+    expect(s.compareLoading).toBe(false);
     expect(s.committedPlan).toBeNull();
   });
 
@@ -58,6 +62,8 @@ describe("scenario store defaults + logout reset", () => {
         scenariosLoaded: true,
         activeScenarioResult: { baseline: {} } as never,
         compareResult: { columns: [] } as never,
+        compareResultKey: "90:1",
+        compareLoading: true,
         committedPlan: { plan_id: 9, rule_ids: [1] },
       });
     });
@@ -67,6 +73,8 @@ describe("scenario store defaults + logout reset", () => {
     expect(s.scenariosLoaded).toBe(false);
     expect(s.activeScenarioResult).toBeNull();
     expect(s.compareResult).toBeNull();
+    expect(s.compareResultKey).toBeNull();
+    expect(s.compareLoading).toBe(false);
     expect(s.committedPlan).toBeNull();
   });
 });
@@ -212,11 +220,44 @@ describe("compareScenarios + commitScenario", () => {
     await act(async () => {
       await useStore.getState().compareScenarios([1, 2], 120);
     });
-    expect(apiPost).toHaveBeenCalledWith("/scenarios/compare/", {
-      scenario_ids: [1, 2],
-      horizon_days: 120,
-    });
+    expect(apiPost).toHaveBeenCalledWith(
+      "/scenarios/compare/",
+      {
+        scenario_ids: [1, 2],
+        horizon_days: 120,
+      },
+      expect.objectContaining({ signal: expect.anything() })
+    );
     expect(useStore.getState().compareResult).not.toBeNull();
+  });
+
+  it("aborts a stale comparison and keeps only the latest ids and horizon", async () => {
+    let resolveFirst: (value: unknown) => void = () => {};
+    apiPost
+      .mockImplementationOnce(
+        (_url, _body, config) =>
+          new Promise((resolve, reject) => {
+            resolveFirst = resolve;
+            (config.signal as AbortSignal).addEventListener("abort", () => {
+              const error = new Error("canceled") as Error & { name: string };
+              error.name = "CanceledError";
+              reject(error);
+            });
+          })
+      )
+      .mockResolvedValueOnce({ data: { columns: [{ name: "Latest" }] } });
+
+    let first: Promise<void>;
+    await act(async () => {
+      first = useStore.getState().compareScenarios([1], 30);
+      await useStore.getState().compareScenarios([2], 60);
+      resolveFirst({ data: { columns: [{ name: "Stale" }] } });
+      await first;
+    });
+
+    expect(useStore.getState().compareResultKey).toBe("60:2");
+    expect(useStore.getState().compareResult?.columns[0].name).toBe("Latest");
+    expect(useStore.getState().compareLoading).toBe(false);
   });
 
   it("commitScenario runs propose→confirm and refetches forecast + goals", async () => {
