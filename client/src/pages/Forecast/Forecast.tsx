@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useStore } from "@/store/store";
 import PageHeader from "@/components/layout/PageHeader";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, TiltCard, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -10,10 +10,13 @@ import { formatCurrency } from "@/lib/format";
 import { Stamp } from "@/components/engraving/Stamp";
 import { SectionRule } from "@/components/engraving/SectionRule";
 import { Figure } from "@/components/engraving/Figure";
+import { AnimatedNumber } from "@/components/engraving/AnimatedNumber";
+import { GuillocheBand } from "@/components/engraving/Guilloche";
 import CashflowCalendar from "@/components/custom/CashflowCalendar/CashflowCalendar";
 import ScenarioBuilder from "@/components/custom/ScenarioBuilder/ScenarioBuilder";
 import ScenarioCompare from "@/components/custom/ScenarioCompare/ScenarioCompare";
 import PlanComposerPanel from "./PlanComposerPanel";
+import ForecastEvidencePanel from "./ForecastEvidencePanel";
 import CommitConfirmDialog from "@/components/custom/ScenarioBuilder/CommitConfirmDialog";
 import {
   AreaChart,
@@ -43,6 +46,7 @@ export default function Forecast() {
   const storedActiveResult = useStore((s) => s.activeScenarioResult);
   const clearResult = useStore((s) => s.clearActiveScenarioResult);
   const planComposerEnabled = useStore((s) => s.planComposerEnabled);
+  const forecastEvidenceEnabled = useStore((s) => s.forecastEvidenceEnabled);
   const [searchParams, setSearchParams] = useSearchParams();
   const [acceptCurrentVisitResult, setAcceptCurrentVisitResult] = useState(false);
 
@@ -86,9 +90,9 @@ export default function Forecast() {
     setSearchParams(next, { replace: true });
   };
 
-  const baselineTimeline = activeResult?.baseline_timeline ?? [];
-  const scenarioTimeline = activeResult?.scenario_timeline ?? [];
   const overlayData = useMemo(() => {
+    const baselineTimeline = activeResult?.baseline_timeline ?? [];
+    const scenarioTimeline = activeResult?.scenario_timeline ?? [];
     const byDate = new Map<string, { date: string; baseline?: number; scenario?: number }>();
     for (const point of baselineTimeline) byDate.set(point.date, { date: point.date, baseline: point.balance });
     for (const point of scenarioTimeline) {
@@ -97,7 +101,7 @@ export default function Forecast() {
       byDate.set(point.date, row);
     }
     return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
-  }, [baselineTimeline, scenarioTimeline]);
+  }, [activeResult]);
 
   return (
     <>
@@ -127,11 +131,16 @@ export default function Forecast() {
           </TabsList>
 
           <TabsContent value="projection" className="space-y-6">
-            <Card>
+            <TiltCard className="relative overflow-hidden animate-ink-in" maxTilt={3}>
+              <div className="text-gold/45">
+                <GuillocheBand height={15} waves={4} seed={9} />
+              </div>
               <CardContent className="grid gap-6 p-6 md:grid-cols-[1.2fr_1fr]">
                 <div>
                   <p className="font-sans text-sm text-muted-foreground">Central-path balance on {forecast.horizon_end}</p>
-                  <p className="intaglio mt-2 text-5xl text-foreground">{formatCurrency(forecast.ending_balance)}</p>
+                  <p className="intaglio mt-2 text-5xl text-foreground">
+                    <AnimatedNumber value={forecast.ending_balance} duration={650} />
+                  </p>
                   <p className="mt-3 max-w-xl text-sm text-muted-foreground">
                     This is a directional estimate from current balances, scheduled cash events, and recent discretionary spending—not an exact future balance.
                   </p>
@@ -148,12 +157,25 @@ export default function Forecast() {
                   <Figure label="Scheduled outflows" value={formatCurrency(forecast.total_projected_expenses)} />
                 </div>
               </CardContent>
-            </Card>
+            </TiltCard>
 
             <BalanceChart data={forecast.timeline} />
+            {forecast.regime_shift && <RegimeShiftNote shift={forecast.regime_shift} />}
             {forecast.trough_band && <LowPointRange band={forecast.trough_band} />}
             <EventList events={forecast.events ?? []} />
             <CashflowCalendar forecast={forecast} />
+            {forecastEvidenceEnabled && (
+              <details className="border border-rule bg-card p-5">
+                <summary className="cursor-pointer font-sans text-sm font-semibold focus-visible:outline-none">
+                  Advanced: forecast evidence
+                </summary>
+                <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+                  Inspect descriptive observations about prior forecast ranges. This
+                  evidence does not automatically tune the model or certify future accuracy.
+                </p>
+                <div className="mt-5"><ForecastEvidencePanel /></div>
+              </details>
+            )}
           </TabsContent>
 
           <TabsContent value="whatif" className="space-y-6">
@@ -245,7 +267,8 @@ export default function Forecast() {
 
 function BalanceChart({ data }: { data: Array<{ date: string; balance: number }> }) {
   return (
-    <Card>
+    <Card raking>
+      <div className="text-gold/30"><GuillocheBand height={10} waves={3} seed={12} /></div>
       <CardHeader><CardTitle>Daily central path</CardTitle></CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={300}>
@@ -265,7 +288,8 @@ function BalanceChart({ data }: { data: Array<{ date: string; balance: number }>
 
 function ScenarioChart({ data }: { data: Array<{ date: string; baseline?: number; scenario?: number }> }) {
   return (
-    <Card>
+    <Card raking>
+      <div className="text-gold/30"><GuillocheBand height={10} waves={3} seed={14} /></div>
       <CardHeader><CardTitle>Daily central paths</CardTitle></CardHeader>
       <CardContent>
         <div className="mb-3 flex flex-wrap gap-4 text-xs text-muted-foreground" aria-hidden>
@@ -291,21 +315,61 @@ function ScenarioChart({ data }: { data: Array<{ date: string; baseline?: number
 function LowPointRange({ band }: { band: { low: number; median: number; high: number } }) {
   const spread = Math.max(band.high - band.low, 1);
   const medianPosition = Math.max(0, Math.min(100, ((band.median - band.low) / spread) * 100));
+  const markerX = 32 + medianPosition * 4.56;
   return (
-    <Card>
-      <CardHeader><CardTitle>Modeled low-point range</CardTitle></CardHeader>
+    <Card raking className="overflow-hidden">
+      <div className="text-gold/35"><GuillocheBand height={12} waves={4} seed={17} /></div>
+      <CardHeader>
+        <CardTitle>Modeled low-point range</CardTitle>
+        <p className="mt-1 text-sm text-muted-foreground">
+          A distribution of each modeled path&rsquo;s lowest balance—not a corridor around every date.
+        </p>
+      </CardHeader>
       <CardContent>
-        <div className="relative h-3 bg-ink-wash" role="img" aria-label={`Modeled low-point bounds run from ${formatCurrency(band.low)} to ${formatCurrency(band.high)}, with a central modeled low of ${formatCurrency(band.median)}`}>
-          <span className="absolute inset-y-0 w-1 bg-gold" style={{ left: `${medianPosition}%` }} />
-        </div>
-        <div className="mt-2 flex justify-between gap-4 font-mono text-xs text-muted-foreground">
+        <svg
+          viewBox="0 0 520 58"
+          className="h-16 w-full"
+          role="img"
+          aria-label={`Modeled low-point bounds run from ${formatCurrency(band.low)} to ${formatCurrency(band.high)}, with a central modeled low of ${formatCurrency(band.median)}`}
+        >
+          <defs>
+            <pattern id="low-point-hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="7" stroke="hsl(var(--gold))" strokeWidth="1" opacity="0.42" />
+            </pattern>
+          </defs>
+          <line x1="32" x2="488" y1="29" y2="29" stroke="hsl(var(--rule-strong))" strokeWidth="1" />
+          <rect x="32" y="18" width="456" height="22" fill="hsl(var(--gold) / 0.08)" stroke="hsl(var(--gold) / 0.45)" />
+          <rect x="32" y="18" width="456" height="22" fill="url(#low-point-hatch)" />
+          <line x1="32" x2="32" y1="12" y2="46" stroke="hsl(var(--rule-strong))" strokeWidth="2" />
+          <line x1="488" x2="488" y1="12" y2="46" stroke="hsl(var(--rule-strong))" strokeWidth="2" />
+          <line x1={markerX} x2={markerX} y1="8" y2="50" stroke="hsl(var(--gold))" strokeWidth="3" />
+          <circle cx={markerX} cy="8" r="4" fill="hsl(var(--gold))" />
+        </svg>
+        <div className="mt-2 grid gap-2 font-mono text-xs text-muted-foreground sm:grid-cols-3">
           <span>Lower modeled bound {formatCurrency(band.low)}</span>
-          <span>Central modeled low {formatCurrency(band.median)}</span>
-          <span>Upper modeled bound {formatCurrency(band.high)}</span>
+          <span className="sm:text-center">Central modeled low {formatCurrency(band.median)}</span>
+          <span className="sm:text-right">Upper modeled bound {formatCurrency(band.high)}</span>
         </div>
-        <p className="mt-3 text-sm text-muted-foreground">This range summarizes low points across modeled paths. It is separate from the daily central-path lines above.</p>
       </CardContent>
     </Card>
+  );
+}
+
+function RegimeShiftNote({ shift }: { shift: { date: string; delta_per_month: number; direction: "up" | "down" } }) {
+  const up = shift.direction === "up";
+  const date = new Date(`${shift.date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return (
+    <div className="flex flex-col gap-2 border-y border-rule py-4 sm:flex-row sm:items-baseline sm:justify-between">
+      <div>
+        <p className="font-sans text-sm font-semibold">Recent spending pace changed</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Around {date}, observed discretionary spending moved {up ? "up" : "down"}. The current outlook weights the newer pace.
+        </p>
+      </div>
+      <Stamp variant={up ? "debit" : "credit"} still>
+        {up ? "+" : "−"}{formatCurrency(Math.abs(shift.delta_per_month))}/month
+      </Stamp>
+    </div>
   );
 }
 

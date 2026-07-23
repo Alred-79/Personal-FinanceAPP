@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Rise } from "../shared";
+import { Magnetic } from "../effects/Magnetic";
 import { landingScrollTo } from "../hooks/useLenis";
 import { ReadingRoomDesk } from "./agents/ReadingRoomDesk";
 
@@ -53,6 +55,14 @@ export function AgentReadingRoom() {
         </div>
 
         <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <Magnetic>
+            <Link
+              to="/login?next=%2Fsettings%3Ftab%3Dagent-keys"
+              className="press inline-block bg-primary px-7 py-3.5 text-[0.9rem] font-semibold uppercase tracking-[0.04em] text-primary-foreground"
+            >
+              Configure AI access
+            </Link>
+          </Magnetic>
           <button
             type="button"
             onClick={showWorkings}
@@ -63,7 +73,8 @@ export function AgentReadingRoom() {
         </div>
 
         <p className="mx-auto mt-4 max-w-[30rem] text-[0.76rem] leading-relaxed text-muted-foreground/80">
-          Your chosen AI provider receives the information you authorize.
+          Sign in to confirm connection availability. Your chosen AI provider receives
+          the information you authorize—and nothing else from The Ledger.
         </p>
       </Rise>
 

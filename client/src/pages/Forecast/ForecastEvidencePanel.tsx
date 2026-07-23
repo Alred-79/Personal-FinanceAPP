@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Stamp } from "@/components/engraving/Stamp";
 
 type Stats = {
@@ -42,16 +43,44 @@ const pct = (value: number | null) =>
 /** Owner-only audit surface. It reports observations and never changes a band. */
 export default function ForecastEvidencePanel() {
   const [data, setData] = useState<Evidence | null>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let live = true;
+    setStatus("loading");
     api.get<Evidence>("/forecast/evidence/")
-      .then((response) => live && setData(response.data))
-      .catch(() => live && setData(null));
+      .then((response) => {
+        if (!live) return;
+        setData(response.data);
+        setStatus("ready");
+      })
+      .catch(() => {
+        if (!live) return;
+        setData(null);
+        setStatus("error");
+      });
     return () => { live = false; };
-  }, []);
+  }, [attempt]);
 
-  if (!data) return null;
+  if (status === "loading") {
+    return <div className="h-40 animate-pulse bg-muted/40" aria-label="Loading forecast evidence" />;
+  }
+  if (status === "error" || !data) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-sans text-sm font-semibold">Forecast evidence could not be loaded</p>
+            <p className="mt-1 text-sm text-muted-foreground">The current outlook is still available. Retry this optional audit view.</p>
+          </div>
+          <Button type="button" variant="outline" className="min-h-11" onClick={() => setAttempt((value) => value + 1)}>
+            Retry evidence
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
   return (
     <Card raking>
       <CardHeader className="flex flex-row items-start justify-between gap-3">

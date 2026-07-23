@@ -66,8 +66,10 @@ describe("The Agent Reading Room", () => {
     expect(screen.getByText(/not a live API call/i)).toBeInTheDocument();
   });
 
-  it("keeps public issuance out of the landing section", () => {
+  it("provides a truthful sign-in path without issuing credentials publicly", () => {
     renderRoom();
+    const configure = screen.getByRole("link", { name: /Configure AI access/i });
+    expect(configure).toHaveAttribute("href", "/login?next=%2Fsettings%3Ftab%3Dagent-keys");
     expect(screen.queryByRole("link", { name: /Connect your AI/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /See how access works/i })).toBeInTheDocument();
   });

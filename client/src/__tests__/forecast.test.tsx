@@ -26,6 +26,12 @@ const FORECAST = {
   first_negative_date: null,
   paths_below_zero: 12,
   paths_total: 300,
+  regime_shift: {
+    date: "2026-03-12",
+    delta_per_day: 10,
+    delta_per_month: 300,
+    direction: "up" as const,
+  },
   trough_band: { low: 500, median: 750, high: 950 },
   events: [{ date: "2026-03-15", income: 1000, expenses: 200, net: 800, label: "Paycheck, Rent" }],
   timeline: TIMELINE,
@@ -81,6 +87,7 @@ const { state, fetchForecast, fetchScenarios } = vi.hoisted(() => {
       createScenario: vi.fn(),
       updateScenario: vi.fn(),
       clearActiveScenarioResult: vi.fn(),
+      forecastEvidenceEnabled: false,
       fetchGoals: vi.fn(),
       goals: [],
     },
@@ -131,6 +138,10 @@ vi.mock("@/components/ui/select", () => {
   return { Select, SelectTrigger, SelectValue, SelectContent, SelectItem };
 });
 
+vi.mock("@/pages/Forecast/ForecastEvidencePanel", () => ({
+  default: () => <div>Forecast evidence audit surface</div>,
+}));
+
 import Forecast from "@/pages/Forecast/Forecast";
 
 beforeEach(() => {
@@ -138,6 +149,7 @@ beforeEach(() => {
   fetchScenarios.mockClear();
   state.forecast = FORECAST;
   state.activeScenarioResult = null;
+  state.forecastEvidenceEnabled = false;
 });
 afterEach(() => cleanup());
 
@@ -160,9 +172,17 @@ describe("Forecast page", () => {
     expect(screen.getByRole("tab", { name: "Compare saved" })).toBeInTheDocument();
     expect(screen.getByText("−$200.00")).toBeInTheDocument();
     expect(screen.getByText(/Lower modeled bound/)).toBeInTheDocument();
+    expect(screen.getByText(/Recent spending pace changed/i)).toBeInTheDocument();
     expect(container.textContent ?? "").not.toMatch(/5th percentile|95th percentile/i);
     expect(state.clearActiveScenarioResult).toHaveBeenCalled();
     expect(container.textContent ?? "").not.toMatch(/confidence|chance|calibrated|probability/i);
+  });
+
+  it("restores the optional forecast-evidence surface behind progressive disclosure", () => {
+    state.forecastEvidenceEnabled = true;
+    renderAt();
+    expect(screen.getByText("Advanced: forecast evidence")).toBeInTheDocument();
+    expect(screen.getByText("Forecast evidence audit surface")).toBeInTheDocument();
   });
 
   it("renders the baseline-vs-scenario overlay (two series) when a run exists", () => {

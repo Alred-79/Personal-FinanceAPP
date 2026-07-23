@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { GuillocheBand } from "@/components/engraving/Guilloche";
+import { useReducedMotion } from "@/hooks/useEnvironment";
 import { cn } from "@/lib/utils";
 import { AnchorLink, EASE, Rise } from "../shared";
 import { CoinStage } from "../coin/CoinSceneLazy";
@@ -20,6 +21,13 @@ const METRICS = [
 
 /** The hero — department label, headline, lede, CTAs, assurances, specimen note. */
 export function Hero() {
+  const reduce = useReducedMotion();
+  // Keep every word legible on the first frame while restoring the original
+  // ceremonial rise. Opacity never starts at zero, so a paused animation,
+  // background tab, or headless renderer cannot blank the promise or CTA.
+  const arrival = (y: number) =>
+    reduce ? false : { opacity: 0.94, y, filter: "blur(0.5px)" };
+
   return (
     <header
       className="grid content-start gap-6 pt-[clamp(5.5rem,12vh,8rem)] text-center"
@@ -31,8 +39,8 @@ export function Hero() {
       </div>
       <motion.p
         className="dept-label"
-        initial={false}
-        animate={{ opacity: 1, y: 0 }}
+        initial={arrival(10)}
+        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
         transition={{ duration: 0.6, ease: EASE }}
       >
         Independent personal money control · Est. MMXXVI
@@ -40,8 +48,8 @@ export function Hero() {
       <motion.h1
         className="mx-auto font-display font-semibold leading-[1.04] tracking-tight"
         style={{ fontSize: "clamp(2.6rem,7vw,5.2rem)" }}
-        initial={false}
-        animate={{ opacity: 1, y: 0 }}
+        initial={arrival(16)}
+        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.08 }}
       >
         Know what&rsquo;s safe.
@@ -51,8 +59,8 @@ export function Hero() {
       <motion.p
         className="mx-auto max-w-[40rem] text-muted-foreground"
         style={{ fontSize: "clamp(1rem,2.2vw,1.22rem)", lineHeight: 1.55 }}
-        initial={false}
-        animate={{ opacity: 1, y: 0 }}
+        initial={arrival(14)}
+        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.16 }}
       >
         The Ledger reads across your accounts, bills, income, and goals to show what you
@@ -61,8 +69,8 @@ export function Hero() {
       </motion.p>
       <motion.div
         className="mt-1 flex flex-wrap justify-center gap-3"
-        initial={false}
-        animate={{ opacity: 1, y: 0 }}
+        initial={arrival(12)}
+        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.24 }}
       >
         <Magnetic>
@@ -83,7 +91,7 @@ export function Hero() {
       {/* persistent trust chip under the CTA — our most-distrusted surface, stated as a strength */}
       <motion.div
         className="mt-3 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[0.72rem] tracking-[0.04em] text-muted-foreground"
-        initial={false}
+        initial={reduce ? false : { opacity: 0.94 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.7, ease: EASE, delay: 0.32 }}
       >
