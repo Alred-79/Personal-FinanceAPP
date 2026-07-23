@@ -254,6 +254,20 @@ class ScenarioEvaluateIn(BaseModel):
     horizon_days: int = Field(default=90, gt=0, le=3650)
 
 
+class PlanComposerPreviewIn(BaseModel):
+    """Dollar-denominated request for non-persistable soft-allocation drafts."""
+
+    max_allocation: float = Field(
+        ge=0, le=1_000_000_000, allow_inf_nan=False
+    )
+    additional_buffer_floor: float = Field(
+        ge=0, le=1_000_000_000, allow_inf_nan=False
+    )
+    goal_ids: list[int] = Field(default_factory=list, max_length=100)
+    priority: str = Field(default="balanced", pattern="^(buffer|balanced|deadlines)$")
+    horizon_days: int = Field(default=90, gt=0, le=365)
+
+
 # ── Messy-data ingestion (Reconciliation Desk / Import Anything) ─────────────
 # These are financial endpoints, so they speak dollar floats on the wire (the
 # DB stores integer cents; routers convert at the boundary). ``amount`` is
@@ -398,4 +412,3 @@ class TaxDocumentPatchIn(BaseModel):
     tax_year: Optional[int] = Field(default=None, ge=1900, le=2200)
     issuer_name: Optional[str] = Field(default=None, max_length=200)
     fields: Optional[dict] = None  # partial money-box overrides (dollars)
-

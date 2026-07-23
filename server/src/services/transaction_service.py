@@ -58,7 +58,10 @@ class TransactionService:
             self.db.execute(
                 update(AccountORM)
                 .where(AccountORM.id == account_id)
-                .values(last_updated=func.current_timestamp())
+                .values(
+                    last_updated=func.current_timestamp(),
+                    plaid_balance_refreshed_at=None,
+                )
             )
             return
         self.db.execute(
@@ -67,6 +70,7 @@ class TransactionService:
             .values(
                 balance=AccountORM.balance + delta_cents,
                 last_updated=func.current_timestamp(),
+                plaid_balance_refreshed_at=None,
             )
         )
 

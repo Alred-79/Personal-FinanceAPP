@@ -38,7 +38,7 @@ function FanFutures() {
   );
 }
 
-/** Step 3 — a calibrated corridor forms around the median. */
+/** Step 3 — the simulated 5th–95th percentile corridor around the median. */
 function CalibrateBand() {
   return (
     <svg viewBox="0 0 220 96" className="ftk" fill="none" stroke="currentColor" strokeLinecap="round">
@@ -91,7 +91,7 @@ const STEPS: Step[] = [
   {
     n: "iii",
     title: "Check the range",
-    caption: "The model measures how often its range contains the real outcome and widens that range when your spending is less predictable.",
+    caption: "The corridor spans the 5th–95th percentiles of the modeled paths, so a wider shape means those simulated futures disagree more.",
     art: <CalibrateBand />,
   },
   {

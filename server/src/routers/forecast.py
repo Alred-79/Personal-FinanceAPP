@@ -8,13 +8,15 @@ an explicit ``start`` and ``end`` (ISO ``YYYY-MM-DD``).
 from datetime import date, timedelta
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from server.src.db.session import get_db
 from server.src.models import UserInDB
 from server.src.services.auth_service import AuthService
 from server.src.services.forecast_service import ForecastService
+from server.src.services.forecast_evidence_service import ForecastEvidenceService
+from server.src.settings import settings
 
 router = APIRouter(prefix="/forecast", tags=["forecast"])
 
@@ -38,3 +40,16 @@ async def get_forecast(
     return ForecastService(db).forecast(
         current_user.id, horizon_start, horizon_end, include_burn=True
     )
+
+
+@router.get("/evidence/")
+async def get_forecast_evidence(
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    """Owner-only descriptive evidence; never a calibration/deployment claim."""
+    if not settings.forecast_evidence_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
+    return ForecastEvidenceService(db).summary(current_user.id)

@@ -16,6 +16,7 @@ import {
   hasLifecycleData,
 } from "@/lib/subscriptions";
 import { Subscription } from "@/types";
+import MerchantAliasManager from "./MerchantAliasManager";
 
 function MandateGrid({ items }: { items: Subscription[] }) {
   return (
@@ -36,7 +37,12 @@ function MandateGrid({ items }: { items: Subscription[] }) {
  * "at risk" section (no alarm chrome — the calm is the point).
  */
 const Subscriptions: React.FC = () => {
-  const { subscriptions, subscriptionsLoaded, fetchSubscriptions } = useStore();
+  const {
+    subscriptions,
+    subscriptionsLoaded,
+    fetchSubscriptions,
+    merchantAliasesEnabled,
+  } = useStore();
   const [tab, setTab] = useState("register");
 
   useEffect(() => {
@@ -68,6 +74,9 @@ const Subscriptions: React.FC = () => {
         <TabsList>
           <TabsTrigger value="register">Register</TabsTrigger>
           <TabsTrigger value="cadence">Cadence</TabsTrigger>
+          {merchantAliasesEnabled && (
+            <TabsTrigger value="merchant-groups">Merchant groups</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="register">
@@ -123,6 +132,12 @@ const Subscriptions: React.FC = () => {
         <TabsContent value="cadence">
           <CadenceCalendar />
         </TabsContent>
+
+        {merchantAliasesEnabled && (
+          <TabsContent value="merchant-groups">
+            <MerchantAliasManager onChanged={fetchSubscriptions} />
+          </TabsContent>
+        )}
       </Tabs>
     </>
   );

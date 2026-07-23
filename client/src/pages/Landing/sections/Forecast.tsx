@@ -5,7 +5,7 @@ import { Vignettes } from "./forecast/Vignettes";
 
 /**
  * The Forecast — the product's flagship. The landing portrays the real engine
- * honestly: a calibrated probabilistic projection (moving-block bootstrap +
+ * honestly: a simulated probabilistic projection (moving-block bootstrap +
  * conformal band + change-point detection), a live what-if, and the supporting
  * surfaces (Safe-to-Spend, Compare, calendar). See server/src/services/forecast_*.
  */

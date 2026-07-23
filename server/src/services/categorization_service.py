@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from server.src.db.models import MerchantCategory as MerchantCategoryORM
+from server.src.settings import settings
 
 # A type alias for the Groq call: maps a list of merchant titles → {title: category}.
 LLMFn = Callable[[list[str]], dict[str, str]]
@@ -302,14 +303,29 @@ class CategorizationService:
     # ── Learned mapping ──────────────────────────────────────────────────
 
     def learned_category(self, user_id: int, merchant_key: str) -> Optional[str]:
+        row = self.learned_mapping(user_id, merchant_key)
+        return row.category if row is not None else None
+
+    def learned_mapping(
+        self, user_id: int, merchant_key: str
+    ) -> Optional[MerchantCategoryORM]:
         if not merchant_key:
             return None
         return self.db.execute(
-            select(MerchantCategoryORM.category).where(
+            select(MerchantCategoryORM).where(
                 MerchantCategoryORM.user_id == user_id,
                 MerchantCategoryORM.merchant == merchant_key,
             )
         ).scalar_one_or_none()
+
+    def _resolved_key(self, user_id: int, merchant_key: str) -> str:
+        if not settings.merchant_aliases_enabled or not merchant_key:
+            return merchant_key
+        from server.src.services.merchant_identity_service import (
+            MerchantIdentityService,
+        )
+
+        return MerchantIdentityService(self.db).resolve_key(user_id, merchant_key)
 
     def learn(
         self, user_id: int, title: str, category: str, source: str = "user"
@@ -320,6 +336,11 @@ class CategorizationService:
         never overwrite an existing ``"user"`` mapping.
         """
         key = normalize_merchant(title)
+        # Manual corrections remain attached to the exact descriptor and always
+        # outrank an alias. Lower-trust memory is learned against the confirmed
+        # canonical key so it cannot contradict the grouping relationship.
+        if source != "user":
+            key = self._resolved_key(user_id, key)
         if not key or not category:
             return
         existing = self.db.execute(
@@ -358,11 +379,23 @@ class CategorizationService:
         """
         key = normalize_merchant(title)
 
-        learned = self.learned_category(user_id, key)
-        if learned:
-            return learned, "learned"
+        exact = self.learned_mapping(user_id, key)
+        if exact is not None and (
+            exact.source == "user" or not settings.merchant_aliases_enabled
+        ):
+            return exact.category, "learned"
 
-        rule = rule_category(title)
+        resolved_key = self._resolved_key(user_id, key)
+        if resolved_key != key:
+            canonical = self.learned_mapping(user_id, resolved_key)
+            if canonical is not None:
+                return canonical.category, "learned"
+        elif exact is not None:
+            return exact.category, "learned"
+
+        # When grouped, apply deterministic rules to the confirmed canonical
+        # key. An exact rule/LLM memory on the raw alias cannot override it.
+        rule = rule_category(resolved_key if resolved_key != key else title)
         if rule:
             return rule, "rule"
 
@@ -393,11 +426,22 @@ class CategorizationService:
 
         for title in titles:
             key = normalize_merchant(title)
-            learned = self.learned_category(user_id, key)
-            if learned:
-                result[title] = learned
+            exact = self.learned_mapping(user_id, key)
+            if exact is not None and (
+                exact.source == "user" or not settings.merchant_aliases_enabled
+            ):
+                result[title] = exact.category
                 continue
-            rule = rule_category(title)
+            resolved_key = self._resolved_key(user_id, key)
+            canonical = (
+                self.learned_mapping(user_id, resolved_key)
+                if resolved_key != key
+                else exact
+            )
+            if canonical is not None:
+                result[title] = canonical.category
+                continue
+            rule = rule_category(resolved_key if resolved_key != key else title)
             if rule:
                 result[title] = rule
                 continue

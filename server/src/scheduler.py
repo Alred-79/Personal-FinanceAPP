@@ -672,6 +672,45 @@ def job_landmark_reentry(db: Session, now: Optional[datetime | date] = None) -> 
     )
 
 
+def job_forecast_evidence(
+    db: Session, now: Optional[datetime] = None
+) -> dict[str, int | str]:
+    """Capture/mature the dark evidence pilot once per UTC day.
+
+    Stored balances are observed as-is; this job never triggers a Plaid refresh.
+    Each user's work is owner-bound for RLS and idempotent on the table uniques.
+    """
+    if not settings.forecast_evidence_enabled:
+        return {"skipped": "flag_off"}
+    from datetime import timezone
+
+    from .db.rls import set_tenant
+    from .logging_context import user_id_var
+    from .services.forecast_evidence_service import ForecastEvidenceService
+
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    else:
+        now = now.astimezone(timezone.utc)
+    totals = {"observations": 0, "origins": 0, "matured": 0}
+    for user in _users(db):
+        set_tenant(db, user.id)
+        token = user_id_var.set(str(user.id))
+        try:
+            result = ForecastEvidenceService(db).capture_and_mature_user(
+                user.id, now=now
+            )
+            for key in totals:
+                totals[key] += result[key]
+        except Exception:  # noqa: BLE001 — one owner cannot abort all evidence
+            logger.exception("forecast evidence failed: user=%s", user.id)
+        finally:
+            user_id_var.reset(token)
+    db.flush()
+    return totals
+
+
 # ---------------------------------------------------------------------------
 # The scheduled wrappers — own-session, commit, close (no request context).
 # ---------------------------------------------------------------------------
@@ -818,6 +857,17 @@ async def _landmark_reentry_tick() -> None:
     _run_in_own_session(lambda db: job_landmark_reentry(db, datetime.now()))
 
 
+async def _forecast_evidence_tick() -> None:
+    """UTC daily evidence capture; self-gated and idempotent."""
+    if not settings.forecast_evidence_enabled:
+        return
+    from datetime import timezone
+
+    _run_in_own_session(
+        lambda db: job_forecast_evidence(db, datetime.now(timezone.utc))
+    )
+
+
 # ---------------------------------------------------------------------------
 # APScheduler wiring
 # ---------------------------------------------------------------------------
@@ -959,6 +1009,16 @@ def build_scheduler():
         _notification_retention_tick,
         CronTrigger(hour=2, minute=0, timezone="UTC"),
         id="notification_retention",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+    # Descriptive evidence pilot. Runs after the normal nightly jobs and captures
+    # the first stored-balance observation for the UTC day. It does not sync Plaid.
+    scheduler.add_job(
+        _forecast_evidence_tick,
+        CronTrigger(hour=2, minute=10, timezone="UTC"),
+        id="forecast_evidence",
         replace_existing=True,
         misfire_grace_time=3600,
         coalesce=True,

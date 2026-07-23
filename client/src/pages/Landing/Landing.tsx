@@ -41,7 +41,7 @@ export default function Landing() {
         <VaultLightSwitch />
 
         <div className="relative z-[1] mx-auto max-w-[1080px] px-4 sm:px-8">
-          {/* Lead with the Hero, then the calibrated-overdraft Forecast right
+          {/* Lead with the Hero, then the simulated-overdraft Forecast right
               below it (its original top-of-page placement), followed by the
               working tools, the vault's trust guarantees, and — last, on the
               dark side — the Reading Room where an AI reads the ledger under

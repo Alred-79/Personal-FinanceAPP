@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from server.src.db.session import get_db
 from server.src.models import (
+    PlanComposerPreviewIn,
     ScenarioCompareIn,
     ScenarioEvaluateIn,
     ScenarioIn,
@@ -25,11 +26,36 @@ from server.src.services.scenario_service import (
     ScenarioService,
     overlay_in_to_overlay,
 )
+from server.src.money import dollars_to_cents
+from server.src.services.plan_composer_service import PlanComposerError, PlanComposerService
+from server.src.settings import settings
 
 router = APIRouter(prefix="/scenarios", tags=["scenarios"])
 
 _DEFAULT_HORIZON_DAYS = 90
 _MAX_HORIZON_DAYS = 3650
+
+
+@router.post("/compose-preview/")
+async def compose_preview(
+    payload: PlanComposerPreviewIn,
+    current_user: Annotated[UserInDB, Depends(AuthService.get_current_active_user)],
+    db: Session = Depends(get_db),
+):
+    """Return evaluated soft-allocation cards without a persistable overlay."""
+    if not settings.plan_composer_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        return PlanComposerService(db).compose(
+            current_user.id,
+            max_allocation_cents=dollars_to_cents(payload.max_allocation),
+            additional_buffer_cents=dollars_to_cents(payload.additional_buffer_floor),
+            goal_ids=payload.goal_ids,
+            priority=payload.priority,
+            horizon_days=payload.horizon_days,
+        )
+    except PlanComposerError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/")

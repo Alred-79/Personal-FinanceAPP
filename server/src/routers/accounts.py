@@ -203,6 +203,9 @@ async def update_account(
     existing.name = account.name
     existing.type = account.type
     existing.balance = dollars_to_cents(account.balance)
+    # A locally supplied balance is no longer a direct Plaid observation. The
+    # next successful Plaid balance refresh will restore this provenance.
+    existing.plaid_balance_refreshed_at = None
     try:
         db.flush()
     except IntegrityError:

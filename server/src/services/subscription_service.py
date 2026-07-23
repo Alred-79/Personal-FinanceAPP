@@ -15,7 +15,7 @@ from __future__ import annotations
 import statistics
 from collections import defaultdict
 from datetime import date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,6 +27,7 @@ from server.src.db.models import (
 from server.src.money import cents_to_dollars
 from server.src.services.categorization_service import normalize_merchant
 from server.src.services.recurring_service import next_occurrence
+from server.src.settings import settings
 
 # Cadence name to its acceptable [min, max] window for the median interval, in days.
 _CADENCE_WINDOWS: list[tuple[str, int, int]] = [
@@ -76,6 +77,7 @@ def detect_subscriptions(
     transactions: list[dict[str, Any]],
     as_of: Optional[date] = None,
     lookback_days: int = 180,
+    merchant_key_fn: Optional[Callable[[str], str]] = None,
 ) -> list[dict[str, Any]]:
     """Detect subscriptions from a list of expense dicts.
 
@@ -90,7 +92,10 @@ def detect_subscriptions(
 
     groups: dict[str, list[tuple[date, float, str]]] = defaultdict(list)
     for tx in transactions:
-        merchant = normalize_merchant(tx.get("title", ""))
+        title = tx.get("title", "")
+        merchant = (
+            merchant_key_fn(title) if merchant_key_fn is not None else normalize_merchant(title)
+        )
         if not merchant:
             continue
         d = _parse_date(tx.get("date", ""))
@@ -126,8 +131,7 @@ def detect_subscriptions(
 
         last_date = dates[-1]
         nxt = next_occurrence(last_date, cadence)
-        subscriptions.append(
-            {
+        subscription = {
                 "merchant": merchant,
                 "title": charges[-1][2],
                 "amount": round(median_amount, 2),
@@ -136,7 +140,14 @@ def detect_subscriptions(
                 "last_date": last_date.isoformat(),
                 "next_date": nxt.isoformat() if nxt else None,
             }
-        )
+        # A confirmed alias can combine multiple exact normalized descriptors.
+        # Mark that read-only aggregate so callers do not attach a lifecycle
+        # snapshot fitted on only one of its component descriptors.
+        if merchant_key_fn is not None and len(
+            {normalize_merchant(charge[2]) for charge in charges}
+        ) > 1:
+            subscription["identity_grouped"] = True
+        subscriptions.append(subscription)
 
     subscriptions.sort(key=lambda s: s["next_date"] or "")
     return subscriptions
@@ -168,4 +179,22 @@ class SubscriptionService:
             }
             for r in rows
         ]
-        return detect_subscriptions(transactions, as_of=as_of)
+        merchant_key_fn = None
+        if settings.merchant_aliases_enabled:
+            # Resolve from one snapshot of the sidecar, not one query per charge.
+            # This affects read-only grouping only; source expenses stay intact.
+            from server.src.services.merchant_identity_service import (
+                MerchantIdentityService,
+            )
+
+            aliases = MerchantIdentityService(self.db).active_map(user_id)
+
+            def _group_key(title: str) -> str:
+                key = normalize_merchant(title)
+                return aliases.get(key, key)
+
+            merchant_key_fn = _group_key
+
+        return detect_subscriptions(
+            transactions, as_of=as_of, merchant_key_fn=merchant_key_fn
+        )

@@ -262,6 +262,7 @@ class PlaidService:
                 .values(
                     balance=dollars_to_cents(float(value)),
                     last_updated=func.current_timestamp(),
+                    plaid_balance_refreshed_at=func.current_timestamp(),
                 )
             )
 

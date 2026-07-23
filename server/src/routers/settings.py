@@ -68,6 +68,11 @@ class FeatureFlags(BaseModel):
     # W5 freelancer wedge. When on, the client surfaces the Income-Volatility
     # nav entry; the endpoint itself 404s when off (ships dark).
     freelancer_mode_enabled: bool
+    # User-confirmed, reversible merchant grouping manager.
+    merchant_aliases_enabled: bool
+    # Dark descriptive evidence panel; never changes the forecast itself.
+    forecast_evidence_enabled: bool
+    plan_composer_enabled: bool
 
 
 class SettingsResponse(BaseModel):
@@ -133,6 +138,9 @@ async def get_settings(
             neurodivergent_mode=app_settings.neurodivergent_mode,
             mcp_enabled=app_settings.mcp_enabled,
             freelancer_mode_enabled=app_settings.freelancer_mode_enabled,
+            merchant_aliases_enabled=app_settings.merchant_aliases_enabled,
+            forecast_evidence_enabled=app_settings.forecast_evidence_enabled,
+            plan_composer_enabled=app_settings.plan_composer_enabled,
         ),
     )
 

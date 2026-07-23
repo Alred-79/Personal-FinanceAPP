@@ -10,6 +10,7 @@ Sign convention (spelled out in ``plaid_client.py``):
 """
 
 import logging
+from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -140,6 +141,7 @@ async def exchange_public_token(
                 name=account_name,
                 type=plaid_account["type"],
                 balance=dollars_to_cents(balance_value),
+                plaid_balance_refreshed_at=datetime.now(timezone.utc),
                 plaid_account_id=str(plaid_account.get("account_id") or "") or None,
                 user_id=current_user.id,
             )

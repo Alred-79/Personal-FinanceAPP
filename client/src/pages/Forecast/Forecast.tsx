@@ -23,6 +23,8 @@ import { EmptyState } from "@/components/engraving/EmptyState";
 import CashflowCalendar from "@/components/custom/CashflowCalendar/CashflowCalendar";
 import ScenarioBuilder from "@/components/custom/ScenarioBuilder/ScenarioBuilder";
 import ScenarioCompare from "@/components/custom/ScenarioCompare/ScenarioCompare";
+import ForecastEvidencePanel from "./ForecastEvidencePanel";
+import PlanComposerPanel from "./PlanComposerPanel";
 import CommitConfirmDialog from "@/components/custom/ScenarioBuilder/CommitConfirmDialog";
 import {
   AreaChart,
@@ -58,6 +60,8 @@ export default function Forecast() {
   const scenariosLoaded = useStore((s) => s.scenariosLoaded);
   const fetchScenarios = useStore((s) => s.fetchScenarios);
   const activeScenarioResult = useStore((s) => s.activeScenarioResult);
+  const forecastEvidenceEnabled = useStore((s) => s.forecastEvidenceEnabled);
+  const planComposerEnabled = useStore((s) => s.planComposerEnabled);
   const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
@@ -358,6 +362,11 @@ export default function Forecast() {
             <RevealItem>
               <CashflowCalendar forecast={forecast!} />
             </RevealItem>
+            {forecastEvidenceEnabled && (
+              <RevealItem>
+                <ForecastEvidencePanel />
+              </RevealItem>
+            )}
             </Reveal>
           </TabsContent>
 
@@ -365,6 +374,7 @@ export default function Forecast() {
           <TabsContent value="whatif">
             <Reveal>
             <RevealItem className="space-y-6">
+            {planComposerEnabled && <PlanComposerPanel />}
             <ScenarioBuilder
               initialMutations={initialMutations}
               onSaved={() => fetchScenarios()}

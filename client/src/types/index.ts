@@ -219,6 +219,21 @@ export interface Subscription {
   prev_amount?: number | null;
 }
 
+export interface MerchantAlias {
+  id: number;
+  alias_key: string;
+  canonical_key: string;
+  canonical_label: string;
+  source: "user";
+  active: boolean;
+  created_at: string | null;
+}
+
+export interface MerchantDescriptor {
+  descriptor: string;
+  normalized_key: string;
+}
+
 export interface ActionMessage {
   id: number;
   text: string;

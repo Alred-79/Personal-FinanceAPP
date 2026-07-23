@@ -165,6 +165,11 @@ class Settings(BaseSettings):
     # renewals can show ≥ 2 occurrences.
     merchant_lifecycle_lookback_days: int = 730
 
+    # Flat, reversible, user-confirmed merchant grouping. OFF by default. The
+    # sidecar affects categorization lookup and read-only subscription grouping
+    # only; it never rewrites transactions or asserts real-world identity.
+    merchant_aliases_enabled: bool = False
+
     # Pillar 3 — the tax & messy-data layer (tax-bucket tagging, tax-document
     # ingestion, tax-summary/estimate engine, quarterly reminders). OFF by
     # default: the feature ships behind this flag, gated on the measured firewall
@@ -363,6 +368,18 @@ class Settings(BaseSettings):
     # recent level shift in spending doesn't get averaged away. Detection is a
     # stdlib CUSUM (no new deps); see services/forecast_changepoint.py.
     forecast_changepoint_enabled: bool = True
+
+    # Verified Decision Foundations — descriptive forecast evidence pilot.
+    # OFF by default. This records once-daily, same-account-set outcomes for
+    # fresh Plaid-linked liquid accounts; it never alters production forecast
+    # bands, probabilities, burn, or routing.
+    forecast_evidence_enabled: bool = False
+    # An account balance older than this at the UTC capture is ineligible. The
+    # scheduler observes stored balances only; it never pretends to refresh Plaid.
+    forecast_evidence_max_age_hours: int = 36
+    # Standalone soft-allocation previews. OFF by default; the response contains
+    # evaluated cards and deliberately excludes a persistable ScenarioOverlay.
+    plan_composer_enabled: bool = False
 
     # --- Voice input (speech-to-text) ---
     # Groq hosts Whisper, so voice input reuses ``groq_api_key`` — no new vendor.

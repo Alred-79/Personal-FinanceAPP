@@ -21,6 +21,7 @@ from server.src.models import UserInDB
 from server.src.money import cents_to_dollars
 from server.src.services.auth_service import AuthService
 from server.src.services.merchant_lifecycle_service import MerchantLifecycleService
+from server.src.services.categorization_service import normalize_merchant
 from server.src.services.subscription_service import SubscriptionService
 from server.src.settings import settings
 
@@ -45,7 +46,15 @@ def get_subscriptions(
         for s in MerchantLifecycleService(db).list_snapshots(current_user.id)
     }
     for sub in subs:
-        snap = snaps.get(sub["merchant"])
+        if sub.get("identity_grouped"):
+            # Lifecycle snapshots are fitted per untouched raw key. Attaching
+            # one component's snapshot to an alias-merged group would describe
+            # a different population than the subscription shown to the user.
+            continue
+        # Lifecycle snapshots are still keyed by the untouched raw descriptor.
+        # Merchant aliases may group this read-only subscription result, but do
+        # not flow into the lifecycle model or its stored snapshots.
+        snap = snaps.get(normalize_merchant(sub["title"]))
         if snap is None:
             continue
         sub["probability_alive"] = snap["probability_alive"]

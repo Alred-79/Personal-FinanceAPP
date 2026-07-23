@@ -206,6 +206,12 @@ interface StoreState {
   mcpEnabled: boolean;
   /** W5 freelancer wedge; gates the Income-Volatility nav entry. Read-only. */
   freelancerModeEnabled: boolean;
+  /** Reversible, user-confirmed merchant grouping manager. Read-only flag. */
+  merchantAliasesEnabled: boolean;
+  /** Descriptive forecast-evidence pilot; does not alter forecast math. */
+  forecastEvidenceEnabled: boolean;
+  /** Non-persistable soft-allocation preview panel. */
+  planComposerEnabled: boolean;
   /** Self-employed / 1099 fork (§3). null = not asked yet; drives the first-run
    *  question and foregrounds the freelancer surfaces. Frontend-only preference. */
   selfEmployed: boolean | null;
@@ -435,6 +441,9 @@ const initialState = {
   taxFeaturesEnabled: false,
   mcpEnabled: false,
   freelancerModeEnabled: false,
+  merchantAliasesEnabled: false,
+  forecastEvidenceEnabled: false,
+  planComposerEnabled: false,
   budgets: [] as Budget[],
   budgetsLoaded: false,
   netWorth: [] as NetWorthPoint[],
@@ -980,6 +989,12 @@ export const useStore = create<StoreState>((set, get) => ({
         mcpEnabled: response.data.features?.mcp_enabled ?? false,
         freelancerModeEnabled:
           response.data.features?.freelancer_mode_enabled ?? false,
+        merchantAliasesEnabled:
+          response.data.features?.merchant_aliases_enabled ?? false,
+        forecastEvidenceEnabled:
+          response.data.features?.forecast_evidence_enabled ?? false,
+        planComposerEnabled:
+          response.data.features?.plan_composer_enabled ?? false,
         settingsLoaded: true,
       });
     } catch (error) {

@@ -104,8 +104,17 @@ class User(Base):
     balance_snapshots = relationship(
         "BalanceSnapshot", back_populates="user", cascade="all, delete-orphan"
     )
+    forecast_daily_observations = relationship(
+        "ForecastDailyObservation", back_populates="user", cascade="all, delete-orphan"
+    )
+    forecast_evidence_origins = relationship(
+        "ForecastEvidenceOrigin", back_populates="user", cascade="all, delete-orphan"
+    )
     merchant_categories = relationship(
         "MerchantCategory", back_populates="user", cascade="all, delete-orphan"
+    )
+    merchant_aliases = relationship(
+        "MerchantAlias", back_populates="user", cascade="all, delete-orphan"
     )
     notifications = relationship(
         "Notification", back_populates="user", cascade="all, delete-orphan"
@@ -158,6 +167,12 @@ class Account(Base):
     type: Mapped[str] = mapped_column(String, nullable=False)
     balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # stored as cents
     last_updated: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.current_timestamp())
+    # Evidence provenance: unlike ``last_updated`` this advances ONLY when a
+    # balance comes directly from Plaid. Local transaction edits deliberately do
+    # not touch it, so they cannot make a stale bank snapshot appear fresh.
+    plaid_balance_refreshed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Step 08: the Plaid ``account_id`` this local account mirrors, set at
     # exchange time (one local Account per Plaid account). NULL for a
     # manually-managed account. Routing and the transfer guard key on this id
@@ -441,6 +456,83 @@ class BalanceSnapshot(Base):
     user = relationship("User", back_populates="balance_snapshots")
 
 
+class ForecastDailyObservation(Base):
+    """Immutable once-daily balance observation for the dark evidence pilot.
+
+    Eligibility describes the unchanged production forecast's complete account
+    set. Unsupported accounts are recorded as ineligible; they are never silently
+    filtered from the total.
+    """
+
+    __tablename__ = "forecast_daily_observations"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "observed_date", name="uq_forecast_observation_user_date"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    observed_date: Mapped[str] = mapped_column(String, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    total_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    account_set_hash: Mapped[str] = mapped_column(String, nullable=False)
+    account_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_type_counts_json: Mapped[str] = mapped_column(
+        JSONStr, nullable=False, default="{}"
+    )
+    freshness_json: Mapped[str] = mapped_column(JSONStr, nullable=False, default="{}")
+    eligible: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    invalid_reason: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    user = relationship("User", back_populates="forecast_daily_observations")
+
+
+class ForecastEvidenceOrigin(Base):
+    """A forecast captured before its future daily observations exist."""
+
+    __tablename__ = "forecast_evidence_origins"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "origin_date",
+            "horizon_days",
+            "model_version",
+            name="uq_forecast_origin_user_date_horizon_model",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    origin_date: Mapped[str] = mapped_column(String, nullable=False)
+    end_date: Mapped[str] = mapped_column(String, nullable=False)
+    horizon_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    model_version: Mapped[str] = mapped_column(String, nullable=False)
+    input_hash: Mapped[str] = mapped_column(String, nullable=False)
+    account_set_hash: Mapped[str] = mapped_column(String, nullable=False)
+    predicted_low_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    predicted_median_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    predicted_high_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    overdraft_probability: Mapped[float] = mapped_column(Float, nullable=False)
+    nominal_coverage: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    heuristic_widening_ran: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    expected_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    observed_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    realized_trough_cents: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    reason: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    disjoint_stream: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    matured_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    user = relationship("User", back_populates="forecast_evidence_origins")
+
+
 class MerchantCategory(Base):
     """Learned merchant → category mapping.
 
@@ -475,6 +567,42 @@ class MerchantCategory(Base):
     )
 
     user = relationship("User", back_populates="merchant_categories")
+
+
+class MerchantAlias(Base):
+    """A reversible, user-confirmed merchant grouping alias.
+
+    The row is a sidecar: transaction titles are never rewritten. ``active`` is
+    an integer boolean for SQLite/Postgres parity, and the portable unique
+    constraint means reconfirming an alias updates/reactivates the same row.
+    Resolution is deliberately one hop; the service rejects graph-shaped maps.
+    """
+
+    __tablename__ = "merchant_aliases"
+    __table_args__ = (
+        UniqueConstraint("user_id", "alias_key", name="uq_merchant_alias_user_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    alias_key: Mapped[str] = mapped_column(String, nullable=False)
+    canonical_key: Mapped[str] = mapped_column(String, nullable=False)
+    canonical_label: Mapped[str] = mapped_column(String, nullable=False)
+    source: Mapped[str] = mapped_column(String, nullable=False, default="user")
+    active: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), server_default=func.current_timestamp()
+    )
+    reverted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    user = relationship("User", back_populates="merchant_aliases")
 
 
 class Notification(Base):

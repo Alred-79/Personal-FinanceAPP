@@ -67,7 +67,7 @@ const linePath = (r: SimResult) => smoothPath(r.med.map((b, d) => [xFor(d), yFor
 /**
  * The live Sea-Chart — a faithful, in-browser slice of the real forecast engine.
  * Drag to model heavier or lighter spending and the whole probability cloud
- * (a calibrated ~90% trough band) re-simulates, with the overdraft probability
+ * (the simulated 5th–95th percentile band) re-simulates, with the overdraft probability
  * re-sounding. Toggle a what-if and a scenario line overlays the baseline.
  */
 export function LiveForecast() {
@@ -206,8 +206,8 @@ export function LiveForecast() {
           OVERDRAFT
         </text>
 
-        {/* baseline calibrated band + median — a soft gold tint so the ~90%
-            trough corridor reads at a glance, the engraved hatch on top */}
+        {/* baseline simulated band + median — a soft gold tint so the 5th–95th
+            percentile corridor reads at a glance, the engraved hatch on top */}
         <path d={bandPath(base)} fill="hsl(var(--gold) / 0.1)" stroke="none" opacity={hasScenario ? 0.55 : 1} />
         <path d={bandPath(base)} fill="url(#lf-hatch)" stroke="hsl(var(--gold) / 0.5)" strokeWidth={1.3} strokeDasharray="3 3" opacity={hasScenario ? 0.6 : 1} />
         <path d={linePath(base)} fill="none" stroke="hsl(var(--credit))" strokeWidth={2.6} strokeLinecap="round" opacity={hasScenario ? 0.5 : 1} />
@@ -365,7 +365,7 @@ export function LiveForecast() {
           </div>
         </div>
         <div className="bg-card px-4 py-3">
-          <div className="dept-label">Modeled low · ~90% range</div>
+          <div className="dept-label">Modeled low · 5th–95th simulated range</div>
           <div className={cn("figure mt-1 text-[1.12rem]", shown.troughMed < 0 ? "ink-debit" : "ink-credit")}>
             {dollars(shown.troughMed)}
           </div>
