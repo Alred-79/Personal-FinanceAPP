@@ -113,4 +113,27 @@ describe("the agent-access path", () => {
     await waitFor(() => expect(screen.getByTestId("here")).toHaveTextContent("/"));
     expect(screen.getByTestId("here")).not.toHaveTextContent("evil.example.com");
   });
+
+  it("opens the pre-filled showcase from the one-tap demo entry", async () => {
+    apiGet.mockResolvedValue({ data: { enabled: true } });
+    apiPost.mockResolvedValue({ data: {} });
+    const { default: Login } = await import("@/pages/Login/Login");
+    const { fireEvent, waitFor } = await import("@testing-library/react");
+
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/" element={<Here />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const demoButton = await screen.findByRole("button", { name: "View demo data" });
+    expect(screen.getByText(/No sign-up or bank connection/i)).toBeInTheDocument();
+    fireEvent.click(demoButton);
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith("/demo-login"));
+    await waitFor(() => expect(screen.getByTestId("here")).toHaveTextContent("/"));
+  });
 });

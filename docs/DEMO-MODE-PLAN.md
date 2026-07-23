@@ -229,7 +229,8 @@ Extend `server/scripts/seed_demo.py` into the canonical showcase seed (keep the
 every table the seed owns** (by `user_id`). Use `CANONICAL_CATEGORIES`
 (`services/categorization_service.py`), integer cents, ISO dates, deterministic RNG.
 
-- **User config:** `game_mode='full'`, `savings_percent=15`, `s2s_include_income=1`,
+- **User config:** `game_mode='ambient'` (ledger-first home; the fully seeded
+  Expedition remains available), `savings_percent=15`, `s2s_include_income=1`,
   `s2s_include_goals=1`, `s2s_buffer=5000`, `birth_year`, `spend_warning=20`.
 - **Accounts (3):** checking ~$3.4k, HYSA ~$11k, credit ~-$840.
 - **Income (~12 mo):** bi-weekly W-2 (`source_type='w2'`, `recurrence='bi-weekly'`)

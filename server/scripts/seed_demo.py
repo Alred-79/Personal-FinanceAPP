@@ -171,8 +171,14 @@ def reset_user(db, user_id: int) -> None:
 
 
 def seed_user_config(user: UserORM) -> None:
-    """Give the saver a realistic, feature-exercising profile."""
-    user.game_mode = "full"
+    """Give the saver a realistic, feature-exercising profile.
+
+    The demo opens ledger-first. Ambient mode keeps the ordinary Overview as the
+    home screen while leaving the fully seeded Expedition available from the
+    navigation for visitors who want it. This mirrors the product promise that
+    game mechanics are optional, not the identity of the app.
+    """
+    user.game_mode = "ambient"
     user.savings_percent = 15
     user.spend_warning = 20
     user.s2s_include_income = 1

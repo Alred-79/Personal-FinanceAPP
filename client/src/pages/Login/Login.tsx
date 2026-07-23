@@ -60,8 +60,8 @@ export default function Login() {
     try {
       await api.post("/demo-login");
       toast({
-        title: "Welcome to the demo",
-        description: "You're exploring a pre-filled showcase account.",
+        title: "Demo data opened",
+        description: "You're exploring a pre-filled financial story. Nothing here is connected to a real bank.",
       });
       useStore.setState({ isLoggedIn: true });
       navigate(next);
@@ -279,7 +279,7 @@ export default function Login() {
                   <div className="flex items-center gap-3">
                     <span className="h-px flex-1 bg-rule/60" aria-hidden />
                     <span className="font-sans text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                      or
+                      explore first
                     </span>
                     <span className="h-px flex-1 bg-rule/60" aria-hidden />
                   </div>
@@ -290,18 +290,11 @@ export default function Login() {
                     onClick={handleDemo}
                     disabled={isLoading}
                   >
-                    {isLoading ? "Entering…" : "Enter the demo"}
+                    {isLoading ? "Opening demo data…" : "View demo data"}
                   </Button>
-                  <p className="text-center font-sans text-[11px] text-muted-foreground">
-                    No sign-up needed. Or type{" "}
-                    <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-foreground">
-                      demo
-                    </code>{" "}
-                    /{" "}
-                    <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-foreground">
-                      Demo123!
-                    </code>{" "}
-                    above.
+                  <p className="text-center font-sans text-[11px] leading-relaxed text-muted-foreground">
+                    No sign-up or bank connection. Explore pre-filled accounts,
+                    budgets, goals, forecasts, subscriptions, debts, and scenarios.
                   </p>
                 </div>
               )}
