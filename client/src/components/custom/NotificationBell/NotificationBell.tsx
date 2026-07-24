@@ -152,7 +152,7 @@ const NotificationBell: FC = () => {
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           aria-label={`Notices${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
-          className="press relative grid h-9 w-9 place-items-center border border-rule-strong/50 bg-card text-foreground shadow-plate transition-all hover:bg-wash"
+          className="press relative grid h-11 w-11 place-items-center border border-rule-strong/50 bg-card text-foreground shadow-plate transition-all hover:bg-wash"
         >
           <Bell size={17} />
           {unreadCount > 0 && (

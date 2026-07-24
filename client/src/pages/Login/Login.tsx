@@ -17,6 +17,7 @@ import api from "@/lib/api";
 import { AxiosError } from "axios";
 import { Brandmark } from "@/components/layout/Brandmark";
 import { Guilloche, GuillocheBand } from "@/components/engraving/Guilloche";
+import { loadCapabilities } from "@/lib/capabilities";
 
 /**
  * Where to land after signing in. `?next=` lets a public page (the landing's
@@ -40,6 +41,7 @@ export default function Login() {
     "checking" | "hidden" | "ready" | "unavailable"
   >("checking");
   const [demoError, setDemoError] = useState<string | null>(null);
+  const [registrationOpen, setRegistrationOpen] = useState<boolean | null>(null);
 
   const checkDemoStatus = useCallback(async (active: () => boolean = () => true) => {
     setDemoError(null);
@@ -68,6 +70,13 @@ export default function Login() {
   useEffect(() => {
     let active = true;
     void checkDemoStatus(() => active);
+    void loadCapabilities()
+      .then((capabilities) => {
+        if (active) setRegistrationOpen(capabilities.registration_open === true);
+      })
+      .catch(() => {
+        if (active) setRegistrationOpen(false);
+      });
     return () => {
       active = false;
     };
@@ -245,14 +254,18 @@ export default function Login() {
             Present your credentials
           </CardTitle>
           <CardDescription>
-            Sign in to your ledger, or open one to see your full financial picture.
+            {registrationOpen === null
+              ? "Checking whether this instance accepts new accounts…"
+              : registrationOpen
+              ? "Sign in to your ledger, or open one to see your full financial picture."
+              : "Registration is closed on this instance. Sign in with the owner account."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="login" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className={`grid w-full ${registrationOpen === true ? "grid-cols-2" : "grid-cols-1"}`}>
               <TabsTrigger value="login">Login</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              {registrationOpen === true && <TabsTrigger value="signup">Sign Up</TabsTrigger>}
             </TabsList>
 
             <TabsContent value="login">
@@ -337,7 +350,7 @@ export default function Login() {
               )}
             </TabsContent>
 
-            <TabsContent value="signup">
+            {registrationOpen === true && <TabsContent value="signup">
               <form onSubmit={handleSignup} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="signup-fullname">Full Name</Label>
@@ -413,7 +426,7 @@ export default function Login() {
                   {isLoading ? "Creating account..." : "Sign Up"}
                 </Button>
               </form>
-            </TabsContent>
+            </TabsContent>}
           </Tabs>
         </CardContent>
       </Card>

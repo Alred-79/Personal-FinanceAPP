@@ -140,8 +140,8 @@ class TestEvaluate:
         assert out["scenario"]["delta"]["lowest_balance"] < 0.0
         assert out["scenario"]["delta"]["ending_balance"] < 0.0
 
-    def test_goal_mutation_moves_reach_date(self, db_session, funded_user):
-        """Injecting progress into a goal makes it reach sooner (delta_days < 0)."""
+    def test_goal_reach_does_not_invent_pace_from_deadline(self, db_session, funded_user):
+        """An incomplete goal stays unknown without an independent contribution pace."""
         user, _ = funded_user
         g = _goal(db_session, user.id, amount=120_000, progress=20_000)
         svc = ScenarioService(db_session)
@@ -153,7 +153,8 @@ class TestEvaluate:
         )
         gr = out["scenario"]["delta"]["goal_reach"]
         assert g.id in gr
-        assert gr[g.id]["delta_days"] <= 0
+        assert gr[g.id]["delta_days"] is None
+        assert gr[g.id]["reaches_on"] is None
 
     def test_determinism_same_seed(self, db_session, funded_user):
         """Two runs with the same seed give the identical overdraft probability."""

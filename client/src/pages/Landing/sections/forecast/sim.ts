@@ -1,7 +1,7 @@
 /**
- * A compact, in-browser version of the product's real forecast engine — a
- * moving-block bootstrap over a scheduled cash-flow walk. It is faithful to the
- * server's method (server/src/services/forecast_sim.py): walk recurring bills +
+ * An illustrative, seeded forecast used only on the public landing page — a
+ * moving-block bootstrap over sample cash flows. It resembles the server's
+ * broad method but is not a result from the signed-in product: walk bills +
  * income + a discretionary "burn", resample daily residuals in 7-day blocks to
  * preserve spending streaks, run many futures, then read percentile bands and an
  * overdraft probability off the simulated troughs. Seeded, so the band is stable

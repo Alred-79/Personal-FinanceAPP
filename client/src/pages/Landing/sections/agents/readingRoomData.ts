@@ -119,7 +119,7 @@ export const REQUESTS: Request[] = [
       { label: "Everything else", value: "unchanged" },
     ],
     basis:
-      "Both merchants were matched across statements by cadence and amount, so a rename or a new descriptor doesn't hide the increase. Two more subscriptions have gone unused for 60 days.",
+      "These sample merchants have multiple recorded amounts on the same cadence. Descriptor matching and lifecycle state still require review before acting.",
     latencyMs: 71,
     resource: "get_subscriptions",
     paramsHash: "5b19e402",

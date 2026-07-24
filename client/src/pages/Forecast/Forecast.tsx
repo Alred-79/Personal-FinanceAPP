@@ -142,16 +142,18 @@ export default function Forecast() {
                     <AnimatedNumber value={forecast.ending_balance} duration={650} />
                   </p>
                   <p className="mt-3 max-w-xl text-sm text-muted-foreground">
-                    This is a directional estimate from current balances, scheduled cash events, and recent discretionary spending—not an exact future balance.
+                    {forecast.model_state === "scheduled_only"
+                      ? "This path uses current balances and scheduled cash events. A modeled range is withheld until enough varied spending history exists."
+                      : "This is a directional estimate from current balances, scheduled cash events, and recent discretionary spending—not an exact future balance."}
                   </p>
-                  {forecast.paths_total != null && forecast.paths_below_zero != null && (
+                  {forecast.model_state !== "scheduled_only" && forecast.paths_total != null && forecast.paths_below_zero != null && (
                     <p className="mt-3 font-mono text-xs text-muted-foreground">
                       {forecast.paths_below_zero} of {forecast.paths_total} modeled paths fell below zero.
                     </p>
                   )}
                 </div>
                 <div className="grid grid-cols-2 gap-px overflow-hidden border border-rule-strong/30 bg-rule-strong/20">
-                  <Figure label="Modeled low point" value={formatCurrency(forecast.lowest_balance)} accent={forecast.will_go_negative ? "debit" : "credit"} />
+                  <Figure label="Central low point" value={formatCurrency(forecast.lowest_balance)} accent={forecast.will_go_negative ? "debit" : "credit"} />
                   <Figure label="Reached on" value={forecast.lowest_date} />
                   <Figure label="First shortfall" value={forecast.first_negative_date ?? "None in horizon"} />
                   <Figure label="Scheduled outflows" value={formatCurrency(forecast.total_projected_expenses)} />
@@ -161,7 +163,7 @@ export default function Forecast() {
 
             <BalanceChart data={forecast.timeline} />
             {forecast.regime_shift && <RegimeShiftNote shift={forecast.regime_shift} />}
-            {forecast.trough_band && (
+            {forecast.model_state !== "scheduled_only" && forecast.trough_band && (
               <LowPointRange
                 band={forecast.trough_band}
                 centralPathLow={forecast.lowest_balance}
@@ -213,10 +215,14 @@ export default function Forecast() {
                       <Figure label="Scenario low point" value={formatCurrency(activeResult.scenario.result.lowest_balance)} />
                       <Figure label="Change vs current" value={formatCurrency(activeResult.scenario.delta.lowest_balance)} accent={activeResult.scenario.delta.lowest_balance < 0 ? "debit" : "credit"} />
                       <Figure label="First shortfall" value={activeResult.scenario.result.first_negative_date ?? "None in horizon"} />
-                      <Figure label="Modeled paths below zero" value={`${activeResult.scenario.result.paths_below_zero} of ${activeResult.scenario.result.paths_total}`} />
+                      {activeResult.scenario.result.model_state !== "scheduled_only" && (
+                        <Figure label="Modeled paths below zero" value={`${activeResult.scenario.result.paths_below_zero} of ${activeResult.scenario.result.paths_total}`} />
+                      )}
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      Under these assumptions, the central path reaches {formatCurrency(activeResult.scenario.result.lowest_balance)}. The modeled low-point range is shown separately below; the chart lines are daily central paths.
+                      {activeResult.scenario.result.model_state === "scheduled_only"
+                        ? `Under these assumptions, the scheduled central path reaches ${formatCurrency(activeResult.scenario.result.lowest_balance)}. A modeled range is withheld until enough varied history exists.`
+                        : `Under these assumptions, the central path reaches ${formatCurrency(activeResult.scenario.result.lowest_balance)}. The modeled low-point range is shown separately below; the chart lines are daily central paths.`}
                     </p>
                     <ChangeStatus
                       applied={activeResult.applied_changes}
@@ -227,7 +233,7 @@ export default function Forecast() {
                   </CardContent>
                 </Card>
                 <ScenarioChart data={overlayData} />
-                {activeResult.scenario.result.trough_band && (
+                {activeResult.scenario.result.model_state !== "scheduled_only" && activeResult.scenario.result.trough_band && (
                   <LowPointRange
                     band={activeResult.scenario.result.trough_band}
                     centralPathLow={activeResult.scenario.result.lowest_balance}
@@ -570,7 +576,7 @@ function RegimeShiftNote({ shift }: { shift: { date: string; delta_per_month: nu
 
 function EventList({ events }: { events: Array<{ date: string; expenses: number; label: string }> }) {
   const obligations = events.filter((event) => event.expenses > 0);
-  if (!obligations.length) return <p className="text-sm text-muted-foreground">No scheduled outflows appear in this horizon. Connect or import accounts and mark recurring items to improve the outlook.</p>;
+  if (!obligations.length) return <p className="text-sm text-muted-foreground">No scheduled outflows appear in this horizon. Add accounts and record recurring items to improve the outlook.</p>;
   return (
     <div className="space-y-3">
       <SectionRule>Scheduled outflows</SectionRule>

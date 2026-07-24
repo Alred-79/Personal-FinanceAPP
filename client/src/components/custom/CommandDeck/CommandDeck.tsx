@@ -47,11 +47,15 @@ export function CommandDeck({
   onOpenChange,
   onConnectBank,
   canConnectBank,
+  bankAvailable,
+  assistantAvailable,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConnectBank: () => void;
   canConnectBank: boolean;
+  bankAvailable: boolean;
+  assistantAvailable: boolean;
 }) {
   const navigate = useNavigate();
   const { gameLayer } = useFlags();
@@ -95,7 +99,7 @@ export function CommandDeck({
           requestAddTransaction();
         },
       },
-      {
+      ...(bankAvailable ? [{
         kind: "action",
         id: "act:link-bank",
         label: "Link a bank",
@@ -107,7 +111,7 @@ export function CommandDeck({
           close();
           onConnectBank();
         },
-      },
+      } as ActionRow] : []),
       {
         kind: "action",
         id: "act:whatif",
@@ -122,7 +126,7 @@ export function CommandDeck({
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canConnectBank, navigate, requestAddTransaction]
+    [bankAvailable, canConnectBank, navigate, requestAddTransaction]
   );
 
   // Group order: Ask (only with free text) → Actions → the nav groups. Each
@@ -139,12 +143,12 @@ export function CommandDeck({
     };
     return DECK_GROUPS.map((g) => {
       let rows: DeckRow[] = [];
-      if (g.key === "ask") rows = q ? [agentRow] : [];
+      if (g.key === "ask") rows = q && assistantAvailable ? [agentRow] : [];
       else if (g.key === "actions") rows = actions.filter((a) => matchesQuery(a, q));
       else rows = destinations.filter((d) => d.group === g.key && matchesQuery(d, q));
       return { ...g, rows };
     }).filter((g) => g.rows.length > 0);
-  }, [query, actions, destinations]);
+  }, [query, actions, assistantAvailable, destinations]);
 
   const flat = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
   const activeId = flat[active]?.id;
@@ -302,7 +306,7 @@ export function CommandDeck({
                   type="button"
                   onClick={backToCommand}
                   aria-label="Back to commands"
-                  className="press grid h-6 w-6 shrink-0 place-items-center text-gold hover:text-foreground"
+                  className="press grid h-11 w-11 shrink-0 place-items-center text-gold hover:text-foreground"
                 >
                   <ArrowLeft className="h-4 w-4" />
                 </button>
@@ -323,7 +327,9 @@ export function CommandDeck({
                 placeholder={
                   mode === "ask"
                     ? "Ask a follow-up…"
-                    : "Type a command, or ask the Clerk anything…"
+                    : assistantAvailable
+                    ? "Type a command, or ask the Clerk anything…"
+                    : "Type a command or page name…"
                 }
                 className="w-full bg-transparent font-sans text-sm text-foreground outline-none placeholder:text-muted-foreground"
               />

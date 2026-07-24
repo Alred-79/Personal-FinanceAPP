@@ -44,7 +44,6 @@ from server.src.models import (
     ScenarioOverlayIn,
 )
 from server.src.money import cents_to_dollars, dollars_to_cents
-from server.src.services.goal_math import add_months, months_to_reach
 from server.src.services.read_queries import query_user
 from server.src.services.recurring_service import project_occurrences
 from server.src.services.scenario_overlay import (
@@ -631,6 +630,8 @@ class ScenarioService:
             # corridor the baseline does. Additive — ``_diff`` ignores them.
             "trough_band": fc.get("trough_band"),
             "coverage_level": fc.get("coverage_level"),
+            "model_state": fc.get("model_state", "scheduled_only"),
+            "account_scope": fc.get("account_scope"),
         }
         return result, fc
 
@@ -764,10 +765,10 @@ class ScenarioService:
     ) -> dict[int, dict]:
         """Per-goal reach date under the overlay's goal mutations.
 
-        Pace is the goal's required monthly contribution to hit its deadline at
-        baseline; ``goal_mutations`` reshape amount / progress / target_date, so
-        injecting progress or cutting the target makes the goal reach sooner.
-        Reuses the promoted :func:`months_to_reach` / :func:`add_months`.
+        A target date is a comparator, not evidence of contribution pace. The
+        current schema has no independently observed or user-configured monthly
+        pace, so an incomplete goal is explicitly unknown rather than deriving a
+        pace from its deadline and then "predicting" that same deadline.
         """
         muts = {m.goal_id: m for m in overlay.goal_mutations}
         rows = self.db.execute(
@@ -777,30 +778,19 @@ class ScenarioService:
         ).all()
 
         out: dict[int, dict] = {}
-        for goal_id, amount_cents, progress_cents, date_str in rows:
+        for goal_id, amount_cents, progress_cents, _date_str in rows:
             progress_cents = progress_cents or 0
-            target = parse_iso_date(date_str) if date_str else None
             mut = muts.get(goal_id)
             if mut is not None:
                 if mut.amount_cents is not None:
                     amount_cents = mut.amount_cents
                 if mut.progress_cents is not None:
                     progress_cents = mut.progress_cents
-                if mut.target_date is not None:
-                    target = parse_iso_date(mut.target_date)
 
             remaining = max(amount_cents - progress_cents, 0)
-            # Monthly pace implied by the (possibly mutated) deadline.
-            months_left = _months_between(as_of, target) if target else None
-            if not months_left or months_left <= 0:
-                # No deadline (or already due): reaches as soon as funded, i.e.
-                # now if remaining is zero, else unknown.
-                reaches_on = as_of.isoformat() if remaining == 0 else None
-            else:
-                monthly = -(-remaining // months_left) if remaining else 0
-                m = months_to_reach(remaining, monthly) if monthly else None
-                reaches_on = add_months(as_of, m).isoformat() if m is not None else (
-                    as_of.isoformat() if remaining == 0 else None
-                )
-            out[goal_id] = {"reaches_on": reaches_on}
+            reaches_on = as_of.isoformat() if remaining == 0 else None
+            out[goal_id] = {
+                "reaches_on": reaches_on,
+                "pace_source": "fully_funded" if remaining == 0 else "unknown_pace",
+            }
         return out

@@ -896,7 +896,7 @@ exports[`off-mode shell > matches the off-mode sidebar snapshot 1`] = `
         </div>
         <button
           aria-label="Log out"
-          class="p-1.5 text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground"
+          class="grid h-11 w-11 place-items-center text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground"
         >
           <svg
             class="lucide lucide-log-out h-[16px] w-[16px]"

@@ -11,14 +11,12 @@ given date, so calling it repeatedly within a day just refreshes today's total
 from datetime import date
 from typing import Any
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from server.src.db.models import (
-    Account as AccountORM,
-    BalanceSnapshot as BalanceSnapshotORM,
-)
+from server.src.db.models import BalanceSnapshot as BalanceSnapshotORM
 from server.src.money import cents_to_dollars
+from server.src.services.account_semantics import AccountSemanticsService
 
 
 class NetWorthService:
@@ -26,13 +24,8 @@ class NetWorthService:
         self.db = db
 
     def current_total_cents(self, user_id: int) -> int:
-        """Sum of all account balances (cents) for *user_id*."""
-        total = self.db.execute(
-            select(func.sum(AccountORM.balance)).where(
-                AccountORM.user_id == user_id
-            )
-        ).scalar()
-        return int(total or 0)
+        """Purpose-aware assets minus liabilities for *user_id*."""
+        return AccountSemanticsService(self.db).total_cents(user_id, "net_worth")
 
     def record_snapshot(
         self, user_id: int, on_date: date | None = None

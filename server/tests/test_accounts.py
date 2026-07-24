@@ -183,6 +183,26 @@ class TestCentsStorage:
         assert updated.balance == 20050  # stored as cents
         assert updated.name == "Savings"
 
+    def test_linked_account_balance_cannot_be_overwritten_manually(
+        self, client, db_session
+    ):
+        headers = _auth_header(client, "linked", "linked@example.com")
+        _create_account(client, headers, balance=50.00)
+        account = db_session.execute(select(AccountORM)).scalar_one()
+        account.plaid_account_id = "plaid-linked-1"
+        account.current_balance = 5000
+        db_session.commit()
+
+        resp = client.put(
+            f"/api/accounts/{account.id}/",
+            json={"name": "Linked", "type": "checking", "balance": 999.00},
+            headers=headers,
+        )
+
+        assert resp.status_code == 409
+        db_session.refresh(account)
+        assert account.balance == 5000
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CRUD tests

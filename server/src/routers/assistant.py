@@ -43,7 +43,18 @@ from server.src.db.models import Goal as GoalORM
 from server.src.money import cents_to_dollars
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
-assistant_service = AssistantService()
+# Keep the deterministic application bootable without external provider keys.
+# The capability endpoint hides this surface; direct calls still fail clearly.
+assistant_service = AssistantService() if settings.groq_api_key else None
+
+
+def _configured_assistant() -> AssistantService:
+    if assistant_service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The assistant is not configured on this instance.",
+        )
+    return assistant_service
 
 
 # NOTE (Step 02 gotcha): slowapi captures a plain limit STRING at decoration
@@ -82,6 +93,7 @@ async def chat(
     stream fails before any model call, the reserved request is released so a
     failure doesn't permanently burn a daily slot.
     """
+    service = _configured_assistant()
     # Pre-flight: reserve 1 request AND a conservative cost estimate. Both are
     # hard caps; the generator reconciles the cost to the actual figure (Groq
     # usage or tiktoken) and refunds/tops-up the difference once the stream ends.
@@ -101,7 +113,7 @@ async def chat(
         )
 
     return StreamingResponse(
-        assistant_service.chat(current_user, message, reserved_cost_cents=est_cost),
+        service.chat(current_user, message, reserved_cost_cents=est_cost),
         media_type="text/event-stream",
     )
 
@@ -115,7 +127,7 @@ async def get_history(
     """
     Get chat history
     """
-    return assistant_service.get_chat_history(current_user)
+    return _configured_assistant().get_chat_history(current_user)
 
 
 @router.post("/clear/")
@@ -127,7 +139,7 @@ async def clear_history(
     """
     Clear chat history
     """
-    assistant_service.clear_history(current_user)
+    _configured_assistant().clear_history(current_user)
     return {"status": "success"}
 
 
@@ -285,7 +297,8 @@ def confirm_action(
     # transaction, a goal, a rule) must NOT evict — that would wipe the live
     # conversation buffer mid-chat for no reason. (Pillar 1A; review fix #4.)
     if claims["action"] in _MEMORY_MUTATING_ACTIONS:
-        assistant_service.invalidate_agent(current_user.id)
+        if assistant_service is not None:
+            assistant_service.invalidate_agent(current_user.id)
 
     return {"status": "confirmed", "action": claims["action"], "result": result}
 

@@ -134,7 +134,8 @@ describe("logout resets financial + game state", () => {
 
     const s = useStore.getState();
     expect(s.safeToSpend).toBeNull();
-    expect(s.budgetAllotment).toBe(1);
+    expect(s.budgetAllotment).toBe(0);
+    expect(s.safeToSpendStatus).toBe("idle");
     expect(s.selectedAccountId).toBe("all");
     expect(s.s2sPrefs).toEqual({
       s2s_horizon: "paycheck",

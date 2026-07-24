@@ -28,6 +28,7 @@ from server.src.db.models import (
     Token as TokenORM,
 )
 from server.src.money import dollars_to_cents
+from server.src.services.account_semantics import infer_semantic_role
 from server.src.models import (
     UserInDB,
     PublicTokenExchangeRequest,
@@ -120,13 +121,15 @@ async def exchange_public_token(
         balances = plaid_account.get("balances") or {}
         available = balances.get("available")
         current = balances.get("current")
-        balance_value = (
-            available
-            if available is not None
-            else current
-            if current is not None
-            else 0
+        limit = balances.get("limit")
+        balance_value = current if current is not None else available if available is not None else 0
+        account_type = str(plaid_account.get("type") or "unknown")
+        account_subtype = (
+            str(plaid_account.get("subtype"))
+            if plaid_account.get("subtype") is not None
+            else None
         )
+        observed_at = datetime.now(timezone.utc)
         # Name each local account from Plaid's own account name when present so
         # a multi-account item reads sensibly; the single-account case keeps the
         # user-chosen token name for backward-compatible behaviour.
@@ -139,9 +142,25 @@ async def exchange_public_token(
         db.add(
             AccountORM(
                 name=account_name,
-                type=plaid_account["type"],
+                type=account_type,
+                subtype=account_subtype,
                 balance=dollars_to_cents(balance_value),
-                plaid_balance_refreshed_at=datetime.now(timezone.utc),
+                current_balance=(
+                    dollars_to_cents(current) if current is not None else None
+                ),
+                available_balance=(
+                    dollars_to_cents(available) if available is not None else None
+                ),
+                credit_limit=(
+                    dollars_to_cents(limit) if limit is not None else None
+                ),
+                iso_currency_code=balances.get("iso_currency_code"),
+                unofficial_currency_code=balances.get("unofficial_currency_code"),
+                balance_source="plaid",
+                balance_observed_at=observed_at,
+                semantic_role=infer_semantic_role(account_type, account_subtype),
+                review_state="confirmed",
+                plaid_balance_refreshed_at=observed_at,
                 plaid_account_id=str(plaid_account.get("account_id") or "") or None,
                 user_id=current_user.id,
             )

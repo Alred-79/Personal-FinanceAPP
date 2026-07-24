@@ -12,6 +12,9 @@ import { DailySurface } from "@/components/custom/DailySurface/DailySurface";
 import { SagaChapter } from "@/components/custom/SagaChapter/SagaChapter";
 import { FreelancerLeadStrip } from "@/components/custom/Overview/FreelancerLeadStrip";
 import { SelfEmployedFork } from "@/components/custom/Onboarding/SelfEmployedFork";
+import { EmptyState } from "@/components/engraving/EmptyState";
+import { Button } from "@/components/ui/button";
+import { Link } from "react-router-dom";
 
 const today = new Date().toLocaleDateString("en-US", {
   year: "numeric",
@@ -26,6 +29,9 @@ function Overview() {
     fetchRecentTransactions,
     fetchNetWorth,
     fetchBudgets,
+    fetchAccounts,
+    accounts,
+    accountsLoaded,
   } = useStore();
 
   useEffect(() => {
@@ -37,12 +43,14 @@ function Overview() {
     // Almanac / Budgets pages — fetch them here so the dashboard isn't empty.
     fetchNetWorth();
     fetchBudgets();
+    fetchAccounts();
   }, [
     fetchInitialData,
     fetchTransactionsAndExpenses,
     fetchRecentTransactions,
     fetchNetWorth,
     fetchBudgets,
+    fetchAccounts,
   ]);
 
   return (
@@ -52,6 +60,22 @@ function Overview() {
         description="Your standing as of the close of business."
         reference={`Form 1040-A · ${today}`}
       />
+
+      {accountsLoaded && accounts.length === 0 ? (
+        <EmptyState
+          eyebrow="First entry · about two minutes"
+          title="Start with the cash you can actually use"
+          description="Add a checking or savings balance, then record transactions. The Ledger will build Safe to Spend from those facts—never from credit availability."
+          action={
+            <>
+              <Button className="min-h-11" asChild>
+                <Link to="/accounts">Add an account</Link>
+              </Button>
+            </>
+          }
+        />
+      ) : (
+        <>
 
       {/* The first useful loop: answer, evidence, action. */}
       <div className="mb-6 animate-rise-in">
@@ -96,6 +120,8 @@ function Overview() {
       <div className="mt-6">
         <SagaChapter />
       </div>
+        </>
+      )}
     </>
   );
 }

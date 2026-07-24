@@ -26,7 +26,7 @@ import random
 from datetime import date, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db.models import Account as AccountORM, Expense as ExpenseORM
@@ -34,6 +34,7 @@ from ..money import cents_to_dollars, dollars_to_cents, round_half_even_cents
 from ..settings import settings
 from .forecast_sim import bootstrap_overdraft
 from .recurring_service import RecurringService
+from .account_semantics import AccountSemanticsService
 
 # Trailing window (days) over which the discretionary burn rate is estimated.
 _BURN_WINDOW_DAYS = 30
@@ -93,12 +94,7 @@ class ForecastService:
         self.db = db
 
     def current_balance_cents(self, user_id: int) -> int:
-        total = self.db.execute(
-            select(func.coalesce(func.sum(AccountORM.balance), 0)).where(
-                AccountORM.user_id == user_id
-            )
-        ).scalar()
-        return int(total or 0)
+        return AccountSemanticsService(self.db).total_cents(user_id, "forecast")
 
     def _discretionary_amounts_cents(
         self, user_id: int, as_of: date, window_days: int
@@ -297,7 +293,10 @@ class ForecastService:
         history regardless of the overlay (only ``starting_cents`` and the net
         flows shift).
         """
-        starting_cents = self.current_balance_cents(user_id)
+        account_summary = AccountSemanticsService(self.db).summarize(
+            user_id, "forecast"
+        )
+        starting_cents = account_summary.total_cents
         if overlay is not None and overlay.balance_override_cents is not None:
             starting_cents = overlay.balance_override_cents
 
@@ -397,6 +396,7 @@ class ForecastService:
             "will_go_negative": lowest < 0,
             "timeline": timeline,
             "events": events,
+            "account_scope": account_summary.to_dict(),
         }
         if include_burn:
             result["daily_discretionary_burn"] = cents_to_dollars(burn_cents)
@@ -412,6 +412,11 @@ class ForecastService:
                     net_by_offset[offset] = net_cents
             pool = self._burn_residual_pool_cents(
                 user_id, horizon_start, burn_cents, window_days=burn_window
+            )
+            result["model_state"] = (
+                "historical_variation"
+                if len(pool) >= 2 and len(set(pool)) >= 2
+                else "scheduled_only"
             )
             sim = bootstrap_overdraft(
                 starting_cents + start_net,

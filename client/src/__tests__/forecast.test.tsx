@@ -183,6 +183,14 @@ describe("Forecast page", () => {
     expect(container.textContent ?? "").not.toMatch(/confidence|chance|calibrated|probability/i);
   });
 
+  it("withholds path counts and ranges when history is schedule-only", () => {
+    state.forecast = { ...FORECAST, model_state: "scheduled_only" };
+    renderAt();
+    expect(screen.getByText(/modeled range is withheld/i)).toBeInTheDocument();
+    expect(screen.queryByText(/modeled paths fell below zero/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("modeled-low-band")).not.toBeInTheDocument();
+  });
+
   it("plots the low-point band proportionally on a domain anchored by $0 and the starting balance", () => {
     renderAt();
 

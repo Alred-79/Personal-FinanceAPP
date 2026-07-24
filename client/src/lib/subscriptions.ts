@@ -28,14 +28,9 @@ export function perYear(amount: number, cadence: string): number {
   return perMonth(amount, cadence) * 12;
 }
 
-/**
- * Projected annual spend that accounts for a recent price creep: if the merchant
- * just raised the charge, project the higher run-rate forward. price_change_pct
- * is a fractional increase vs the prior stable amount (null/≤0 → no adjustment).
- */
+/** Project the latest observed charge forward; amount already includes any rise. */
 export function projectedAnnual(sub: Subscription): number {
-  const creep = Math.max(0, sub.price_change_pct ?? 0);
-  return perYear(sub.amount, sub.cadence) * (1 + creep);
+  return perYear(sub.amount, sub.cadence);
 }
 
 /**
@@ -58,7 +53,14 @@ export function hasLifecycleData(subs: Subscription[]): boolean {
 }
 
 export const monthlyBurden = (subs: Subscription[]): number =>
-  subs.reduce((sum, s) => sum + perMonth(s.amount, s.cadence), 0);
+  subs
+    .filter((s) => !hasLifecycleData(subs) || !isAtRisk(s))
+    .reduce((sum, s) => sum + perMonth(s.amount, s.cadence), 0);
 
 export const annualBurden = (subs: Subscription[]): number =>
-  subs.reduce((sum, s) => sum + projectedAnnual(s), 0);
+  subs
+    .filter((s) => !hasLifecycleData(subs) || !isAtRisk(s))
+    .reduce((sum, s) => sum + projectedAnnual(s), 0);
+
+export const possibleMonthlyBurden = (subs: Subscription[]): number =>
+  subs.filter(isAtRisk).reduce((sum, s) => sum + perMonth(s.amount, s.cadence), 0);

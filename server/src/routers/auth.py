@@ -182,6 +182,27 @@ async def logout(
 # ---------------------------------------------------------------------------
 
 
+@router.get("/capabilities/")
+async def public_capabilities(db: Session = Depends(get_db)):
+    """Public instance availability, without exposing provider credentials.
+
+    Logged-out and first-run clients use this to avoid presenting controls that
+    are guaranteed to fail (closed registration, unconfigured bank/AI tools).
+    """
+    existing_users = db.execute(select(func.count(UserORM.id))).scalar_one()
+    registration_open = settings.allow_signup and (
+        not settings.single_user or existing_users == 0
+    )
+    return {
+        "registration_open": registration_open,
+        "demo": settings.demo_mode_enabled,
+        "plaid": bool(settings.plaid_client_id and settings.plaid_client_secret),
+        "assistant": bool(settings.groq_api_key),
+        "web_search": bool(settings.tavily_api_key) and not settings.egress_disabled,
+        "unstructured_import": bool(settings.groq_api_key),
+    }
+
+
 @router.get("/demo-status/")
 async def demo_status(db: Session = Depends(get_db)):
     """Public. Tells the logged-out UI whether to show the "Enter the demo" button.

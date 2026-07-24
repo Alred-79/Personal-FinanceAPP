@@ -18,7 +18,7 @@ vi.mock("axios", () => {
   return { default: { create: () => instance } };
 });
 
-import { refreshOnce } from "@/lib/api";
+import { refreshOnce, unauthenticatedDestination } from "@/lib/api";
 
 describe("refreshOnce — single-flight refresh (F1)", () => {
   beforeEach(() => {
@@ -68,5 +68,17 @@ describe("refreshOnce — single-flight refresh (F1)", () => {
 
     await expect(rejectResponse(error)).rejects.toBe(error);
     expect(apiPost).not.toHaveBeenCalled();
+  });
+});
+
+describe("signed-out routing", () => {
+  it("preserves a protected deep link through login", () => {
+    expect(unauthenticatedDestination("/accounts", "?view=cash")).toBe(
+      "/login?next=%2Faccounts%3Fview%3Dcash",
+    );
+  });
+
+  it("keeps a first visit to the root on the public landing", () => {
+    expect(unauthenticatedDestination("/", "")).toBe("/welcome");
   });
 });

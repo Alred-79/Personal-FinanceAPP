@@ -11,6 +11,7 @@ interface SidebarProps {
   /** Opens the Plaid Link flow; disabled until the handler is ready. */
   onConnectBank: () => void;
   canConnectBank: boolean;
+  bankAvailable?: boolean;
   onLogout: () => void;
   /** Called after navigating, so the mobile drawer can close itself. */
   onNavigate?: () => void;
@@ -23,6 +24,7 @@ interface SidebarProps {
 export default function Sidebar({
   onConnectBank,
   canConnectBank,
+  bankAvailable = true,
   onLogout,
   onNavigate,
 }: SidebarProps) {
@@ -97,7 +99,7 @@ export default function Sidebar({
 
       {/* Footer */}
       <div className="space-y-1 border-t border-white/10 p-3">
-        <button
+        {bankAvailable && <button
           onClick={onConnectBank}
           disabled={!canConnectBank}
           className="flex w-full items-center gap-3 border-l-2 border-transparent px-3 py-2.5 font-sans text-[12px] font-semibold uppercase tracking-[0.14em] text-sidebar-foreground/60 transition-colors hover:bg-white/5 hover:text-sidebar-foreground disabled:opacity-50"
@@ -105,7 +107,7 @@ export default function Sidebar({
           <span className="w-6 shrink-0" />
           <Building2 className="h-[16px] w-[16px] shrink-0" />
           Link Bank
-        </button>
+        </button>}
 
         <div className="flex items-center gap-3 px-3 py-2">
           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-gold/50 bg-gold/10 font-display text-sm font-semibold text-gold">
@@ -122,7 +124,7 @@ export default function Sidebar({
           <button
             onClick={onLogout}
             aria-label="Log out"
-            className="p-1.5 text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground"
+            className="grid h-11 w-11 place-items-center text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground"
           >
             <LogOut className="h-[16px] w-[16px]" />
           </button>

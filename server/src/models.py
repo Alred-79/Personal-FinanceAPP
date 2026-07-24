@@ -50,7 +50,14 @@ class Account(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     type: str = Field(min_length=1, max_length=100)
     balance: float = Field(**_MONEY)
+    subtype: Optional[str] = Field(default=None, max_length=100)
+    currency: str = Field(default="USD", min_length=3, max_length=3)
     last_updated: Optional[date] = date.today()
+
+    @field_validator("currency")
+    @classmethod
+    def _currency_upper(cls, value: str) -> str:
+        return value.upper()
 
 
 class Transaction(BaseModel):

@@ -17,6 +17,8 @@ interface HeaderProps {
   title: string;
   onConnectBank: () => void;
   canConnectBank: boolean;
+  bankAvailable: boolean;
+  assistantAvailable: boolean;
   onLogout: () => void;
 }
 
@@ -29,6 +31,8 @@ interface HeaderProps {
 export default function Header({
   onConnectBank,
   canConnectBank,
+  bankAvailable,
+  assistantAvailable,
   onLogout,
 }: HeaderProps) {
   const { theme, toggleTheme } = useTheme();
@@ -68,6 +72,7 @@ export default function Header({
             <Sidebar
               onConnectBank={onConnectBank}
               canConnectBank={canConnectBank}
+              bankAvailable={bankAvailable}
               onLogout={onLogout}
               onNavigate={() => setMobileOpen(false)}
             />
@@ -91,7 +96,7 @@ export default function Header({
         <button
           onClick={() => setPaletteOpen(true)}
           aria-label="Jump to a page"
-          className="press ml-1 flex items-center gap-2 border border-rule-strong/40 bg-card px-3 py-2 font-sans text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground shadow-plate transition-colors hover:text-foreground sm:ml-3"
+          className="press ml-1 flex min-h-11 items-center gap-2 border border-rule-strong/40 bg-card px-3 py-2 font-sans text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground shadow-plate transition-colors hover:text-foreground sm:ml-3"
         >
           <Command className="h-[14px] w-[14px]" />
           <span className="hidden sm:inline">Jump to…</span>
@@ -104,19 +109,19 @@ export default function Header({
 
         {/* Clerk's actions */}
         <div className="flex items-center gap-2">
-          <button
+          {bankAvailable && <button
             onClick={onConnectBank}
             disabled={!canConnectBank}
-            className="press hidden h-9 items-center gap-1.5 border border-rule-strong/50 bg-card px-3 font-sans text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground shadow-plate transition-all hover:bg-wash disabled:opacity-50 lg:flex"
+            className="press hidden h-11 items-center gap-1.5 border border-rule-strong/50 bg-card px-3 font-sans text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground shadow-plate transition-all hover:bg-wash disabled:opacity-50 lg:flex"
           >
             <Building2 className="h-4 w-4 shrink-0" />
             Link Bank
-          </button>
+          </button>}
 
           <button
             onClick={toggleTheme}
             aria-label="Toggle theme"
-            className="press grid h-9 w-9 place-items-center border border-rule-strong/50 bg-card text-foreground shadow-plate transition-all hover:bg-wash"
+            className="press grid h-11 w-11 place-items-center border border-rule-strong/50 bg-card text-foreground shadow-plate transition-all hover:bg-wash"
           >
             {theme === "dark" ? (
               <Sun className="h-[18px] w-[18px]" />
@@ -130,13 +135,13 @@ export default function Header({
           <NotificationBell />
 
           <div className="hidden items-center gap-2 md:flex">
-            <span className="grid h-9 w-9 place-items-center rounded-full border border-gold/60 bg-gold/10 font-display text-sm font-semibold text-gold">
+            <span className="grid h-11 w-11 place-items-center rounded-full border border-gold/60 bg-gold/10 font-display text-sm font-semibold text-gold">
               {initial}
             </span>
             <button
               onClick={onLogout}
               aria-label="Log out"
-              className="press grid h-9 w-9 place-items-center border border-rule-strong/50 bg-card text-foreground shadow-plate transition-all hover:bg-wash"
+              className="press grid h-11 w-11 place-items-center border border-rule-strong/50 bg-card text-foreground shadow-plate transition-all hover:bg-wash"
             >
               <LogOut className="h-[18px] w-[18px]" />
             </button>
@@ -150,6 +155,8 @@ export default function Header({
           onOpenChange={setPaletteOpen}
           onConnectBank={onConnectBank}
           canConnectBank={canConnectBank}
+          bankAvailable={bankAvailable}
+          assistantAvailable={assistantAvailable}
         />
       ) : (
         <NavPalette open={paletteOpen} onOpenChange={setPaletteOpen} />

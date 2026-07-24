@@ -39,6 +39,7 @@ from server.src.services.recurring_service import (
     RecurringService,
     latest_recurring_rows,
 )
+from server.src.services.account_semantics import AccountSemanticsService
 
 
 class SpendService:
@@ -253,11 +254,10 @@ class SpendService:
         # ── Current balance ───────────────────────────────────────────────
         # An overlay's ``balance_override_cents`` replaces the summed balance, so
         # a hypothetical can ask "what if I had $X right now?".
-        balance_cents = self.db.execute(
-            select(func.coalesce(func.sum(AccountORM.balance), 0)).where(
-                AccountORM.user_id == user.id
-            )
-        ).scalar() or 0
+        account_summary = AccountSemanticsService(self.db).summarize(
+            user.id, "near_term_cash"
+        )
+        balance_cents = account_summary.total_cents
         if overlay is not None and overlay.balance_override_cents is not None:
             balance_cents = overlay.balance_override_cents
 
@@ -357,6 +357,15 @@ class SpendService:
                 "include_goals": include_goals,
                 "buffer": cents_to_dollars(buffer_cents),
             },
+            "account_scope": account_summary.to_dict(),
+            "state": (
+                "limited"
+                if account_summary.state == "limited"
+                else "ready_negative"
+                if available_cents < 0
+                else account_summary.state
+            ),
+            "is_negative": available_cents < 0,
         }
 
         if include_outlook:
@@ -378,6 +387,7 @@ class SpendService:
             # "≈90% chance you stay above $X" instead of hiding the uncertainty.
             result["coverage_level"] = fc.get("coverage_level")
             result["band_calibrated"] = fc.get("band_calibrated", False)
+            result["model_state"] = fc.get("model_state", "scheduled_only")
 
         return result
 

@@ -37,7 +37,7 @@ export default function ForecastCard() {
           <div className="h-24 animate-pulse bg-muted/40" aria-label="Loading upcoming cash events" />
         ) : events.length === 0 ? (
           <p className="py-5 text-sm text-muted-foreground">
-            Connect or import accounts and mark recurring items to estimate upcoming
+            Add accounts and record recurring items to estimate upcoming
             obligations, then test how a purchase changes the outcome.
           </p>
         ) : (

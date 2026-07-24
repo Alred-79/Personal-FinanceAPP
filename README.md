@@ -105,14 +105,14 @@ A few decisions that show how the codebase thinks. Each started as a real proble
 ```bash
 pipenv install -d          # 1. backend deps
 npm install                # 2. frontend deps
-cp .env.example .env       # 3. fill in GROQ, PLAID, JWT_SECRET_KEY, …
+cp .env.example .env       # 3. set a strong JWT_SECRET_KEY; providers are optional
 python -m alembic upgrade head   # 4. database
 
 pipenv run server          # 5a. FastAPI on :8000
 npm run dev                # 5b. Vite on :5173
 ```
 
-The MCP surface **ships dark**: it isn't mounted unless you set `mcp_enabled=true`. The app runs perfectly without ever exposing it.
+Manual accounts, transactions, deterministic decisions, and exports work without Groq, Tavily, or Plaid keys. Their controls appear only when the corresponding provider is configured. The MCP surface **ships dark**: it isn't mounted unless you set `mcp_enabled=true`.
 
 ---
 
@@ -121,7 +121,7 @@ The MCP surface **ships dark**: it isn't mounted unless you set `mcp_enabled=tru
 A privacy SKU — **your data never leaves your machine** for web lookups. One container, SQLite, no Postgres, and the assistant's web tools disabled:
 
 ```bash
-cp .env.example .env       # fill GROQ_API_KEY + JWT_SECRET_KEY (Tavily not needed)
+cp .env.example .env       # set JWT_SECRET_KEY; leave Groq/Tavily/Plaid blank for core-only use
 docker compose -f docker-compose.selfhost.yml up --build
 ```
 
@@ -129,9 +129,9 @@ What the profile does (`EGRESS_DISABLED=true`):
 
 - **The assistant makes no web call.** The `WEB` tool group — `search_web` / `open_website` / `get_information` — is dropped from *every* mode (router on or off), and the deterministic router never binds `WEB` even on an explicit look-up intent. Ask the Clerk to "look up the price of gold" and it tells you **web lookups are disabled on this instance** instead of failing silently.
 - **SQLite, persisted to a volume.** No external database service.
-- **Keys are local.** Nothing is baked into the image; secrets come from your `.env`.
+- **Keys are local and provider keys are optional.** Nothing is baked into the image; the core needs only your instance JWT secret.
 
-**The only outbound services are Groq and Tavily.** `EGRESS_DISABLED=true` kills the **Tavily / web** path entirely.
+`EGRESS_DISABLED=true` kills the **Tavily / web** path entirely. Groq and Plaid make outbound requests only when configured and when their optional surfaces are used.
 
 > ⚠️ **This is "no web egress", not "fully local."** Groq is still the chat LLM **and** the receipt / tax-document **vision** backend, so a chat turn (and any receipt / statement / tax scan) still sends text or images to Groq for inference. To go *fully* local you must additionally **either** not run the Groq-backed surfaces (assistant / receipt-scan / tax-document), **or** point `GROQ_API_BASE` at an on-box OpenAI-compatible model server (e.g. llama.cpp / vLLM) so no token leaves the machine. Don't claim full locality while Groq is in use.
 
