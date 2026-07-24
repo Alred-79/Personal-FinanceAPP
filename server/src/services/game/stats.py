@@ -32,6 +32,7 @@ from ...db.models import (
     Expense as ExpenseORM,
 )
 from ...models import UserInDB
+from ..account_semantics import AccountSemanticsService
 from .baselines import (
     Baseline,
     _months_back_start,
@@ -89,13 +90,8 @@ class StatsService:
         self.db = db
 
     def _liquid_balance_cents(self, user_id: int) -> int:
-        return int(
-            self.db.execute(
-                select(func.coalesce(func.sum(AccountORM.balance), 0)).where(
-                    AccountORM.user_id == user_id
-                )
-            ).scalar()
-            or 0
+        return AccountSemanticsService(self.db).total_cents(
+            user_id, "near_term_cash"
         )
 
     def _essential_categories(self) -> set[str]:

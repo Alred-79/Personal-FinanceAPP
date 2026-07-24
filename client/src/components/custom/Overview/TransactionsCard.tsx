@@ -5,11 +5,13 @@ import { TransactionDialog } from "@/components/custom/TransactionDialog/Transac
 import { ScanReceiptButton } from "@/components/custom/ScanReceiptButton/ScanReceiptButton";
 import { Transaction, Frequency, ReceiptDraft } from "@/types";
 import { useState } from "react";
+import { useInstanceCapabilities } from "@/hooks/useInstanceCapabilities";
 
 function TransactionsCard() {
   const { recentTransactions, addTransaction, deleteTransaction } = useStore();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pendingDraft, setPendingDraft] = useState<ReceiptDraft | null>(null);
+  const capabilities = useInstanceCapabilities();
 
   const openDialogWith = (draft: ReceiptDraft) => {
     setPendingDraft(draft);
@@ -57,7 +59,9 @@ function TransactionsCard() {
           )}
         </div>
         <div className="mt-4 flex flex-col gap-2 border-t border-rule-strong/30 pt-4 [&>button]:w-full">
-          <ScanReceiptButton onScanned={openDialogWith} />
+          {capabilities?.unstructured_import && (
+            <ScanReceiptButton onScanned={openDialogWith} />
+          )}
           <TransactionDialog
             onSubmit={handleNewTransaction}
             open={dialogOpen}

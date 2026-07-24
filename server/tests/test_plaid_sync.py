@@ -141,7 +141,7 @@ class TestSyncAdded:
         )
 
         svc = PlaidService(db_session)
-        summary = svc.sync_all_tokens(seed_user)
+        svc.sync_all_tokens(seed_user)
         db_session.flush()
 
         expenses = db_session.execute(select(ExpenseORM)).scalars().all()
@@ -893,7 +893,7 @@ class TestBalanceRefresh:
     def test_sync_updates_account_balance(
         self, MockPDB, db_session, seed_user, seed_id_keyed_account
     ):
-        """After sync, the local balance equals Plaid's reported balance."""
+        """Sync preserves Plaid current and available instead of collapsing them."""
         account, token = seed_id_keyed_account
 
         mock_plaid = MagicMock()
@@ -908,7 +908,10 @@ class TestBalanceRefresh:
         PlaidService(db_session).sync_all_tokens(seed_user)
         db_session.flush()
         db_session.refresh(account)
-        assert account.balance == dollars_to_cents(1234.56)  # available preferred
+        assert account.balance == dollars_to_cents(1300.00)  # compatibility shadow
+        assert account.current_balance == dollars_to_cents(1300.00)
+        assert account.available_balance == dollars_to_cents(1234.56)
+        assert account.semantic_role == "liquid_asset"
 
 
 class TestPerTokenIsolation:

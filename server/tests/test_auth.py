@@ -45,6 +45,30 @@ class TestSignup:
         assert len(resp.json()["access_token"]) > 10
 
 
+class TestPublicCapabilities:
+    def test_registration_closes_after_first_user_on_single_user_instance(
+        self, client, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "single_user", True)
+        monkeypatch.setattr(settings, "allow_signup", True)
+        before = client.get("/api/capabilities/")
+        assert before.status_code == 200
+        assert before.json()["registration_open"] is True
+
+        assert _signup(client).status_code == 200
+        after = client.get("/api/capabilities/")
+        assert after.json()["registration_open"] is False
+
+    def test_optional_providers_are_reported_without_secrets(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "plaid_client_id", "")
+        monkeypatch.setattr(settings, "plaid_client_secret", "")
+        monkeypatch.setattr(settings, "groq_api_key", "")
+        body = client.get("/api/capabilities/").json()
+        assert body["plaid"] is False
+        assert body["assistant"] is False
+        assert "plaid_client_id" not in body
+
+
 class TestLogin:
     def test_valid_credentials_return_token(self, client):
         _signup(client)

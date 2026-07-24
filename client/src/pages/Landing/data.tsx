@@ -35,7 +35,7 @@ export const FEATURES: Feature[] = [
   {
     no: "No. 03",
     title: "Subscriptions Watch",
-    body: "See recurring charges across accounts in one place. The Ledger flags trials about to bill, subscriptions you may have stopped using, and repeat merchants that quietly raised their price.",
+    body: "See recurring charges across accounts in one place. The Ledger groups their cadence, shows recorded price changes, and separates likely-active charges from items that need your review.",
     icon: (
       <>
         <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 12a9 9 0 0 1-15 6.7L3 16" />

@@ -114,6 +114,8 @@ export interface Forecast {
   trough_band?: { low: number; median: number; high: number };
   coverage_level?: number | null; // nominal band coverage, e.g. 0.9
   band_calibrated?: boolean; // did the split-conformal step actually run
+  model_state?: "historical_variation" | "scheduled_only";
+  account_scope?: AccountScope;
   // F1 change-point router: a recently detected spend-level shift, or null.
   regime_shift?: {
     date: string;
@@ -121,6 +123,29 @@ export interface Forecast {
     delta_per_month: number;
     direction: "up" | "down";
   } | null;
+}
+
+export interface AccountScope {
+  purpose: "near_term_cash" | "forecast" | "net_worth";
+  total_cents: number;
+  state: "empty" | "limited" | "ready";
+  components: Array<{
+    account_id: number;
+    name: string;
+    role: string;
+    currency: string | null;
+    observed_at: string | null;
+    signed_cents: number;
+    quality: string;
+  }>;
+  exclusions: Array<{
+    account_id: number;
+    name: string;
+    role: string;
+    currency: string | null;
+    observed_at: string | null;
+    reason: string;
+  }>;
 }
 
 /** Server-computed Safe-to-Spend (v1 F3): the one number plus its why. */
@@ -150,6 +175,10 @@ export interface SafeToSpend {
   trough_band?: { low: number; median: number; high: number };
   coverage_level?: number | null; // nominal band coverage, e.g. 0.9
   band_calibrated?: boolean;
+  model_state?: "historical_variation" | "scheduled_only";
+  state?: "empty" | "limited" | "ready" | "ready_negative";
+  is_negative?: boolean;
+  account_scope?: AccountScope;
 }
 
 export interface S2SPrefs {
@@ -186,6 +215,7 @@ interface StoreState {
   expenses: Expense[];
   budgetAllotment: number;
   safeToSpend: SafeToSpend | null;
+  safeToSpendStatus: "idle" | "loading" | "ready" | "error";
   s2sPrefs: S2SPrefs;
   spendOverTime: number;
   fixedPerMonth: number;
@@ -437,15 +467,16 @@ const initialState = {
   transactions: [] as Transaction[],
   recentTransactions: [] as Transaction[],
   expenses: [] as Expense[],
-  budgetAllotment: 1,
+  budgetAllotment: 0,
   safeToSpend: null as SafeToSpend | null,
+  safeToSpendStatus: "idle" as const,
   s2sPrefs: {
     s2s_horizon: "paycheck",
     s2s_include_income: true,
     s2s_include_goals: true,
     s2s_buffer: 0,
   } as S2SPrefs,
-  spendOverTime: 1,
+  spendOverTime: 0,
   fixedPerMonth: 0,
   warningPosition: 25,
   savingsPercent: 20,
@@ -611,10 +642,12 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   fetchSafeToSpend: async () => {
+    set({ safeToSpendStatus: "loading" });
     try {
       const response = await api.get("/spend/safe-to-spend");
-      set({ safeToSpend: response.data });
+      set({ safeToSpend: response.data, safeToSpendStatus: "ready" });
     } catch (error) {
+      set({ safeToSpend: null, safeToSpendStatus: "error" });
       console.error("Error fetching safe-to-spend:", error);
       // Safe-to-Spend is the app's most prominent number; a silent failure shows
       // a stale/empty hero that reads as real. Surface it like fetchInitialData.
@@ -1096,6 +1129,7 @@ export const useStore = create<StoreState>((set, get) => ({
         settingsError: false,
         budgetAllotment: budgetResponse.data,
         safeToSpend,
+        safeToSpendStatus: "ready",
         fixedPerMonth: fixedResponse.data,
         spendOverTime: spendResponse.data,
         hasLoaded: true,

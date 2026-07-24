@@ -12,6 +12,7 @@ import CadenceCalendar from "@/components/custom/CadenceCalendar/CadenceCalendar
 import {
   monthlyBurden,
   annualBurden,
+  possibleMonthlyBurden,
   isAtRisk,
   hasLifecycleData,
 } from "@/lib/subscriptions";
@@ -51,6 +52,7 @@ const Subscriptions: React.FC = () => {
 
   const monthly = monthlyBurden(subscriptions);
   const annual = annualBurden(subscriptions);
+  const possibleMonthly = possibleMonthlyBurden(subscriptions);
 
   const grouped = hasLifecycleData(subscriptions);
   const atRisk = grouped
@@ -88,11 +90,19 @@ const Subscriptions: React.FC = () => {
               </p>
               <div className="flex items-baseline gap-8">
                 <div className="text-right">
-                  <p className="dept-label">Monthly burden</p>
+                  <p className="dept-label">Likely active / month</p>
                   <p className="intaglio text-3xl ink-debit">
                     <AnimatedNumber value={monthly} />
                   </p>
                 </div>
+                {grouped && possibleMonthly > 0 && (
+                  <div className="text-right">
+                    <p className="dept-label">Needs review / month</p>
+                    <p className="ledger-figures text-lg text-muted-foreground">
+                      {formatCurrency(possibleMonthly)}
+                    </p>
+                  </div>
+                )}
                 <div className="text-right">
                   <p className="dept-label">Projected / yr</p>
                   <p className="ledger-figures text-lg text-muted-foreground">

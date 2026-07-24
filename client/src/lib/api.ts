@@ -41,6 +41,12 @@ const AUTH_PATHS = [
 // promise is cleared once it settles, so a later 401 can refresh again.
 let refreshInFlight: Promise<void> | null = null;
 
+export function unauthenticatedDestination(pathname: string, search = ""): string | null {
+  if (pathname === "/login" || pathname === "/welcome") return null;
+  if (pathname === "/") return "/welcome";
+  return `/login?next=${encodeURIComponent(`${pathname}${search}`)}`;
+}
+
 /**
  * Refresh the session at most once across all concurrent callers. Both the axios
  * response interceptor and the SSE hook (raw fetch) call this so they share one
@@ -81,10 +87,11 @@ api.interceptors.response.use(
         // failed background probe on a logged-out visit (e.g. GameModeProvider's
         // settings read, which fires above the auth boundary) turns into an
         // infinite reload loop: 401 → refresh fails → redirect → remount → 401…
-        const path = window.location.pathname;
-        if (path !== "/login" && path !== "/welcome") {
-          window.location.href = "/login";
-        }
+        const destination = unauthenticatedDestination(
+          window.location.pathname,
+          window.location.search,
+        );
+        if (destination) window.location.href = destination;
         return Promise.reject(refreshError);
       }
     }

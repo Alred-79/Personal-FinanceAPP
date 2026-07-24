@@ -18,6 +18,8 @@ import {
 import { useToast } from "@/hooks/useToast";
 import { DocumentDropzone } from "@/components/custom/Reconciliation/DocumentDropzone";
 import ReconciliationReview from "@/components/custom/Reconciliation/ReconciliationReview";
+import { loadCapabilities } from "@/lib/capabilities";
+import { Link } from "react-router-dom";
 
 /**
  * The Reconciliation Desk — import a messy statement from ANY bank (even ones
@@ -39,10 +41,25 @@ export default function Reconcile() {
   const [pasting, setPasting] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [detangling, setDetangling] = useState(false);
+  const [importAvailable, setImportAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (accounts.length === 0) fetchAccounts();
   }, [accounts.length, fetchAccounts]);
+
+  useEffect(() => {
+    let active = true;
+    void loadCapabilities()
+      .then((value) => {
+        if (active) setImportAvailable(value.unstructured_import);
+      })
+      .catch(() => {
+        if (active) setImportAvailable(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Default to the first account once they load.
   useEffect(() => {
@@ -139,7 +156,11 @@ export default function Reconcile() {
                 </Select>
               </div>
 
-              <Tabs defaultValue="upload">
+              {importAvailable === null ? (
+                <p className="font-sans text-sm text-muted-foreground" role="status">
+                  Checking import availability…
+                </p>
+              ) : importAvailable ? <Tabs defaultValue="upload">
                 <TabsList>
                   <TabsTrigger value="upload">Upload a file</TabsTrigger>
                   <TabsTrigger value="paste">Paste text</TabsTrigger>
@@ -179,7 +200,17 @@ export default function Reconcile() {
                     )}
                   </Button>
                 </TabsContent>
-              </Tabs>
+              </Tabs> : (
+                <div className="border border-rule bg-wash/40 p-4">
+                  <p className="font-display text-lg">Document reading is not configured</p>
+                  <p className="mt-1 font-sans text-sm text-muted-foreground">
+                    This instance can still use manual accounts and transactions without an AI provider key.
+                  </p>
+                  <Button variant="outline" className="mt-4 min-h-11" asChild>
+                    <Link to="/transactions">Add a transaction manually</Link>
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
           </RevealItem>

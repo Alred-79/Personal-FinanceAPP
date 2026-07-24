@@ -40,6 +40,7 @@ from server.src.services.categorization_service import (
 )
 from server.src.services.game.events import GameEventDraft, record_events
 from server.src.services.rule_engine import RuleEngine
+from server.src.services.account_semantics import infer_semantic_role
 
 logger = logging.getLogger(__name__)
 
@@ -253,14 +254,36 @@ class PlaidService:
             balances = data.get("balances") or {}
             available = balances.get("available")
             current = balances.get("current")
-            value = available if available is not None else current
+            limit = balances.get("limit")
+            value = current if current is not None else available
             if value is None:
                 continue
+            account_type = str(data.get("type") or "unknown")
+            account_subtype = (
+                str(data.get("subtype")) if data.get("subtype") is not None else None
+            )
             self.db.execute(
                 update(AccountORM)
                 .where(AccountORM.id == local_id)
                 .values(
                     balance=dollars_to_cents(float(value)),
+                    type=account_type,
+                    subtype=account_subtype,
+                    current_balance=(
+                        dollars_to_cents(float(current)) if current is not None else None
+                    ),
+                    available_balance=(
+                        dollars_to_cents(float(available)) if available is not None else None
+                    ),
+                    credit_limit=(
+                        dollars_to_cents(float(limit)) if limit is not None else None
+                    ),
+                    iso_currency_code=balances.get("iso_currency_code"),
+                    unofficial_currency_code=balances.get("unofficial_currency_code"),
+                    balance_source="plaid",
+                    balance_observed_at=func.current_timestamp(),
+                    semantic_role=infer_semantic_role(account_type, account_subtype),
+                    review_state="confirmed",
                     last_updated=func.current_timestamp(),
                     plaid_balance_refreshed_at=func.current_timestamp(),
                 )

@@ -29,12 +29,20 @@ import { Toaster } from "@/components/ui/toaster";
 import { GameModeProvider } from "@/store/gameMode";
 import { ScanlineOverlay } from "@/components/custom/ScanlineOverlay/ScanlineOverlay";
 import { apiBase } from "@/lib/apiBase";
+import NotFound from "./pages/NotFound/NotFound.tsx";
+import { ASSISTANT_CAPABILITY_KEY } from "@/lib/capabilities";
 
 // Wipe the assistant's history when the user closes the tab. `sendBeacon` is
 // the only request guaranteed to fire during unload — a regular `fetch` is
 // often cancelled before it leaves the page.
 window.addEventListener("beforeunload", () => {
-  navigator.sendBeacon(`${apiBase}/assistant/clear/`);
+  try {
+    if (sessionStorage.getItem(ASSISTANT_CAPABILITY_KEY) === "true") {
+      navigator.sendBeacon(`${apiBase}/assistant/clear/`);
+    }
+  } catch {
+    // If capability state is unavailable, fail closed and send nothing.
+  }
 });
 
 createRoot(document.getElementById("root")!).render(
@@ -90,8 +98,10 @@ createRoot(document.getElementById("root")!).render(
               {/* Outcomes v0 is INTERNAL: a plain cohort-comparison page,
                   identical in every mode, never in nav. */}
               <Route path="/outcomes" element={<Outcomes />} />
+              <Route path="*" element={<NotFound />} />
             </Route>
           </Route>
+          <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
       </GameModeProvider>

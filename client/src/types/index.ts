@@ -46,6 +46,16 @@ export interface Account {
   name: string;
   type: string;
   balance: number;
+  subtype?: string | null;
+  current_balance?: number | null;
+  available_balance?: number | null;
+  credit_limit?: number | null;
+  iso_currency_code?: string | null;
+  unofficial_currency_code?: string | null;
+  balance_source?: string | null;
+  balance_observed_at?: string | null;
+  semantic_role?: "liquid_asset" | "nonliquid_asset" | "liability" | "unknown" | null;
+  review_state?: "confirmed" | "inferred" | "legacy_unverified" | "review_required" | null;
   last_updated: string;
   transactions?: Transaction[];
 }
@@ -378,6 +388,7 @@ export interface ScenarioResult {
   paths_total: number;
   goal_reach: Record<string, { reaches_on: string | null }>;
   trough_band?: { low: number; median: number; high: number };
+  model_state?: "historical_variation" | "scheduled_only";
 }
 
 export interface ScenarioChangeStatus {

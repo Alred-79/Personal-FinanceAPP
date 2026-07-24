@@ -13,9 +13,11 @@ _MIN_JWT_SECRET_LEN = 32
 
 
 class Settings(BaseSettings):
-    groq_api_key: str
+    # External services are optional. Empty values disable only their own
+    # surfaces; manual accounts, imports, decisions, and export remain usable.
+    groq_api_key: str = ""
     jwt_secret_key: str
-    jwt_algorithm: str
+    jwt_algorithm: str = "HS256"
     # L3 — token isolation rollout. Each token family (session / assistant_action /
     # mcp) now signs with an HKDF-derived per-purpose key and carries a distinct
     # ``aud``. Short-lived families enforce ``aud`` immediately. SESSION tokens
@@ -24,10 +26,10 @@ class Settings(BaseSettings):
     # logins survive the deploy. Flip to True once all legacy access tokens have
     # expired (>= access_token_expire_minutes after deploy) to hard-enforce.
     jwt_require_aud: bool = False
-    tavily_api_key: str
-    plaid_client_id: str
-    plaid_client_secret: str
-    plaid_environment: str
+    tavily_api_key: str = ""
+    plaid_client_id: str = ""
+    plaid_client_secret: str = ""
+    plaid_environment: str = "sandbox"
     # L1 — inbound webhooks. The publicly reachable HTTPS URL Plaid POSTs webhooks
     # to (e.g. https://<host>/api/plaid/webhook). When set, it's registered on the
     # item at link time; when None (local dev — Plaid can't reach localhost) the

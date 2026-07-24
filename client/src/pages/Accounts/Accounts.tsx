@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/useToast";
 import { TiltCard } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,15 +21,36 @@ import { AnimatedNumber } from "@/components/engraving/AnimatedNumber";
 import { EmptyState } from "@/components/engraving/EmptyState";
 import CustomTooltip from "@/components/custom/Tooltip/Tooltip";
 import { ReadOnlyBadge } from "@/components/custom/Trust/ReadOnlyBadge";
+import api from "@/lib/api";
 
 export default function Accounts() {
-  const { accounts, isLoading, fetchAccounts, addAccount, deleteAccount } =
+  const { accounts, accountsLoaded, isLoading, fetchAccounts, addAccount, deleteAccount } =
     useStore();
   const { toast } = useToast();
+  const [netPosition, setNetPosition] = useState<number | null>(null);
 
   useEffect(() => {
     fetchAccounts();
   }, [fetchAccounts]);
+
+  useEffect(() => {
+    if (!accountsLoaded || accounts.length === 0) {
+      setNetPosition(null);
+      return;
+    }
+    let active = true;
+    void api
+      .get("/accounts/summary", { params: { purpose: "net_worth" } })
+      .then((response) => {
+        if (active) setNetPosition(response.data.total);
+      })
+      .catch(() => {
+        if (active) setNetPosition(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [accounts, accountsLoaded]);
 
   const handleAccountCreated = async (account: {
     name: string;
@@ -53,8 +74,6 @@ export default function Accounts() {
     }
   };
 
-  const total = accounts.reduce((sum, a) => sum + a.balance, 0);
-
   return (
     <>
       <PageHeader
@@ -72,12 +91,16 @@ export default function Accounts() {
       {accounts.length > 0 && (
         <div className="mb-6 flex flex-wrap items-baseline justify-between gap-2 border-b border-rule-strong/30 pb-4">
           <div className="flex flex-wrap items-center gap-3">
-            <p className="dept-label">Aggregate holdings</p>
-            <ReadOnlyBadge />
+            <p className="dept-label">Net account position</p>
+            {accounts.some((account) => account.balance_source === "plaid") && <ReadOnlyBadge />}
           </div>
-          <p className="intaglio text-3xl text-foreground">
-            <AnimatedNumber value={total} />
-          </p>
+          {netPosition == null ? (
+            <p className="font-sans text-xs text-muted-foreground" role="status">Calculating account position…</p>
+          ) : (
+            <p className="intaglio text-3xl text-foreground">
+              <AnimatedNumber value={netPosition} />
+            </p>
+          )}
         </div>
       )}
 
@@ -95,7 +118,7 @@ export default function Accounts() {
             >
               <button
                 aria-label="Delete account"
-                className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center text-muted-foreground opacity-0 transition-opacity hover:text-debit group-hover:opacity-100"
+                className="absolute right-2 top-2 z-10 grid h-11 w-11 place-items-center text-muted-foreground transition-colors hover:text-debit"
                 onClick={() => handleDeleteAccount(account.id)}
               >
                 <Trash2 size={17} />
@@ -118,14 +141,19 @@ export default function Accounts() {
 
                   <p
                     className={`intaglio text-3xl ${
-                      account.balance < 0 ? "ink-debit" : "text-foreground"
+                      account.semantic_role === "liability" || account.balance < 0
+                        ? "ink-debit"
+                        : "text-foreground"
                     }`}
                   >
-                    {account.balance < 0 ? "−" : ""}
-                    {formatCurrency(Math.abs(account.balance))}
+                    {account.semantic_role === "liability" || account.balance < 0 ? "−" : ""}
+                    {formatCurrency(Math.abs(account.current_balance ?? account.balance))}
                   </p>
+                  {account.semantic_role === "liability" && (
+                    <p className="mt-1 font-sans text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Amount owed</p>
+                  )}
                   <p className="mt-3 font-mono text-[11px] text-muted-foreground">
-                    Reconciled {new Date(account.last_updated).toLocaleDateString()}
+                    Balance updated {new Date(account.last_updated).toLocaleDateString()}
                   </p>
                 </div>
 
@@ -215,7 +243,7 @@ export default function Accounts() {
               seed={2}
               eyebrow="Register II · Awaiting first entry"
               title="No accounts on the register"
-              description="This register has been opened but not yet inscribed. Add a passbook or link a bank to begin recording holdings."
+              description="This register has been opened but not yet inscribed. Add a checking or savings account to begin with the cash you can actually use."
               action={<AccountDialog onAccountCreated={handleAccountCreated} />}
             />
           )}

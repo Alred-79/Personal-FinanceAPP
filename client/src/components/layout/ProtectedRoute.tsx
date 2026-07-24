@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useStore } from "@/store/store";
 
 /**
@@ -8,7 +8,7 @@ import { useStore } from "@/store/store";
  * full screen loading state so child pages never flash before we know.
  */
 export default function ProtectedRoute() {
-  const navigate = useNavigate();
+  const location = useLocation();
   const [authChecking, setAuthChecking] = useState(true);
   const didCheck = useRef(false);
 
@@ -25,15 +25,6 @@ export default function ProtectedRoute() {
     fetchUser().finally(() => setAuthChecking(false));
   }, [fetchUser, userLoaded]);
 
-  useEffect(() => {
-    if (authChecking) return;
-    if (!isLoggedIn) {
-      // First-time / signed-out visitors meet the public landing, which carries
-      // the sign-in + open-account CTAs. /login remains directly reachable.
-      navigate("/welcome", { replace: true });
-    }
-  }, [authChecking, isLoggedIn, navigate]);
-
   if (authChecking) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
@@ -42,7 +33,11 @@ export default function ProtectedRoute() {
     );
   }
 
-  if (!isLoggedIn) return null;
+  if (!isLoggedIn) {
+    if (location.pathname === "/") return <Navigate to="/welcome" replace />;
+    const next = `${location.pathname}${location.search}`;
+    return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
+  }
 
   return <Outlet />;
 }

@@ -197,38 +197,30 @@ def test_fade_job_skipped_when_bestiary_killed(db_session, user_acct):
 def test_job_check_plan_drift_notifies_and_dedups(db_session, user_acct):
     """The drift job re-checks active plans across users and is idempotent.
 
-    Drives drift through a goal-slip snapshot (deterministic, seed-independent),
+    Drives drift through a cash-risk change (deterministic, seed-independent),
     then re-runs to confirm the ``ref`` dedup holds — a scheduler double-fire
     must not double-notify (R8)."""
     import json
     from datetime import date as _date
 
     from server.src.db.models import (
-        Goal as GoalORM,
         Notification as NotificationORM,
         PlanOfRecord as PlanOfRecordORM,
     )
     from server.src.services.scenario_overlay import EMPTY
     from server.src.services.scenario_service import ScenarioService
 
-    user, _acct = user_acct
+    user, acct = user_acct
     as_of = _date(2026, 3, 10)
-    goal = GoalORM(name="Trip", amount=120_000, progress=20_000,
-                   date="2026-12-01", user_id=user.id, completed=0)
-    db_session.add(goal)
-    db_session.flush()
 
-    # Live reach date, then a snapshot that reaches 3 months earlier → live has
-    # slipped well past the 14-day threshold.
+    # Snapshot a healthy baseline, then lower current cash enough to create a
+    # material overdraft-risk increase. Goal drift is intentionally not used:
+    # an unfunded goal now has unknown pace instead of a deadline-derived date.
     import random
     live = ScenarioService(db_session).evaluate(
         user.id, EMPTY, as_of=as_of, rng=random.Random(0)
     )["baseline"]["result"]
-    live_reach = live["goal_reach"].get(goal.id, {}).get("reaches_on") or "2026-12-01"
-    y, m, _d = map(int, live_reach.split("-"))
-    m = m - 3 if m > 3 else m + 9
     snap_result = dict(live)
-    snap_result["goal_reach"] = {str(goal.id): {"reaches_on": _date(y, m, 1).isoformat()}}
     db_session.add(PlanOfRecordORM(
         user_id=user.id, scenario_id=None, rule_ids_json=json.dumps([]),
         baseline_snapshot_json=json.dumps({
@@ -238,6 +230,8 @@ def test_job_check_plan_drift_notifies_and_dedups(db_session, user_acct):
         }),
         status="active",
     ))
+    db_session.flush()
+    acct.balance = -100_000
     db_session.flush()
 
     first = scheduler.job_check_plan_drift(db_session, as_of)

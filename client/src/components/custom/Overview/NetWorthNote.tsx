@@ -112,7 +112,7 @@ export default function NetWorthNote() {
             </span>
           </div>
           <p className="text-center text-[9px] uppercase tracking-[0.28em] text-muted-foreground">
-            Certified True Balance
+            Calculated account position
           </p>
         </div>
       </div>

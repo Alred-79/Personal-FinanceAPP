@@ -65,7 +65,7 @@ function bandPath(r: SimResult): string {
 const linePath = (r: SimResult) => smoothPath(r.med.map((b, d) => [xFor(d), yFor(b)]));
 
 /**
- * The live Sea-Chart — a faithful, in-browser slice of the real forecast engine.
+ * The live Sea-Chart — an illustrative, in-browser sample of the forecast idea.
  * Drag to model heavier or lighter spending and the whole probability cloud
  * (the simulated 5th–95th percentile band) re-simulates, with the overdraft probability
  * re-sounding. Toggle a what-if and a scenario line overlays the baseline.

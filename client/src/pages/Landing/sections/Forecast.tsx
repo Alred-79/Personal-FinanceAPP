@@ -5,8 +5,8 @@ import { Vignettes } from "./forecast/Vignettes";
 
 /**
  * The Forecast — the product's flagship. The landing portrays the real engine
- * honestly: a simulated probabilistic projection (moving-block bootstrap +
- * conformal band + change-point detection), a live what-if, and the supporting
+ * honestly: scheduled cash flows plus a history-dependent simulation when the
+ * data supports one, an illustrative live what-if, and the supporting
  * surfaces (Safe-to-Spend, Compare, calendar). See server/src/services/forecast_*.
  */
 export function Forecast() {
@@ -19,13 +19,16 @@ export function Forecast() {
         </h2>
         <p className="mt-3 text-[1.02rem] text-muted-foreground">
           A bank balance cannot account for everything already spoken for. The Ledger
-          combines scheduled cash flow with the variation in how you actually spend, then
-          shows a modeled low, a range, and how many modeled paths fall below zero. Drag the chart
-          or add a what-if to see the answer change.
+          starts with scheduled cash flow. When there is enough varied history, it adds
+          modeled spending paths and labels the range; otherwise it stays schedule-only.
+          Drag this sample chart or add a what-if to see how the illustration changes.
         </p>
       </Rise>
 
       <Rise className="mx-auto mt-8 max-w-[760px]" delay={0.1}>
+        <p className="mb-2 text-center font-sans text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          Interactive illustration · sample data
+        </p>
         <LiveForecast />
       </Rise>
 

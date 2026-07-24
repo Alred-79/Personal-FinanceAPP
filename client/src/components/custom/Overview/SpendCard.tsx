@@ -1,81 +1,24 @@
+import { Link } from "react-router-dom";
+import { AlertTriangle, RefreshCw } from "lucide-react";
+
 import { TiltCard, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useStore } from "@/store/store";
 import { formatCurrency } from "@/lib/format";
 import { AnimatedNumber } from "@/components/engraving/AnimatedNumber";
 import { Figure } from "@/components/engraving/Figure";
 import { Stamp } from "@/components/engraving/Stamp";
-import { Reveal, RevealItem } from "@/components/motion/Reveal";
 import { useSafeToSpendTitle } from "@/components/custom/SafeToSpend/SafeToSpend";
 import { SpendSettingsDialog } from "@/components/custom/SpendSettingsDialog/SpendSettingsDialog";
 import { Button } from "@/components/ui/button";
 
-/**
- * Safe-to-Spend — the Overview hero. A half-circle pressure gauge (the dial of
- * a cash register) sits beside the headline figure, the pace, a status stamp,
- * and the quiet breakdown that explains the number. The needle swings to the
- * spent fraction of this horizon's envelope; a fine tick marks the warning
- * threshold. The gear edits the rules behind the number. This card also drives
- * the browser tab title (it replaced the old flat SafeToSpend pane).
- */
-export default function SpendCard() {
-  const { spendOverTime, safeToSpend: s2s, budgetAllotment, warningPosition, savingsPercent, fixedPerMonth } =
-    useStore();
-
-  // Server number with a graceful fallback to the legacy client math while
-  // the first fetch is in flight.
-  const available = s2s ? Math.max(0, s2s.available) : Math.max(0, budgetAllotment - spendOverTime);
-  const envelope = available + spendOverTime;
-  const pct = envelope > 0 ? Math.min(100, (spendOverTime / envelope) * 100) : 0;
-  const isOver = s2s ? s2s.available < 0 : spendOverTime > budgetAllotment;
-  const isWarning = !isOver && pct >= warningPosition;
-  const horizonLabel = s2s
-    ? new Date(`${s2s.horizon_end}T00:00:00`).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-      })
-    : null;
-
-  const accent = isOver
-    ? "hsl(var(--debit))"
-    : isWarning
-    ? "hsl(var(--gold))"
-    : "hsl(var(--credit))";
-
-  // Status stamp wording avoids the substring "over" so the footer "% over" is
-  // still the only /% over/ match the tests key on.
-  const status = isOver
-    ? { variant: "debit" as const, text: "Exceeded" }
-    : isWarning
-    ? { variant: "gold" as const, text: "Watch" }
-    : { variant: "credit" as const, text: "On Track" };
-
-  // Drive the tab title from the real (sign-preserving) figure, as the old flat
-  // SafeToSpend hero did.
-  useSafeToSpendTitle(s2s ? s2s.available : null, true);
-
-  // Gauge geometry: a 180° arc from left (-180°) to right (0°).
-  const R = 78;
-  const cx = 100;
-  const cy = 96;
-  const needleAngle = Math.PI - (pct / 100) * Math.PI; // radians
-  const nx = cx + R * 0.86 * Math.cos(needleAngle);
-  const ny = cy - R * 0.86 * Math.sin(needleAngle);
-  const warnAngle = Math.PI - (warningPosition / 100) * Math.PI;
-  const wx1 = cx + R * Math.cos(warnAngle);
-  const wy1 = cy - R * Math.sin(warnAngle);
-  const wx2 = cx + (R + 9) * Math.cos(warnAngle);
-  const wy2 = cy - (R + 9) * Math.sin(warnAngle);
-
-  // The spent arc as a stroke-dash fraction of the semicircle.
-  const arcLen = Math.PI * R;
-
+function CardFrame({ children }: { children: React.ReactNode }) {
   return (
     <TiltCard>
-      <CardHeader className="flex flex-row items-center justify-between pb-1">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
         <CardTitle>Safe to Spend</CardTitle>
         <div className="flex items-center gap-2">
-          <Button size="sm" asChild>
-            <a href="/forecast?tab=whatif">Test a decision</a>
+          <Button size="sm" className="min-h-11" asChild>
+            <Link to="/forecast?tab=whatif">Test a decision</Link>
           </Button>
           <SpendSettingsDialog
             onWarningPositionChange={() => {}}
@@ -83,159 +26,166 @@ export default function SpendCard() {
           />
         </div>
       </CardHeader>
-
-      <CardContent>
-        <Reveal className="space-y-5">
-          {/* Headline row: the dial beside the figure, vertically centred */}
-          <RevealItem className="grid items-center gap-x-8 gap-y-4 lg:grid-cols-[minmax(0,220px)_1fr]">
-          <div className="mx-auto w-full max-w-[220px]">
-            <svg viewBox="0 0 200 108" className="w-full">
-              {/* tick marks every 10% */}
-              {Array.from({ length: 11 }).map((_, i) => {
-                const a = Math.PI - (i / 10) * Math.PI;
-                const r1 = R + 2;
-                const r2 = i % 5 === 0 ? R + 11 : R + 6;
-                return (
-                  <line
-                    key={i}
-                    x1={cx + r1 * Math.cos(a)}
-                    y1={cy - r1 * Math.sin(a)}
-                    x2={cx + r2 * Math.cos(a)}
-                    y2={cy - r2 * Math.sin(a)}
-                    stroke="hsl(var(--rule-strong))"
-                    strokeWidth={i % 5 === 0 ? 1.1 : 0.6}
-                    opacity={0.55}
-                  />
-                );
-              })}
-              {/* base arc */}
-              <path
-                d={`M ${cx - R} ${cy} A ${R} ${R} 0 0 1 ${cx + R} ${cy}`}
-                fill="none"
-                stroke="hsl(var(--rule))"
-                strokeWidth="6"
-              />
-              {/* filled arc */}
-              <path
-                d={`M ${cx - R} ${cy} A ${R} ${R} 0 0 1 ${cx + R} ${cy}`}
-                fill="none"
-                stroke={accent}
-                strokeWidth="6"
-                strokeDasharray={arcLen}
-                strokeDashoffset={arcLen * (1 - pct / 100)}
-                style={{ transition: "stroke-dashoffset 900ms cubic-bezier(0.22,1,0.36,1)" }}
-              />
-              {/* warning tick */}
-              {warningPosition > 0 && warningPosition < 100 && (
-                <line
-                  x1={wx1}
-                  y1={wy1}
-                  x2={wx2}
-                  y2={wy2}
-                  stroke="hsl(var(--gold))"
-                  strokeWidth="1.6"
-                />
-              )}
-              {/* needle */}
-              <line
-                x1={cx}
-                y1={cy}
-                x2={nx}
-                y2={ny}
-                stroke="hsl(var(--foreground))"
-                strokeWidth="1.8"
-                style={{ transition: "all 900ms cubic-bezier(0.22,1,0.36,1)" }}
-              />
-              <circle cx={cx} cy={cy} r="4" fill="hsl(var(--foreground))" />
-              <circle cx={cx} cy={cy} r="7.5" fill="none" stroke="hsl(var(--rule-strong))" strokeWidth="1" />
-            </svg>
-          </div>
-
-          {/* Right of the dial: the headline figure + status */}
-          <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-            <div>
-              <p
-                className="intaglio text-5xl leading-none md:text-6xl"
-                style={{ color: accent }}
-              >
-                <AnimatedNumber value={available} format={(n) => formatCurrency(n)} />
-              </p>
-              <p className="mt-2 font-sans text-[10px] uppercase tracking-[0.28em] text-muted-foreground">
-                {horizonLabel
-                  ? `Safe to Spend · until ${horizonLabel}`
-                  : "Safe to Spend"}
-              </p>
-              {s2s?.trough_band && (
-                <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">
-                  Modeled low-point range{" "}
-                  <span className="text-foreground">
-                    {formatCurrency(s2s.trough_band.low)}–{formatCurrency(s2s.trough_band.high)}
-                  </span>
-                  <span className="mx-1.5 text-rule-strong">·</span>directional estimate
-                </p>
-              )}
-            </div>
-            <Stamp variant={status.variant} still>
-              {status.text}
-            </Stamp>
-            </div>
-          </RevealItem>
-
-          {/* Stats block: full width below the headline */}
-          <RevealItem className="space-y-4">
-            {/* Key stats as engraved plates */}
-            <div className="flex flex-wrap gap-px overflow-hidden border border-rule-strong/25 bg-rule-strong/15">
-              {s2s && s2s.days_remaining > 0 && (
-                <Figure
-                  label="Per day"
-                  value={formatCurrency(s2s.daily_plan)}
-                />
-              )}
-              {s2s && s2s.days_remaining > 0 && (
-                <Figure
-                  label="Days left"
-                  value={String(s2s.days_remaining)}
-                />
-              )}
-              <Figure
-                label="Spent"
-                value={`${pct.toFixed(0)}%${isOver ? " over" : ""}`}
-                accent={isOver ? "debit" : undefined}
-              />
-            </div>
-
-            <div className="flex items-center justify-between font-mono text-[11px] text-muted-foreground">
-              <span>
-                spent{" "}
-                <span className="text-foreground">{formatCurrency(spendOverTime)}</span>
-              </span>
-              <span>of {formatCurrency(envelope)}</span>
-            </div>
-
-            {/* Why the number is what it is — the breakdown, one quiet line. */}
-            {s2s && (s2s.breakdown.upcoming_bills > 0 || s2s.breakdown.goal_earmarks > 0 || s2s.breakdown.buffer > 0) && (
-              <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-rule pt-3 font-sans text-[10px] text-muted-foreground/70">
-                {s2s.breakdown.upcoming_bills > 0 && (
-                  <span>Bills −{formatCurrency(s2s.breakdown.upcoming_bills)}</span>
-                )}
-                {s2s.breakdown.projected_income > 0 && (
-                  <span className="text-credit/80">
-                    Pay +{formatCurrency(s2s.breakdown.projected_income)}
-                  </span>
-                )}
-                {s2s.breakdown.goal_earmarks > 0 && (
-                  <span>Earmarked −{formatCurrency(s2s.breakdown.goal_earmarks)}</span>
-                )}
-                {s2s.breakdown.buffer > 0 && (
-                  <span>Buffer −{formatCurrency(s2s.breakdown.buffer)}</span>
-                )}
-                {fixedPerMonth > 0 && <span>Fixed {formatCurrency(fixedPerMonth)}/mo</span>}
-                {savingsPercent > 0 && <span className="ml-auto">{savingsPercent}% set aside</span>}
-              </div>
-            )}
-          </RevealItem>
-        </Reveal>
-      </CardContent>
+      <CardContent>{children}</CardContent>
     </TiltCard>
+  );
+}
+
+export default function SpendCard() {
+  const { safeToSpend: s2s, safeToSpendStatus, fetchSafeToSpend } = useStore();
+  const status = safeToSpendStatus ?? (s2s ? "ready" : "idle");
+
+  useSafeToSpendTitle(status === "ready" && s2s ? s2s.available : null, true);
+
+  if (status === "idle" || status === "loading") {
+    return (
+      <CardFrame>
+        <div className="space-y-3 py-8" role="status" aria-live="polite">
+          <div className="h-12 w-48 animate-pulse bg-rule/40" />
+          <p className="font-sans text-sm text-muted-foreground">
+            Calculating from your accounts and scheduled cashflows…
+          </p>
+        </div>
+      </CardFrame>
+    );
+  }
+
+  if (status === "error" || !s2s) {
+    return (
+      <CardFrame>
+        <div className="flex flex-col items-start gap-4 py-6" role="alert">
+          <div className="flex items-center gap-2 text-debit">
+            <AlertTriangle className="h-5 w-5" aria-hidden />
+            <p className="font-display text-xl">This answer is unavailable</p>
+          </div>
+          <p className="max-w-2xl font-sans text-sm text-muted-foreground">
+            No cached or estimated number is being substituted. Check the connection and try again.
+          </p>
+          <Button variant="outline" className="min-h-11" onClick={() => void fetchSafeToSpend()}>
+            <RefreshCw className="mr-2 h-4 w-4" aria-hidden />
+            Try again
+          </Button>
+        </div>
+      </CardFrame>
+    );
+  }
+
+  const isNegative = s2s.available < 0 || s2s.is_negative === true;
+  const isEmpty = s2s.state === "empty" || s2s.account_scope?.state === "empty";
+  const isLimited = s2s.state === "limited" || s2s.account_scope?.state === "limited";
+  const horizonLabel = new Date(`${s2s.horizon_end}T00:00:00`).toLocaleDateString(
+    "en-US",
+    { month: "short", day: "numeric" },
+  );
+  const accent = isNegative ? "hsl(var(--debit))" : "hsl(var(--credit))";
+  const scope = s2s.account_scope;
+  const equation = [
+    ["Available cash", s2s.breakdown.current_balance, "+"],
+    ["Bills before horizon", s2s.breakdown.upcoming_bills, "−"],
+    ["Income before horizon", s2s.breakdown.projected_income, "+"],
+    ["Already earmarked", s2s.breakdown.goal_earmarks, "−"],
+    ["Goal contributions", s2s.breakdown.goal_contributions, "−"],
+    ["Safety buffer", s2s.breakdown.buffer, "−"],
+  ] as const;
+
+  if (isEmpty) {
+    return (
+      <CardFrame>
+        <div className="space-y-4 py-6">
+          <p className="font-display text-2xl">Add a cash account to calculate this</p>
+          <p className="max-w-2xl font-sans text-sm text-muted-foreground">
+            Safe to Spend uses liquid cash, upcoming bills, expected income, goals, and your buffer. Credit availability and investments are not treated as spendable cash.
+          </p>
+          <Button className="min-h-11" asChild>
+            <Link to="/accounts">Add an account</Link>
+          </Button>
+        </div>
+      </CardFrame>
+    );
+  }
+
+  return (
+    <CardFrame>
+      <div className="space-y-6">
+        {isLimited && (
+          <div className="flex items-start gap-2 border border-gold/35 bg-gold-soft/35 p-3 font-sans text-xs leading-5">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden />
+            <p>
+              Limited account coverage. Review the excluded or unverified accounts below before relying on this figure.
+            </p>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="intaglio text-5xl leading-none md:text-6xl" style={{ color: accent }}>
+              <AnimatedNumber value={s2s.available} format={(value) => formatCurrency(value)} />
+            </p>
+            <p className="mt-2 font-sans text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+              {isNegative ? `Shortfall through ${horizonLabel}` : `Available through ${horizonLabel}`}
+            </p>
+          </div>
+          <Stamp variant={isNegative ? "debit" : "credit"} still>
+            {isNegative ? "Shortfall" : "Within plan"}
+          </Stamp>
+        </div>
+
+        <div className="flex flex-wrap gap-px overflow-hidden border border-rule-strong/25 bg-rule-strong/15">
+          {!isNegative && s2s.days_remaining > 0 && (
+            <Figure label="Daily ceiling" value={formatCurrency(s2s.daily_plan)} />
+          )}
+          <Figure label="Days in horizon" value={String(s2s.days_remaining)} />
+          <Figure label="Horizon rule" value={s2s.horizon_source.split("_").join(" ")} />
+        </div>
+
+        <section aria-labelledby="s2s-equation-title" className="border-t border-rule pt-4">
+          <h3 id="s2s-equation-title" className="font-sans text-xs font-semibold uppercase tracking-[0.16em]">
+            How this is calculated
+          </h3>
+          <div className="mt-3 grid gap-2 font-mono text-xs sm:grid-cols-2 lg:grid-cols-3">
+            {equation.map(([label, amount, operator]) => (
+              <div key={label} className="flex items-center justify-between gap-4 border-b border-rule/60 py-2">
+                <span className="text-muted-foreground">{operator} {label}</span>
+                <span>{formatCurrency(amount)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center justify-between border-t-2 border-double border-rule-strong pt-3 font-mono text-sm font-semibold">
+            <span>= Safe to Spend</span>
+            <span style={{ color: accent }}>{formatCurrency(s2s.available)}</span>
+          </div>
+        </section>
+
+        <section aria-labelledby="s2s-scope-title" className="border-t border-rule pt-4 font-sans text-xs">
+          <h3 id="s2s-scope-title" className="font-semibold uppercase tracking-[0.16em]">
+            Account coverage
+          </h3>
+          <p className="mt-2 text-muted-foreground">
+            {scope
+              ? `${scope.components.length} liquid account${scope.components.length === 1 ? "" : "s"} included; ${scope.exclusions.length} account${scope.exclusions.length === 1 ? "" : "s"} excluded.`
+              : "Liquid cash accounts are included; credit availability and non-cash assets are excluded."}
+          </p>
+          {scope && scope.exclusions.length > 0 && (
+            <ul className="mt-2 space-y-1 text-muted-foreground">
+              {scope.exclusions.map((account) => (
+                <li key={account.account_id}>
+                  {account.name}: {account.reason.split("_").join(" ")}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {s2s.model_state === "historical_variation" && s2s.trough_band ? (
+          <p className="border-t border-rule pt-3 font-mono text-[11px] text-muted-foreground">
+            Modeled low-point range {formatCurrency(s2s.trough_band.low)}–{formatCurrency(s2s.trough_band.high)} · directional estimate
+          </p>
+        ) : (
+          <p className="border-t border-rule pt-3 font-sans text-xs text-muted-foreground">
+            Scheduled cashflows only. A risk range will appear after enough varied transaction history is available.
+          </p>
+        )}
+      </div>
+    </CardFrame>
   );
 }

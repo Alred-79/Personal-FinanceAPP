@@ -27,6 +27,7 @@ import type { ProjectedTransaction } from "@/store/store";
 import { Transaction, Frequency, ReceiptDraft } from "@/types";
 import TransactionItem from "@/components/custom/TransactionItem/TransactionItem";
 import SpendingInsights from "@/components/custom/SpendingInsights/SpendingInsights";
+import { useInstanceCapabilities } from "@/hooks/useInstanceCapabilities";
 
 const PAGE_SIZE = 20;
 
@@ -40,6 +41,7 @@ export default function Transactions() {
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pendingDraft, setPendingDraft] = useState<ReceiptDraft | null>(null);
+  const capabilities = useInstanceCapabilities();
 
   const openDialogWith = (draft: ReceiptDraft) => {
     setPendingDraft(draft);
@@ -227,7 +229,9 @@ export default function Transactions() {
         reference="Folio III · General Journal"
         actions={
           <div className="flex items-center gap-2">
-            <ScanReceiptButton onScanned={openDialogWith} />
+            {capabilities?.unstructured_import && (
+              <ScanReceiptButton onScanned={openDialogWith} />
+            )}
             <TransactionDialog
               onSubmit={handleNewTransaction}
               open={dialogOpen}

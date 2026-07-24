@@ -1,18 +1,18 @@
 import { cn } from "@/lib/utils";
 import { Rise } from "../../shared";
 
-/** Safe-to-Spend — the real 6-part formula, as an engraved receipt. */
+/** Safe-to-Spend — an internally consistent illustrative formula. */
 function SafeToSpend() {
   const rows = [
     { l: "Current balance", v: "+$3,500", c: "" },
     { l: "Upcoming bills", v: "−$1,200", c: "ink-debit" },
-    { l: "Projected income", v: "+$1,800", c: "ink-credit" },
+    { l: "Projected income", v: "+$150", c: "ink-credit" },
     { l: "Goal earmarks + pace", v: "−$1,100", c: "ink-debit" },
     { l: "Buffer", v: "−$500", c: "ink-debit" },
   ];
   return (
     <div className="plate h-full bg-card p-5">
-      <p className="dept-label">Safe-to-Spend · until next income</p>
+      <p className="dept-label">Illustrative Safe-to-Spend · until next income</p>
       <div className="mt-2 flex items-baseline gap-1.5">
         <span className="intaglio text-foreground" style={{ fontSize: "clamp(1.8rem,5vw,2.6rem)" }}>
           $121

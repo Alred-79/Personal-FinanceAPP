@@ -6,11 +6,9 @@ and fires ONE deduped ``plan_drift`` notification when a tracked metric has
 slipped past threshold. Re-running is idempotent (``ref`` dedup); within-threshold
 drift is silent; ``last_checked_at`` is stamped on every plan examined.
 
-The snapshots here are crafted directly so drift is deterministic regardless of
-what the seeded forecast computes for live reality: an *optimistic* committed
-snapshot (no overdraft, goal reaches early) is guaranteed to look drifted against
-any real projection, and a snapshot copied FROM current reality is guaranteed not
-to.
+The integration snapshots start from current reality and then current cash is
+lowered so overdraft risk rises deterministically. Goal-slip classification is
+tested as a pure contract; an unknown goal pace must never manufacture drift.
 """
 
 import json
@@ -142,14 +140,16 @@ def test_drift_reasons_goal_slip_past_threshold():
     sooner = {"overdraft_probability": 0.0, "goal_reach": {7: {"reaches_on": "2026-05-01"}}}
     assert ScenarioService._drift_reasons(planned, sooner) == []  # ahead of plan
 
+    unknown = {"overdraft_probability": 0.0, "goal_reach": {7: {"reaches_on": None}}}
+    assert ScenarioService._drift_reasons(planned, unknown) == []
+
 
 # ── Goal-slip drift through the full check_drift path ────────────────────────
 
 
-def test_goal_slip_fires_one_notification(db_session, funded_user):
+def test_cash_risk_drift_fires_one_notification(db_session, funded_user):
     user = funded_user
-    goal = _goal(db_session, user.id)
-    plan = _commit_goal_slip_plan(db_session, user.id, goal)
+    plan = _commit_cash_risk_plan(db_session, user.id)
 
     drifted = ScenarioService(db_session).check_drift(user.id, as_of=AS_OF)
     assert drifted == [plan.id]
@@ -166,19 +166,14 @@ def test_goal_slip_fires_one_notification(db_session, funded_user):
     assert plan.last_checked_at is not None
 
 
-def _commit_goal_slip_plan(db_session, user_id, goal):
-    """Lock a plan whose goal reaches ~3 months earlier than live reality."""
+def _commit_cash_risk_plan(db_session, user_id):
+    """Lock today's plan, then create a deterministic cash-risk increase."""
     live = _live_result(db_session, user_id)
-    live_reach = live["goal_reach"].get(goal.id, {}).get("reaches_on")
-    assert live_reach, "fixture goal must have a live reach date"
-    y, m, _ = map(int, date.fromisoformat(live_reach).isoformat().split("-"))
-    m -= 3
-    while m <= 0:
-        m += 12
-        y -= 1
-    snap = dict(live)
-    snap["goal_reach"] = {str(goal.id): {"reaches_on": date(y, m, 1).isoformat()}}
-    return _commit_plan(db_session, user_id, snap)
+    plan = _commit_plan(db_session, user_id, dict(live))
+    account = db_session.query(Account).filter(Account.user_id == user_id).one()
+    account.balance = -100_000
+    db_session.flush()
+    return plan
 
 
 # ── Idempotency: a re-run does not duplicate ─────────────────────────────────
@@ -186,8 +181,7 @@ def _commit_goal_slip_plan(db_session, user_id, goal):
 
 def test_drift_is_deduped_on_rerun(db_session, funded_user):
     user = funded_user
-    goal = _goal(db_session, user.id)
-    _commit_goal_slip_plan(db_session, user.id, goal)
+    _commit_cash_risk_plan(db_session, user.id)
 
     svc = ScenarioService(db_session)
     first = svc.check_drift(user.id, as_of=AS_OF)
@@ -233,15 +227,12 @@ def test_within_threshold_is_silent(db_session, funded_user):
 
 def test_inactive_plan_is_skipped(db_session, funded_user):
     user = funded_user
-    goal = _goal(db_session, user.id)
     # A snapshot that WOULD drift, but on a retired plan, so it is never examined.
     live = _live_result(db_session, user.id)
-    live_reach = live["goal_reach"].get(goal.id, {}).get("reaches_on") or "2026-12-01"
-    y, m, _ = map(int, date.fromisoformat(live_reach).isoformat().split("-"))
-    m = m - 3 if m > 3 else m + 9
-    snap = dict(live)
-    snap["goal_reach"] = {str(goal.id): {"reaches_on": date(y, m, 1).isoformat()}}
-    plan = _commit_plan(db_session, user.id, snap, status="retired")
+    plan = _commit_plan(db_session, user.id, dict(live), status="retired")
+    account = db_session.query(Account).filter(Account.user_id == user.id).one()
+    account.balance = -100_000
+    db_session.flush()
 
     drifted = ScenarioService(db_session).check_drift(user.id, as_of=AS_OF)
     assert drifted == []

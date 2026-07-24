@@ -57,7 +57,7 @@ export default function NetWorthCard() {
 
         {netWorth.length === 0 ? (
           <p className="py-6 font-sans text-sm italic text-muted-foreground">
-            No snapshots recorded yet — these are taken daily once accounts are linked.
+            No snapshots recorded yet — these are taken as account balances change.
           </p>
         ) : (
           <ResponsiveContainer width="100%" height={176}>

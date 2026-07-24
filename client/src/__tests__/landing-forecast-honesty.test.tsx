@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 import { HowItThinks } from "@/pages/Landing/sections/forecast/HowItThinks";
 import { LiveForecast } from "@/pages/Landing/sections/forecast/LiveForecast";
+import { Vignettes } from "@/pages/Landing/sections/forecast/Vignettes";
 
 afterEach(cleanup);
 
@@ -31,5 +32,12 @@ describe("landing forecast honesty", () => {
     expect(chart?.getAttribute("aria-label")).not.toMatch(/calibrat|real outcome/i);
     expect(chart?.getAttribute("aria-label")).toMatch(/modeled paths fall below zero/i);
     expect(chart?.getAttribute("aria-label")).not.toMatch(/chance|probability/i);
+  });
+
+  it("keeps the illustrative Safe-to-Spend equation internally consistent", () => {
+    render(<Vignettes />);
+    expect(screen.getByText("+$150")).toBeInTheDocument();
+    expect(screen.getByText("$850")).toBeInTheDocument();
+    expect(screen.queryByText("+$1,800")).not.toBeInTheDocument();
   });
 });

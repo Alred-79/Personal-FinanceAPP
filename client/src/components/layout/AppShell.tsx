@@ -12,6 +12,7 @@ import { AtlasLayers } from "@/components/atlas/AtlasLayers";
 import Header from "./Header";
 import SidebarRail from "./SidebarRail";
 import { titleForPath } from "./nav";
+import { loadCapabilities, type InstanceCapabilities } from "@/lib/capabilities";
 
 export function DemoReadOnlyNotice({ visible }: { visible: boolean }) {
   if (!visible) return null;
@@ -47,7 +48,31 @@ export default function AppShell() {
   const location = useLocation();
   const { toast } = useToast();
   const [plaidHandler, setPlaidHandler] = useState<PlaidHandler | null>(null);
+  const [capabilities, setCapabilities] = useState<InstanceCapabilities | null>(null);
   const plaidReady = usePlaidReady();
+
+  useEffect(() => {
+    let active = true;
+    void loadCapabilities()
+      .then((value) => {
+        if (active) setCapabilities(value);
+      })
+      .catch(() => {
+        if (active) {
+          setCapabilities({
+            registration_open: false,
+            demo: false,
+            plaid: false,
+            assistant: false,
+            web_search: false,
+            unstructured_import: false,
+          });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const {
     user,
@@ -90,8 +115,8 @@ export default function AppShell() {
   };
 
   useEffect(() => {
-    if (user && !isDemoSession && !linkToken) fetchLinkToken();
-  }, [user, isDemoSession, linkToken, fetchLinkToken]);
+    if (user && capabilities?.plaid && !isDemoSession && !linkToken) fetchLinkToken();
+  }, [user, capabilities?.plaid, isDemoSession, linkToken, fetchLinkToken]);
 
   useEffect(() => {
     if (!linkToken || !plaidReady || !window.Plaid) return;
@@ -133,8 +158,10 @@ export default function AppShell() {
   }, [reduceMotion]);
 
   const handleLogout = () => {
+    // Move off the protected root before clearing auth. Otherwise the guard can
+    // win the same-tick race and send an intentional logout to /welcome.
+    navigate("/login", { replace: true });
     logout();
-    navigate("/login");
   };
   const handleConnectBank = () => plaidHandler?.open();
 
@@ -146,6 +173,8 @@ export default function AppShell() {
         title={titleForPath(location.pathname)}
         onConnectBank={handleConnectBank}
         canConnectBank={!!plaidHandler}
+        bankAvailable={capabilities?.plaid === true}
+        assistantAvailable={capabilities?.assistant === true}
         onLogout={handleLogout}
       />
       <DemoReadOnlyNotice visible={isDemoSession} />
@@ -160,9 +189,9 @@ export default function AppShell() {
         </main>
       </div>
 
-      <AssistantInterface />
+      {capabilities?.assistant && <AssistantInterface />}
       {/* The Chronicler drawer: `/`-summoned over any page, every mode. */}
-      <ChroniclerDrawer />
+      {capabilities?.assistant && <ChroniclerDrawer />}
     </div>
   );
 }

@@ -166,6 +166,24 @@ class Account(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     type: Mapped[str] = mapped_column(String, nullable=False)
     balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # stored as cents
+    # Raw account semantics. ``balance`` remains the compatibility/display
+    # shadow for existing transaction code; linked-account decisions use the
+    # uncollapsed current/available fields below so credit availability can
+    # never be mistaken for cash.
+    subtype: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    current_balance: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    available_balance: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    credit_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    iso_currency_code: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
+    unofficial_currency_code: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    balance_source: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    balance_observed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    semantic_role: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    review_state: Mapped[str] = mapped_column(
+        String, nullable=False, default="legacy_unverified", server_default="legacy_unverified"
+    )
     last_updated: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.current_timestamp())
     # Evidence provenance: unlike ``last_updated`` this advances ONLY when a
     # balance comes directly from Plaid. Local transaction edits deliberately do

@@ -6,7 +6,7 @@ and rollback in ``get_db`` to stay atomic, so there's no manual
 ``BEGIN TRANSACTION`` or ``COMMIT`` anywhere.
 """
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -25,6 +25,10 @@ from server.src.db.models import (
     Token as TokenORM,
 )
 from server.src.money import dollars_to_cents, cents_to_dollars
+from server.src.services.account_semantics import (
+    AccountSemanticsService,
+    infer_semantic_role,
+)
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
@@ -53,6 +57,28 @@ def _account_to_dict(account: AccountORM) -> dict:
         "name": account.name,
         "type": account.type,
         "balance": cents_to_dollars(account.balance),
+        "subtype": account.subtype,
+        "current_balance": cents_to_dollars(
+            account.balance
+            if account.plaid_account_id is None or account.current_balance is None
+            else account.current_balance
+        ),
+        "available_balance": (
+            cents_to_dollars(account.available_balance)
+            if account.available_balance is not None
+            else None
+        ),
+        "credit_limit": (
+            cents_to_dollars(account.credit_limit)
+            if account.credit_limit is not None
+            else None
+        ),
+        "iso_currency_code": account.iso_currency_code,
+        "unofficial_currency_code": account.unofficial_currency_code,
+        "semantic_role": account.semantic_role,
+        "review_state": account.review_state,
+        "balance_source": account.balance_source,
+        "balance_observed_at": account.balance_observed_at,
         "last_updated": account.last_updated,
         "user_id": account.user_id,
     }
@@ -83,6 +109,22 @@ async def get_accounts(
         .order_by(AccountORM.id)
     ).scalars().all()
     return [_account_to_dict(a) for a in accounts]
+
+
+@router.get("/summary/")
+async def get_account_summary(
+    purpose: str,
+    current_user: Annotated[
+        UserInDB, Depends(AuthService.get_current_active_user)
+    ],
+    db: Session = Depends(get_db),
+):
+    if purpose not in {"near_term_cash", "forecast", "net_worth"}:
+        raise HTTPException(status_code=422, detail="Unknown account summary purpose")
+    summary = AccountSemanticsService(db).summarize(current_user.id, purpose)  # type: ignore[arg-type]
+    payload = summary.to_dict()
+    payload["total"] = cents_to_dollars(summary.total_cents)
+    return payload
 
 
 @router.get("/all/transactions/")
@@ -173,6 +215,17 @@ async def create_account(
         name=account.name,
         type=account.type,
         balance=dollars_to_cents(account.balance),
+        subtype=account.subtype,
+        current_balance=dollars_to_cents(account.balance),
+        iso_currency_code=account.currency,
+        balance_source="manual",
+        balance_observed_at=datetime.now(timezone.utc),
+        semantic_role=infer_semantic_role(account.type, account.subtype),
+        review_state=(
+            "confirmed"
+            if infer_semantic_role(account.type, account.subtype) != "unknown"
+            else "review_required"
+        ),
         user_id=current_user.id,
     )
     db.add(new_account)
@@ -199,10 +252,27 @@ async def update_account(
     db: Session = Depends(get_db),
 ):
     existing = _get_owned_account_or_404(db, id, current_user.id)
+    if existing.plaid_account_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Linked account balances are bank-reported and cannot be edited manually.",
+        )
 
     existing.name = account.name
     existing.type = account.type
     existing.balance = dollars_to_cents(account.balance)
+    existing.subtype = account.subtype
+    existing.current_balance = dollars_to_cents(account.balance)
+    existing.available_balance = None
+    existing.credit_limit = None
+    existing.iso_currency_code = account.currency
+    existing.unofficial_currency_code = None
+    existing.balance_source = "manual"
+    existing.balance_observed_at = datetime.now(timezone.utc)
+    existing.semantic_role = infer_semantic_role(account.type, account.subtype)
+    existing.review_state = (
+        "confirmed" if existing.semantic_role != "unknown" else "review_required"
+    )
     # A locally supplied balance is no longer a direct Plaid observation. The
     # next successful Plaid balance refresh will restore this provenance.
     existing.plaid_balance_refreshed_at = None

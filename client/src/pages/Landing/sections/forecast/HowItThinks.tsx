@@ -79,19 +79,19 @@ const STEPS: Step[] = [
   {
     n: "i",
     title: "Start with what is known",
-    caption: "Your balances, scheduled bills, expected income, and goals form a day-by-day baseline from today forward.",
+    caption: "Included cash balances, scheduled bills, and expected income form a day-by-day baseline from today forward.",
     art: <WalkLedger />,
   },
   {
     n: "ii",
     title: "Model normal variation",
-    caption: "The forecast reuses weekly patterns from how you actually spend, preserving expensive and quiet stretches instead of averaging them away.",
+    caption: "With enough varied history, the forecast reuses weekly patterns from how you actually spend. Sparse history stays schedule-only.",
     art: <FanFutures />,
   },
   {
     n: "iii",
     title: "Check the range",
-    caption: "The corridor spans the 5th–95th percentiles of the modeled paths, so a wider shape means those simulated futures disagree more.",
+    caption: "When modeled paths run, the corridor spans the 5th–95th percentiles of the modeled paths. It is an estimate, not a guarantee.",
     art: <CalibrateBand />,
   },
   {
