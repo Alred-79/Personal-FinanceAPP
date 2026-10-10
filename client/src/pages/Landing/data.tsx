@@ -5,7 +5,10 @@ import { ReactNode } from "react";
  *  opt-in); the UI tags it honestly instead of implying every user has it. */
 export type Feature = {
   no: string;
+  /** Plain-language title: what it does for you. */
   title: string;
+  /** The product's own name for it, shown small, when it has one. */
+  name?: string;
   body: string;
   icon: ReactNode;
   gated?: boolean;
@@ -17,14 +20,15 @@ export type Feature = {
 export const FEATURES: Feature[] = [
   {
     no: "No. 01",
-    title: "Bring the Whole Picture",
-    body: "Connect your accounts or drop in receipts, statements, and messy CSVs. The Ledger reconciles duplicates and brings bills, income, and transactions into one register — so one bank never tells only part of the story.",
+    title: "Every account in one register",
+    body: "Connect your banks, or drop in statements, receipts, and messy CSVs. Duplicates are reconciled, so the number counts every bill and paycheck exactly once.",
     icon: <path d="M4 5h16M4 12h16M4 19h10" />,
   },
   {
     no: "No. 02",
-    title: "The Clerk",
-    body: "Ask a question in plain language and get an answer grounded in your ledger. The Clerk can draft a budget change, schedule, or allocation, then hands you the exact difference to review. It proposes; only you confirm.",
+    title: "Ask about your money in plain English",
+    name: "The Clerk",
+    body: "Ask “can I afford a $600 flight?” and get an answer grounded in your ledger. When it suggests a change, it shows you the exact difference first. It proposes; only you confirm.",
     icon: (
       <>
         <circle cx="12" cy="12" r="9" />
@@ -34,8 +38,9 @@ export const FEATURES: Feature[] = [
   },
   {
     no: "No. 03",
-    title: "Subscriptions Watch",
-    body: "See recurring charges across accounts in one place. The Ledger groups their cadence, shows recorded price changes, and separates likely-active charges from items that need your review.",
+    title: "Catch subscriptions that creep up",
+    name: "Subscriptions Watch",
+    body: "Every recurring charge across your accounts in one list, with recorded price changes and the ones that need a second look.",
     icon: (
       <>
         <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 12a9 9 0 0 1-15 6.7L3 16" />
@@ -45,8 +50,9 @@ export const FEATURES: Feature[] = [
   },
   {
     no: "No. 04",
-    title: "The Expedition",
-    body: "Turn debt payoff and goal funding into visible progress when that helps. The optional game layer rewards real money wins — never spending — and always keeps the actual figures in view.",
+    title: "Make debt payoff feel like progress",
+    name: "The Expedition",
+    body: "An optional game layer that rewards real wins, like a paid-down card, and never rewards spending. The actual figures always stay in view.",
     icon: (
       <>
         <path d="M12 2 4 6v6c0 5 8 8 8 8s8-3 8-8V6Z" />
@@ -59,8 +65,9 @@ export const FEATURES: Feature[] = [
   },
   {
     no: "No. 05",
-    title: "Work Money, When Needed",
-    body: "Freelance, contract, commission, and mixed income tools stay available as an optional layer. Track uneven income, deductions, and a tax-reserve target you fund in your own bank without making work define the whole app.",
+    title: "Freelance income and taxes",
+    name: "Work Money",
+    body: "For uneven or self-employed income: track deductions and a tax-reserve target you fund in your own bank. It stays out of the way unless you need it.",
     icon: (
       <>
         <rect x="4" y="4" width="16" height="16" />
@@ -72,8 +79,9 @@ export const FEATURES: Feature[] = [
   },
   {
     no: "No. 06",
-    title: "A Quiet Second Look",
-    body: "The nightly review reconciles the day, flags an unusual charge, and leaves a short note in the margin. Important changes surface without turning money into a stream of alerts.",
+    title: "A nightly check for odd charges",
+    name: "A Quiet Second Look",
+    body: "An overnight review reconciles the day and flags an unusual charge with a short note in the margin. No stream of alerts.",
     icon: (
       <>
         <path d="M12 2 4 6v6c0 5 8 8 8 8s8-3 8-8V6Z" />

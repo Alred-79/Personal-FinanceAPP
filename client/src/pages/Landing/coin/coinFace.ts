@@ -35,8 +35,19 @@ function drawArcText(
   ctx.restore();
 }
 
-/** The struck face: concentric guilloché, a beaded rim, a £ monogram, arc text. */
-export function makeCoinFaceCanvas(size = 1024): HTMLCanvasElement {
+/** Which side of the coin: what the bank shows, or what is actually safe to spend. */
+export type CoinSide = "balance" | "safe";
+
+const SIDES: Record<CoinSide, { glyph: string; top: string; bottom: string }> = {
+  balance: { glyph: "$", top: "· WHAT YOUR BANK SAYS ·", bottom: "· BALANCE ·" },
+  safe: { glyph: "£", top: "· SAFE TO SPEND ·", bottom: "· THE LEDGER ·" },
+};
+
+/** The struck face: concentric guilloché, a beaded rim, a centre glyph, arc text.
+ *  The relief is drawn a quarter-turn back, because the cylinder caps' UVs land
+ *  it a quarter-turn forward once the coin is stood up to face the camera. */
+export function makeCoinFaceCanvas(size = 1024, side: CoinSide = "safe"): HTMLCanvasElement {
+  const { glyph, top, bottom } = SIDES[side];
   const c = document.createElement("canvas");
   c.width = c.height = size;
   const ctx = c.getContext("2d")!;
@@ -46,6 +57,9 @@ export function makeCoinFaceCanvas(size = 1024): HTMLCanvasElement {
 
   ctx.fillStyle = "#808080";
   ctx.fillRect(0, 0, size, size);
+  ctx.translate(cx, cy);
+  ctx.rotate(-Math.PI / 2);
+  ctx.translate(-cx, -cy);
 
   // concentric guilloché — perturbed near-circles
   ctx.lineWidth = Math.max(1, size / 850);
@@ -95,11 +109,12 @@ export function makeCoinFaceCanvas(size = 1024): HTMLCanvasElement {
   ctx.font = `700 ${size * 0.32}px "Fraunces", Georgia, serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("£", cx, cy + size * 0.015);
+  ctx.fillText(glyph, cx, cy + size * 0.015);
 
   // arc legends
-  drawArcText(ctx, "· GOOD STANDING ·", cx, cy, R * 0.8, size * 0.052, -Math.PI / 2, true);
-  drawArcText(ctx, "· THE LEDGER ·", cx, cy, R * 0.8, size * 0.052, Math.PI / 2, false);
+  const arcSize = top.length > 18 ? size * 0.044 : size * 0.052;
+  drawArcText(ctx, top, cx, cy, R * 0.8, arcSize, -Math.PI / 2, true);
+  drawArcText(ctx, bottom, cx, cy, R * 0.8, size * 0.052, Math.PI / 2, false);
 
   return c;
 }

@@ -1,6 +1,7 @@
 import { Component, lazy, Suspense, useMemo, type ReactNode } from "react";
 import { usePointerFine, useReducedMotion } from "@/hooks/useEnvironment";
 import { CoinFallback } from "./CoinFallback";
+import type { CoinSide } from "./coinFace";
 
 // The ONLY import of the 3D scene — lazy, so three/R3F/postprocessing land in a
 // separate async chunk fetched only when the coin actually renders in 3D.
@@ -41,18 +42,24 @@ class CoinBoundary extends Component<
  * Otherwise the scene loads behind Suspense, with the CSS coin as both the
  * loading and the error fallback.
  */
-export function CoinStage() {
+export function CoinStage({
+  side,
+  onSideChange,
+}: {
+  side: CoinSide;
+  onSideChange?: (side: CoinSide) => void;
+}) {
   const reduce = useReducedMotion();
   const fine = usePointerFine();
   const supports = useMemo(webglSupported, []);
 
-  const fallback = <CoinFallback />;
+  const fallback = <CoinFallback side={side} onSideChange={onSideChange} />;
   if (reduce || !fine || !supports) return fallback;
 
   return (
     <CoinBoundary fallback={fallback}>
       <Suspense fallback={fallback}>
-        <CoinScene />
+        <CoinScene side={side} onSideChange={onSideChange} />
       </Suspense>
     </CoinBoundary>
   );

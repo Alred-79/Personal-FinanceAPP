@@ -36,8 +36,8 @@ const CLAIMS: Claim[] = [
     body: "Every amount is stored as whole cents and calculated outside the model, so $10.99 never quietly drifts after several transactions.",
   },
   {
-    title: "Reused sessions shut themselves down",
-    body: "If an already-rotated session credential appears again, the entire session family is revoked. A replayed credential locks itself out.",
+    title: "Stolen sessions lock themselves out",
+    body: "If an old sign-in token is ever replayed, every session that grew from it is shut down at once.",
   },
   {
     title: "We never sell your data",

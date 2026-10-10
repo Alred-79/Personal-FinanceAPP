@@ -1,4 +1,4 @@
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import Home from "./pages/Home/Home.tsx";
@@ -16,6 +16,8 @@ import Reconcile from "./pages/Reconcile/Reconcile.tsx";
 import Tax from "./pages/Tax/Tax.tsx";
 import Login from "./pages/Login/Login.tsx";
 import Landing from "./pages/Landing/Landing.tsx";
+// The technical annex is long and engineer-facing: fetched only when visited.
+const HowItsBuilt = lazy(() => import("./pages/Landing/HowItsBuilt.tsx"));
 import Settings from "./pages/Settings/Settings.tsx";
 import Rules from "./pages/Rules/Rules.tsx";
 import Keeper from "./pages/Keeper/Keeper.tsx";
@@ -55,6 +57,14 @@ createRoot(document.getElementById("root")!).render(
           <Routes>
           {/* Public, no login needed: the marketing landing sits before /login. */}
           <Route path="/welcome" element={<Landing />} />
+          <Route
+            path="/how-its-built"
+            element={
+              <Suspense fallback={<div className="dark min-h-screen bg-background" />}>
+                <HowItsBuilt />
+              </Suspense>
+            }
+          />
           {/* Stands alone, no login needed */}
           <Route path="/login" element={<Login />} />
 

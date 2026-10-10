@@ -60,7 +60,8 @@ function PlateContent({ f, index }: { f: Feature; index: number }) {
       <div className="iv-stage">
         <PlateVisual index={index} />
       </div>
-      <h3 className="iv-z1 font-display text-[1.24rem] font-semibold">{f.title}</h3>
+      {f.name && <p className="dept-label iv-z1 mb-1">{f.name}</p>}
+      <h3 className="iv-z1 text-balance font-display text-[1.24rem] font-semibold">{f.title}</h3>
       <p className="mt-2 text-[0.9rem] leading-relaxed text-muted-foreground">{f.body}</p>
       {f.gated && (
         <div className="iv-z1 mt-3">
@@ -163,7 +164,7 @@ function EngravedHeading() {
         viewport={vp}
         transition={{ duration: 0.6, ease: EASE }}
       >
-        The decision layer
+        Behind the number
       </motion.p>
       <motion.h2
         className="iv-head__title relative mt-2 text-balance font-display font-semibold"
@@ -173,7 +174,7 @@ function EngravedHeading() {
         viewport={vp}
         transition={{ duration: 1.05, ease: EASE, delay: 0.12 }}
       >
-        The context one bank cannot give you.
+        Everything one bank can’t see.
       </motion.h2>
       <motion.p
         className="relative mt-3 text-pretty text-[1.02rem] text-muted-foreground"
@@ -182,9 +183,9 @@ function EngravedHeading() {
         viewport={vp}
         transition={{ duration: 0.7, ease: EASE, delay: 0.55 }}
       >
-        One account sees one slice. The Ledger combines the whole picture,
-        models the uncertain part, and keeps every answer tied to figures you
-        can inspect. Nothing moves without your confirmation.
+        Your number accounts for every account, bill, and subscription, not just
+        the one bank you happen to be looking at. Nothing moves without your
+        confirmation.
       </motion.p>
     </div>
   );
@@ -194,17 +195,17 @@ function EngravedHeading() {
 function Heading() {
   return (
     <Rise className="mx-auto max-w-[42rem] px-[7vw] text-center">
-      <p className="dept-label">The decision layer</p>
+      <p className="dept-label">Behind the number</p>
       <h2
         className="mt-2 text-balance font-display font-semibold"
         style={{ fontSize: "clamp(1.8rem,4.5vw,2.8rem)" }}
       >
-        The context one bank cannot give you.
+        Everything one bank can’t see.
       </h2>
       <p className="mt-3 text-pretty text-[1.02rem] text-muted-foreground">
-        One account sees one slice. The Ledger combines the whole picture,
-        models the uncertain part, and keeps every answer tied to figures you
-        can inspect. Nothing moves without your confirmation.
+        Your number accounts for every account, bill, and subscription, not just
+        the one bank you happen to be looking at. Nothing moves without your
+        confirmation.
       </p>
     </Rise>
   );

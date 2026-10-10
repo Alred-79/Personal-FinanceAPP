@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { LedgerSeal } from "../shared";
 
 /** Footer colophon. */
@@ -9,7 +10,10 @@ export function Footer() {
           <LedgerSeal size={28} />
           <b className="font-display text-[0.9rem] font-semibold">The Ledger</b>
         </div>
-        <div className="flex gap-6">
+        <div className="flex flex-wrap gap-6">
+          <Link to="/how-its-built" className="text-[0.78rem] text-muted-foreground transition-colors hover:text-foreground">
+            How it&rsquo;s built
+          </Link>
           {["Privacy", "Security", "Terms", "Contact"].map((l) => (
             <span key={l} className="cursor-default text-[0.78rem] text-muted-foreground transition-colors hover:text-foreground">
               {l}

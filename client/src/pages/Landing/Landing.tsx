@@ -9,8 +9,7 @@ import { Forecast } from "./sections/Forecast";
 import { Instruments } from "./sections/Instruments";
 import { VaultDoor } from "./sections/VaultDoor";
 import { Security } from "./sections/Security";
-import { AgentReadingRoom } from "./sections/AgentReadingRoom";
-import { SpecimenSheet } from "./sections/SpecimenSheet";
+import { EngineersBridge } from "./sections/EngineersBridge";
 import { FinalCTA } from "./sections/FinalCTA";
 import { Footer } from "./sections/Footer";
 import "./landing.css";
@@ -22,8 +21,7 @@ import "./landing.css";
  * captivating, high-end experience: a light→dark scroll journey, a living WebGL
  * guilloché field and a struck 3D coin, holographic foil and frosted polymer
  * "security windows". Money figures stay sober (.figure / .intaglio); the gold
- * accent decorates chrome only. Composed from sections/*; the scroll journey,
- * 3D coin, and polymer-glass layers arrive in later phases.
+ * accent decorates chrome only. Composed from sections/*.
  */
 export default function Landing() {
   useLandingTheme();
@@ -41,24 +39,21 @@ export default function Landing() {
         <VaultLightSwitch />
 
         <div className="relative z-[1] mx-auto max-w-[1080px] px-4 sm:px-8">
-          {/* Lead with the Hero, then the simulated-overdraft Forecast right
-              below it (its original top-of-page placement), followed by the
-              working tools, the vault's trust guarantees, and — last, on the
-              dark side — the Reading Room where an AI reads the ledger under
-              scopes the visitor controls.
+          {/* One promise, then its proof, for a visitor who has 30 seconds:
+              the Hero states it (safe to spend before payday, as a two-sided
+              coin), the Forecast shows how the number is made and how a
+              decision moves it, the Instruments name what feeds it, and the
+              Vault says what the product promises about your data.
 
-              Three registers on security, in widening depth and never repeating
-              each other: the Vault says what the product PROMISES you, the
-              Reading Room shows what happens to ONE REQUEST, and the Specimen
-              Sheet — the technical annex — documents HOW THE SURFACE IS BUILT
-              and cites the file and test for each claim. */}
+              The engineer-facing depth (the Reading Room's single agent request
+              and the Specimen Sheet's file-and-test citations) lives on
+              /how-its-built; EngineersBridge hands off to it. */}
           <Hero />
           <Forecast />
           <Instruments />
           <VaultDoor />
           <Security />
-          <AgentReadingRoom />
-          <SpecimenSheet />
+          <EngineersBridge />
           <FinalCTA />
         </div>
 

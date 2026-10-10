@@ -31,8 +31,8 @@ export function VaultDoor() {
           Nothing moves without you.
         </h2>
         <p className="mx-auto max-w-[34rem] leading-relaxed text-muted-foreground">
-          Below this line, the same ledger reveals how every connection, answer,
-          and proposed action stays inside a boundary you can inspect.
+          Your number is built from your own data. Here is how that data stays
+          yours, and why nothing changes unless you say so.
         </p>
         <motion.div
           aria-hidden

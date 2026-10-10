@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -101,6 +101,19 @@ export default function Login() {
       setIsLoading(false);
     }
   };
+
+  // `?demo=1` (the landing's "Try the demo") opens the showcase as soon as the
+  // server confirms it is ready — one click from the landing, not two. Anything
+  // short of ready leaves the normal page, with its own retry state.
+  const wantsDemo = searchParams.get("demo") === "1";
+  const autoDemoStarted = useRef(false);
+  const openDemo = useRef(handleDemo);
+  openDemo.current = handleDemo;
+  useEffect(() => {
+    if (!wantsDemo || autoDemoStarted.current || demoAvailability !== "ready") return;
+    autoDemoStarted.current = true;
+    void openDemo.current();
+  }, [wantsDemo, demoAvailability]);
 
   const [loginData, setLoginData] = useState({
     username: "",
